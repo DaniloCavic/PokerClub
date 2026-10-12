@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PLAYER
+  AGENT
+  ADMIN
+}
+
+enum Variant {
+  HOLDEM
+  OMAHA
+}
+
+enum TxType {
+  DEPOSIT // agent uplatio igraču
+  WITHDRAWAL // agent isplatio igraču
+  BUY_IN // igrač seo za sto (žetoni sa naloga na sto)
+  CASH_OUT // igrač ustao (žetoni sa stola na nalog)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  usernameLower String    @unique
+  displayName   String
+  role          Role      @default(PLAYER)
+  passwordHash  String
+  /// Žetoni na nalogu (bez onih koji su trenutno na stolu).
+  balance       Int       @default(0)
+  isBlocked     Boolean   @default(false)
+  blockedReason String?
+  note          String?
+  /// Agent kome igrač pripada.
+  agentId       String?
+  agent         User?     @relation("AgentPlayers", fields: [agentId], references: [id])
+  players       User[]    @relation("AgentPlayers")
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime?
+
+  transactions Transaction[] @relation("TxUser")
+  actions      Transaction[] @relation("TxActor")
+  tables       PokerTable[]
+  seats        TableSeat[]
+
+  @@index([role, agentId])
+}
+
+/// Knjiga promena stanja: svaka promena balansa je jedan red, ništa se ne briše.
+model Transaction {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation("TxUser", fields: [userId], references: [id])
+  type         TxType
+  /// Promena balansa naloga: + uplata / povratak sa stola, − isplata / ulaz za sto.
+  amount       Int
+  balanceAfter Int
+  /// Ko je izvršio uplatu ili isplatu (agent ili admin).
+  actorId      String?
+  actor        User?       @relation("TxActor", fields: [actorId], references: [id])
+  tableId      String?
+  table        PokerTable? @relation(fields: [tableId], references: [id])
+  note         String?
+  createdAt    DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model PokerTable {
+  id            String    @id @default(cuid())
+  name          String
+  variant       Variant
+  smallBlind    Int
+  bigBlind      Int
+  minBuyIn      Int
+  maxBuyIn      Int
+  maxSeats      Int
+  /// Rake u baznim poenima (500 = 5 %).
+  rakeBps       Int       @default(0)
+  /// Najviše rake-a po ruci; 0 = bez ograničenja.
+  rakeCap       Int       @default(0)
+  actionSeconds Int       @default(20)
+  isOpen        Boolean   @default(true)
+  createdById   String
+  createdBy     User      @relation(fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+  closedAt      DateTime?
+
+  hands        Hand[]
+  seats        TableSeat[]
+  transactions Transaction[]
+}
+
+/// Ko sedi za stolom i sa koliko žetona (stanje posle poslednje završene ruke).
+/// Ako se server ponovo pokrene, ovi žetoni se vraćaju igračima na nalog.
+model TableSeat {
+  tableId   String
+  table     PokerTable @relation(fields: [tableId], references: [id])
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  seat      Int
+  stack     Int
+  updatedAt DateTime   @updatedAt
+
+  @@id([tableId, userId])
+}
+
+model Hand {
+  id        String     @id @default(cuid())
+  tableId   String
+  table     PokerTable @relation(fields: [tableId], references: [id])
+  handNo    Int
+  board     String
+  pot       Int
+  rake      Int
+  /// Igrači, karte, dobici i tok ruke.
+  details   Json
+  createdAt DateTime   @default(now())
+
+  @@index([tableId, createdAt])
+  @@index([createdAt])
+}
