@@ -244,7 +244,7 @@ export class TablesService implements OnModuleInit {
       }
       if (user.balance < buyIn) throw new GameError('Nemate dovoljno žetona na nalogu.');
       await this.wallet.run(async (db) => {
-        await this.wallet.change(db, userId, 'BUY_IN', -buyIn, { tableId, note: t.name });
+        await this.wallet.change(db, userId, 'BUY_IN', -buyIn, { tableId });
         await db.tableSeat.create({ data: { tableId, userId, seat, stack: buyIn } });
       });
       rt.game.sit(seat, userId, user.displayName, buyIn);
@@ -269,7 +269,7 @@ export class TablesService implements OnModuleInit {
       }
       try {
         await this.wallet.run(async (db) => {
-          await this.wallet.change(db, userId, 'BUY_IN', -amount, { tableId, note: `${rt.table.name} (dopuna)` });
+          await this.wallet.change(db, userId, 'BUY_IN', -amount, { tableId, note: 'dopuna' });
           await db.tableSeat.update({ where: { tableId_userId: { tableId, userId } }, data: { stack: { increment: amount } } });
         });
       } catch (e) {
@@ -491,13 +491,13 @@ export class TablesService implements OnModuleInit {
     const s = rt.game.seats[index]!;
     rt.game.stand(index);
     rt.sitOutSince.delete(s.userId);
-    await this.cashOutRow(rt.table.id, s.userId, rt.table.name, s.stack);
+    await this.cashOutRow(rt.table.id, s.userId, undefined, s.stack);
     await this.balanceChanged(s.userId);
     this.lobbyChanged();
   }
 
   /** Briše sedište iz baze i vraća žetone na nalog (iz memorije ako je poznato, inače iz baze). */
-  private async cashOutRow(tableId: string, userId: string, note: string, stack?: number) {
+  private async cashOutRow(tableId: string, userId: string, note?: string, stack?: number) {
     await this.wallet.run(async (db) => {
       const row = await db.tableSeat.findUnique({ where: { tableId_userId: { tableId, userId } } });
       if (!row) return;
