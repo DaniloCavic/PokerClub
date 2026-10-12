@@ -1,0 +1,37 @@
+# Pravi Android aplikaciju (APK).
+# Pre prvog pokretanja: GitHub → Settings → Secrets and variables → Actions → Variables → API_URL = adresa servera.
+# Preuzimanje: GitHub → Actions → "Android APK" → poslednje pokretanje → Artifacts → poker-klub-apk
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release --dart-define=API_URL=${{ vars.API_URL }}
+      - name: Preimenuj APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk build/poker-klub.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poker-klub-apk
+          path: mobile/build/poker-klub.apk
+          retention-days: 30

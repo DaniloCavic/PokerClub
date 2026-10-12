@@ -275,6 +275,8 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
           <b>
             {t.createdBy}, {fmtDate(t.createdAt)}
           </b>
+          <span>ID stola</span>
+          <b className="muted small">{t.id}</b>
         </div>
         <div className="row" style={{ marginTop: 12 }}>
           {t.isOpen ? (

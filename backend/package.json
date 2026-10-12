@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "smoke": "ts-node scripts/smoke.ts",
+    "bots": "ts-node scripts/bots.ts",
     "postinstall": "prisma generate"
   },
   "jest": {
