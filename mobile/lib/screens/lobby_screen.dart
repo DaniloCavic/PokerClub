@@ -30,7 +30,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Poker klub'),
+        title: const Text.rich(TextSpan(children: [
+          TextSpan(text: 'POKER '),
+          TextSpan(text: 'KLUB', style: TextStyle(color: accent)),
+        ]), style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
         actions: [
           IconButton(
             tooltip: 'Moj nalog',
@@ -89,7 +92,9 @@ class _BalanceBar extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: feltDark,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(colors: [Color(0xFF3A0911), Color(0xFF121418)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+      ),
       child: Row(
         children: [
           Expanded(
@@ -141,11 +146,11 @@ class _TableTile extends StatelessWidget {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: t['variant'] == 'OMAHA' ? const Color(0xFF6A3D9A) : felt,
+                  color: t['variant'] == 'OMAHA' ? const Color(0xFF6A3D9A) : accent,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
-                child: Text(t['variant'] == 'OMAHA' ? 'PLO' : 'NL',
+                child: Text(t['variant'] == 'OMAHA' ? 'PLO' : 'NLH',
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
               ),
               const SizedBox(width: 14),
@@ -179,8 +184,16 @@ class _TableTile extends StatelessWidget {
               ),
               Column(
                 children: [
-                  Text('$players/$max', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Text('igrača', style: TextStyle(fontSize: 12, color: Colors.white60)),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.person, size: 16, color: Colors.white54),
+                    Text(' $players/$max', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(14)),
+                    child: const Text('IGRAJ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  ),
                 ],
               ),
             ],

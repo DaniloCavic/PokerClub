@@ -93,6 +93,8 @@ class _ActionBarState extends State<ActionBar> {
               for (final e in presets.entries)
                 ChoiceChip(
                   label: Text(e.key),
+                  selectedColor: accent,
+                  showCheckmark: false,
                   selected: _amount == e.value,
                   onSelected: (_) => setState(() => _amount = e.value),
                 ),
@@ -123,7 +125,7 @@ class _ActionBarState extends State<ActionBar> {
               Expanded(
                 flex: 2,
                 child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: gold, foregroundColor: Colors.black),
+                  style: FilledButton.styleFrom(backgroundColor: accent),
                   onPressed: _busy ? null : () => _send('raise', _amount),
                   child: Text(_raiseLabel(_amount)),
                 ),
@@ -138,7 +140,7 @@ class _ActionBarState extends State<ActionBar> {
       children: [
         Expanded(
           child: FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E2A2A)),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2B2F38), minimumSize: const Size.fromHeight(52)),
             onPressed: _busy ? null : () => _send('fold'),
             child: const Text('Fold'),
           ),
@@ -146,7 +148,7 @@ class _ActionBarState extends State<ActionBar> {
         const SizedBox(width: 8),
         Expanded(
           child: FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2E6B8E)),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1B54B0), minimumSize: const Size.fromHeight(52)),
             onPressed: _busy ? null : () => _send(canCheck ? 'check' : 'call'),
             child: FittedBox(
               child: Text(canCheck ? 'Check' : (_call >= widget.myStack ? 'All-in ${chips(_call)}' : 'Call ${chips(_call)}')),
@@ -157,7 +159,7 @@ class _ActionBarState extends State<ActionBar> {
           const SizedBox(width: 8),
           Expanded(
             child: FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: gold, foregroundColor: Colors.black),
+              style: FilledButton.styleFrom(backgroundColor: accent, minimumSize: const Size.fromHeight(52)),
               onPressed: _busy
                   ? null
                   : () => setState(() {

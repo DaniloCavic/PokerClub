@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { cardToString } from '../poker/engine/cards';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
+import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
 
 /** Pauza između dve ruke (da se vidi ko je dobio). */
 const BETWEEN_HANDS_MS = Number(process.env.BETWEEN_HANDS_MS || 5000);
@@ -184,9 +185,19 @@ export class TablesService implements OnModuleInit {
         };
       }),
       mySeat,
+      myHand: this.currentHand(rt, mySeat),
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: rt.lastResult,
     };
+  }
+
+  /** Trenutna jačina ruke igrača (od flopa), da se prikaže samo njemu. */
+  private currentHand(rt: Runtime, seat: number): string | null {
+    const s = rt.game.seats[seat];
+    const board = rt.game.board;
+    if (!s || !rt.game.inProgress || !s.inHand || s.folded || board.length < 3) return null;
+    const fn = rt.table.variant === 'OMAHA' ? bestOmaha : bestHoldem;
+    return fn(s.hole, board).name;
   }
 
   private resultView(rt: Runtime, r: HandResult) {

@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          gradient: RadialGradient(colors: [felt, feltDark, bg], radius: 1.2, center: Alignment(0, -0.4)),
+          gradient: RadialGradient(colors: [Color(0xFF4A0A12), Color(0xFF16090C), bg], radius: 1.1, center: Alignment(0, -0.5)),
         ),
         child: SafeArea(
           child: Center(
@@ -47,17 +47,23 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('♠ ♥ ♦ ♣', textAlign: TextAlign.center, style: TextStyle(fontSize: 34, color: gold, letterSpacing: 6)),
+                    const Text('♠ ♥ ♦ ♣', textAlign: TextAlign.center, style: TextStyle(fontSize: 30, color: accent, letterSpacing: 8)),
                     const SizedBox(height: 8),
-                    const Text('Poker klub',
-                        textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text.rich(
+                      TextSpan(children: [
+                        TextSpan(text: 'POKER ', style: TextStyle(color: Colors.white)),
+                        TextSpan(text: 'KLUB', style: TextStyle(color: accent)),
+                      ]),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2),
+                    ),
                     const SizedBox(height: 4),
                     const Text("Texas Hold'em i Omaha · cash stolovi",
                         textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _username,
-                      decoration: const InputDecoration(labelText: 'Korisničko ime', filled: true),
+                      decoration: const InputDecoration(labelText: 'Korisničko ime', prefixIcon: Icon(Icons.person)),
                       autocorrect: false,
                       textInputAction: TextInputAction.next,
                     ),
@@ -67,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       obscureText: _hide,
                       decoration: InputDecoration(
                         labelText: 'Lozinka',
-                        filled: true,
+                        prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(_hide ? Icons.visibility : Icons.visibility_off),
                           onPressed: () => setState(() => _hide = !_hide),
