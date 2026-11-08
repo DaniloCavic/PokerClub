@@ -94,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 24),
                     const Text(
-                      'Nalog vam otvara vaš agent. Igra se virtuelnim žetonima koji nemaju novčanu vrednost.',
+                      'Nalog vam otvara vaš agent.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white54, fontSize: 13),
                     ),

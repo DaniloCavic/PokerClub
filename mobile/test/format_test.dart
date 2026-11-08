@@ -14,4 +14,13 @@ void main() {
     expect(variantName('HOLDEM'), "Hold'em");
     expect(variantName('OMAHA'), 'Omaha');
   });
+
+  test('prikaz u BB', () {
+    const m = Money(20, true);
+    expect(m(400), '20 BB');
+    expect(m(50), '2,5 BB');
+    expect(m(25000), '1.250 BB');
+    expect(const Money(20, false)(400), '400 RSD');
+    expect(rsd(5342), '5.342 RSD');
+  });
 }

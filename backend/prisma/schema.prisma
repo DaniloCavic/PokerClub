@@ -43,6 +43,10 @@ model User {
   players       User[]    @relation("AgentPlayers")
   createdAt     DateTime  @default(now())
   lastSeenAt    DateTime?
+  /// Slika profila (mala JPEG/PNG, čuva se u bazi jer Railway nema trajni disk).
+  avatar        Bytes?
+  avatarType    String?
+  avatarAt      DateTime?
 
   transactions Transaction[] @relation("TxUser")
   actions      Transaction[] @relation("TxActor")

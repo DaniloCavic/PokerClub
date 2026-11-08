@@ -66,6 +66,19 @@ describe('ocena ruku', () => {
     expect(f.category).toBe(HandCategory.Flush);
   });
 
+  it('opisuje ruku sa odlučujućim kartama', () => {
+    const d = (h: string, b: string) => bestHoldem(parseCards(h), parseCards(b)).name;
+    expect(d('Qc 7d', '2s 5h 9c Jd 3s')).toBe('Visoka karta Q');
+    expect(d('Kc Kd', '2s 5h 9c Jd 3s')).toBe('Par K');
+    expect(d('Ac 9d', 'As 9h 2c Jd 3s')).toBe('Dva para A i 9');
+    expect(d('Tc Td', 'Ts 9h 2c Jd 3s')).toBe('Triling 10');
+    expect(d('Ac 2d', '3s 4h 5c Jd Ks')).toBe('Kenta do 5');
+    expect(d('Ah 2h', '7h 9h Kh Jd 3s')).toBe('Boja do A');
+    expect(d('7c 7d', '7s Ah Ac Jd 3s')).toBe('Ful 7 preko A');
+    expect(d('8c 8d', '8s 8h Ac Jd 3s')).toBe('Poker 8');
+    expect(d('5h 6h', '7h 8h 9h Jd 3s')).toBe('Kenta u boji do 9');
+  });
+
   it('parsira karte', () => {
     expect(parseCard('As')).toBe((12 << 2) | 3);
     expect(() => parseCard('Xx')).toThrow();
@@ -106,6 +119,17 @@ describe("Hold'em ruka", () => {
     expect(r.shown).toEqual([]);
   });
 
+  it('beleži poteze za prikaz', () => {
+    const g = threeHanded();
+    g.startHand();
+    g.act(0, 'raise', 30);
+    g.act(1, 'call');
+    expect(g.seats[0]!.lastAct).toEqual({ type: 'raise', amount: 30 });
+    expect(g.seats[1]!.lastAct).toEqual({ type: 'call', amount: 30 });
+    expect(g.seats[2]!.lastAct).toEqual({ type: 'bb', amount: 10 });
+    expect(g.actions.map((a) => a.type)).toEqual(['sb', 'bb', 'raise', 'call']);
+  });
+
   it('veliki blajnd ima opciju kad svi samo dorovnaju', () => {
     const g = threeHanded();
     g.startHand();
@@ -134,7 +158,7 @@ describe("Hold'em ruka", () => {
     g.act(1, 'check');
     const r = g.act(0, 'check')!;
     expect(r.rake).toBe(3); // 5 % od 70 = 3
-    expect(r.shown.map((s) => s.handName)).toEqual(['Triling', 'Par']);
+    expect(r.shown.map((s) => s.handName)).toEqual(['Triling A', 'Par K']);
     expect(r.won).toEqual({ 0: 67 });
     expect(stacks(g)).toEqual([1037, 970, 990, null, null, null]);
   });

@@ -135,3 +135,9 @@ export class TableDto {
   @IsInt() @Min(10, { message: 'Vreme za potez: 10–120 sekundi.' }) @Max(120, { message: 'Vreme za potez: 10–120 sekundi.' })
   actionSeconds: number;
 }
+
+export class AvatarDto {
+  @IsString({ message: 'Nedostaje slika.' })
+  @MaxLength(420_000, { message: 'Slika je prevelika (najviše 300 KB).' })
+  data: string;
+}

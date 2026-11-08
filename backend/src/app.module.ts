@@ -4,7 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.service';
 import { AuthGuard } from './common/auth.guard';
-import { AuthController, MeController } from './auth/auth.controller';
+import { AuthController, AvatarsController, MeController } from './auth/auth.controller';
 import { AdminController } from './admin/admin.controller';
 import { WalletService } from './wallet/wallet.service';
 import { TablesService } from './tables/tables.service';
@@ -29,7 +29,7 @@ class HttpThrottlerGuard extends ThrottlerGuard {
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '30d') as never },
     }),
   ],
-  controllers: [HealthController, AuthController, MeController, AdminController],
+  controllers: [HealthController, AuthController, MeController, AvatarsController, AdminController],
   providers: [
     AuthGuard,
     { provide: APP_GUARD, useClass: HttpThrottlerGuard },

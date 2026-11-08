@@ -3,6 +3,7 @@ import { PokerTable, Prisma } from '@prisma/client';
 import type { Server } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { avatarUrl } from '../common/public-user';
 import { cardToString } from '../poker/engine/cards';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
@@ -39,6 +40,8 @@ export class TablesService implements OnModuleInit {
   private readonly log = new Logger(TablesService.name);
   private readonly runtimes = new Map<string, Runtime>();
   private server: Server | null = null;
+  /** Adrese slika profila igrača koji sede za stolovima. */
+  private readonly avatars = new Map<string, string | null>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -53,7 +56,7 @@ export class TablesService implements OnModuleInit {
     // Posle ponovnog pokretanja ruke u toku su poništene: žetoni sa stola se vraćaju na nalog
     // u iznosu sa početka te ruke (stanje posle poslednje završene ruke).
     const seats = await this.prisma.tableSeat.findMany();
-    for (const s of seats) await this.cashOutRow(s.tableId, s.userId, 'Povratak žetona posle ponovnog pokretanja servera');
+    for (const s of seats) await this.cashOutRow(s.tableId, s.userId, 'Server je ponovo pokrenut');
     if (seats.length) this.log.log(`Vraćeni žetoni za ${seats.length} sedišta.`);
     const open = await this.prisma.pokerTable.findMany({ where: { isOpen: true } });
     for (const t of open) this.createRuntime(t);
@@ -172,6 +175,7 @@ export class TablesService implements OnModuleInit {
           index: i,
           userId: s.userId,
           name: s.name,
+          avatarUrl: this.avatars.get(s.userId) ?? null,
           stack: s.stack,
           bet: s.bet,
           inHand: s.inHand,
@@ -180,12 +184,15 @@ export class TablesService implements OnModuleInit {
           sittingOut: s.sittingOut,
           leaving: s.leaving,
           lastAction: s.lastAction,
+          lastAct: s.lastAct,
           cards: visible && visible.length ? visible : null,
           cardCount: s.inHand && !s.folded ? s.hole.length : 0,
         };
       }),
       mySeat,
       myHand: this.currentHand(rt, mySeat),
+      // Poslednji potezi u ruci (za spisak na stolu).
+      actions: g.actions.slice(-6),
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: rt.lastResult,
     };
@@ -238,6 +245,12 @@ export class TablesService implements OnModuleInit {
     if (u) this.server?.to(`user:${userId}`).emit('balance', { balance: u.balance });
   }
 
+  /** Igrač je promenio sliku: osveži stolove za kojima sedi. */
+  avatarChanged(userId: string, url: string | null) {
+    this.avatars.set(userId, url);
+    for (const rt of this.runtimes.values()) if (rt.game.seatOf(userId) >= 0) void this.broadcast(rt);
+  }
+
   // ---------- Radnje igrača ----------
 
   async sit(userId: string, tableId: string, seat: number, buyIn: number) {
@@ -259,6 +272,7 @@ export class TablesService implements OnModuleInit {
         await db.tableSeat.create({ data: { tableId, userId, seat, stack: buyIn } });
       });
       rt.game.sit(seat, userId, user.displayName, buyIn);
+      this.avatars.set(userId, avatarUrl(user));
       await this.balanceChanged(userId);
       await this.afterChange(rt);
       this.lobbyChanged();

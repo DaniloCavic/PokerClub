@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -30,6 +31,16 @@ class AppState extends ChangeNotifier {
   /// Razlika serverskog i lokalnog sata (ms), da tajmer ne zavisi od sata telefona.
   int clockOffset = 0;
 
+  /// Prikaz iznosa za stolom u velikim blajndovima umesto u žetonima.
+  bool showBB = false;
+
+  Future<void> setShowBB(bool v) async {
+    showBB = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showBB', v);
+  }
+
   AppState() {
     api.onUnauthorized = (msg) {
       if (status == AuthStatus.loggedIn) {
@@ -41,6 +52,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
+    showBB = prefs.getBool('showBB') ?? false;
     final token = prefs.getString('token');
     if (token == null) {
       status = AuthStatus.loggedOut;
@@ -95,6 +107,13 @@ class AppState extends ChangeNotifier {
       balance = (u['balance'] as num).toInt();
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// Nova slika profila (već smanjena), ili null za brisanje.
+  Future<void> setAvatar(List<int>? bytes) async {
+    final u = bytes == null ? await api.delete('/me/avatar') : await api.post('/me/avatar', {'data': base64Encode(bytes)});
+    user = {...?user, 'avatarUrl': u['avatarUrl']};
+    notifyListeners();
   }
 
   Future<void> logout() async {

@@ -13,3 +13,9 @@ String get apiBaseUrl {
   if (kIsWeb) return 'http://localhost:3000';
   return defaultTargetPlatform == TargetPlatform.android ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 }
+
+/// Pun put do slike sa servera ("/api/avatars/..." → "https://.../api/avatars/...").
+String? absoluteUrl(String? path) {
+  if (path == null || path.isEmpty) return null;
+  return path.startsWith('http') ? path : '$apiBaseUrl$path';
+}

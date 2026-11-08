@@ -35,6 +35,21 @@ export interface Seat {
   /** Nivo punog ulaganja kada je igrač poslednji put odigrao (-1 = nije još igrao u ovoj rundi). */
   actedLevel: number;
   lastAction: string | null;
+  /** Poslednji potez u ovoj rundi za prikaz (iznos = ukupan ulog igrača u rundi posle poteza). */
+  lastAct: SeatAct | null;
+}
+
+export type ActKind = 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
+export interface SeatAct {
+  type: ActKind;
+  amount: number;
+}
+
+/** Jedan potez u ruci (za spisak poteza na stolu). */
+export interface ActionEntry extends SeatAct {
+  seat: number;
+  name: string;
+  street: Street;
 }
 
 export interface Pot {
@@ -99,6 +114,8 @@ export class PokerGame {
   sbSeat = -1;
   bbSeat = -1;
   log: string[] = [];
+  /** Potezi u ruci koja je u toku. */
+  actions: ActionEntry[] = [];
 
   constructor(readonly config: GameConfig) {
     this.seats = Array.from({ length: config.maxSeats }, () => null);
@@ -114,7 +131,7 @@ export class PokerGame {
       userId, name, stack,
       sittingOut: false, leaving: false,
       inHand: false, hole: [], folded: false, allIn: false,
-      bet: 0, committed: 0, actedLevel: -1, lastAction: null,
+      bet: 0, committed: 0, actedLevel: -1, lastAction: null, lastAct: null,
     };
   }
 
@@ -167,7 +184,7 @@ export class PokerGame {
       const s = this.seats[i]!;
       Object.assign(s, {
         inHand: ready.has(i), hole: [], folded: false, allIn: false,
-        bet: 0, committed: 0, actedLevel: -1, lastAction: null,
+        bet: 0, committed: 0, actedLevel: -1, lastAction: null, lastAct: null,
       });
     }
     this.handNo++;
@@ -177,6 +194,7 @@ export class PokerGame {
     this.deck = [...deck];
     this.collected = 0;
     this.log = [];
+    this.actions = [];
 
     const inHand = (s: Seat) => s.inHand;
     this.button = this.next(this.button < 0 ? this.seats.length - 1 : this.button, inHand);
@@ -196,8 +214,8 @@ export class PokerGame {
       }
     }
 
-    this.post(this.sbSeat, this.config.smallBlind, 'mali blajnd');
-    this.post(this.bbSeat, this.config.bigBlind, 'veliki blajnd');
+    this.post(this.sbSeat, this.config.smallBlind, 'mali blajnd', 'sb');
+    this.post(this.bbSeat, this.config.bigBlind, 'veliki blajnd', 'bb');
     this.currentBet = this.config.bigBlind;
     this.lastRaise = this.config.bigBlind;
     this.fullBetLevel = this.config.bigBlind;
@@ -211,10 +229,11 @@ export class PokerGame {
     return c;
   }
 
-  private post(i: number, amount: number, label: string) {
+  private post(i: number, amount: number, label: string, type: ActKind) {
     const s = this.seats[i]!;
     const paid = Math.min(amount, s.stack);
     this.putIn(s, paid);
+    this.record(i, type, paid);
     this.log.push(`${s.name}: ${label} ${paid}${s.allIn ? ' (all-in)' : ''}`);
   }
 
@@ -223,6 +242,12 @@ export class PokerGame {
     s.bet += amount;
     s.committed += amount;
     if (s.stack === 0) s.allIn = true;
+  }
+
+  private record(seat: number, type: ActKind, amount: number) {
+    const s = this.seats[seat]!;
+    s.lastAct = { type, amount };
+    this.actions.push({ seat, name: s.name, street: this.street, type, amount });
   }
 
   private canAct(s: Seat) {
@@ -284,15 +309,18 @@ export class PokerGame {
       case 'fold':
         s.folded = true;
         s.lastAction = 'Fold';
+        this.record(index, 'fold', 0);
         break;
       case 'check':
         if (!legal.check) throw new GameError('Ne možete da čekirate — morate da dorovnate ili odustanete.');
         s.lastAction = 'Check';
+        this.record(index, 'check', 0);
         break;
       case 'call':
         if (legal.call === 0) throw new GameError('Nema šta da se dorovna.');
         this.putIn(s, legal.call);
         s.lastAction = s.allIn ? 'All-in' : `Call ${legal.call}`;
+        this.record(index, s.allIn ? 'allin' : 'call', s.bet);
         break;
       case 'raise': {
         if (legal.minRaiseTo === null || legal.maxRaiseTo === null) throw new GameError('Povišenje nije dozvoljeno.');
@@ -310,6 +338,7 @@ export class PokerGame {
         }
         this.currentBet = to;
         s.lastAction = s.allIn ? `All-in ${to}` : `${wasBet ? 'Bet' : 'Raise'} ${to}`;
+        this.record(index, s.allIn ? 'allin' : wasBet ? 'bet' : 'raise', to);
         break;
       }
       default:
@@ -328,6 +357,7 @@ export class PokerGame {
     if (index === this.toAct) return this.act(index, 'fold');
     s.folded = true;
     s.lastAction = 'Fold';
+    this.record(index, 'fold', 0);
     this.log.push(`${s.name}: Fold`);
     return this.advanceIfDone();
   }
@@ -398,7 +428,10 @@ export class PokerGame {
     for (const i of this.indices()) {
       const s = this.seats[i]!;
       s.actedLevel = -1;
-      if (s.inHand && !s.folded) s.lastAction = null;
+      if (s.inHand && !s.folded) {
+        s.lastAction = null;
+        s.lastAct = null;
+      }
     }
     this.toAct = this.next(this.button, (s) => this.canAct(s));
   }

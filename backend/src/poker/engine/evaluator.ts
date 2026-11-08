@@ -115,7 +115,7 @@ function best(candidates: Card[][]): HandValue {
   return {
     score: top!.score,
     category,
-    name: isRoyal ? 'Rojal flaš' : CATEGORY_NAMES[category],
+    name: isRoyal ? 'Rojal flaš' : describe(top!.score),
     cards: top!.cards,
   };
 }
@@ -130,4 +130,31 @@ export function bestOmaha(hole: Card[], board: Card[]): HandValue {
   const out: Card[][] = [];
   for (const h of combinations(hole, 2)) for (const b of combinations(board, 3)) out.push([...h, ...b]);
   return best(out);
+}
+
+const R = (r: number) => (r === 8 ? '10' : '23456789TJQKA'[r]);
+
+/** Opis ruke sa kartama koje odlučuju, npr. "Visoka karta Q", "Dva para K i 9", "Ful 7 preko A". */
+export function describe(score: number): string {
+  const k = (i: number) => Math.floor(score / 16 ** (4 - i)) % 16;
+  switch (categoryOf(score)) {
+    case HandCategory.HighCard:
+      return `Visoka karta ${R(k(0))}`;
+    case HandCategory.Pair:
+      return `Par ${R(k(0))}`;
+    case HandCategory.TwoPair:
+      return `Dva para ${R(k(0))} i ${R(k(1))}`;
+    case HandCategory.Trips:
+      return `Triling ${R(k(0))}`;
+    case HandCategory.Straight:
+      return `Kenta do ${R(k(0))}`;
+    case HandCategory.Flush:
+      return `Boja do ${R(k(0))}`;
+    case HandCategory.FullHouse:
+      return `Ful ${R(k(0))} preko ${R(k(1))}`;
+    case HandCategory.Quads:
+      return `Poker ${R(k(0))}`;
+    case HandCategory.StraightFlush:
+      return `Kenta u boji do ${R(k(0))}`;
+  }
 }

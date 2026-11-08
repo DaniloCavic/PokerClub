@@ -11,6 +11,7 @@ class ActionBar extends StatefulWidget {
   final int myStack;
   final int bigBlind;
   final bool potLimit;
+  final Money money;
   final Future<bool> Function(String action, [int? amount]) onAction;
 
   const ActionBar({
@@ -21,6 +22,7 @@ class ActionBar extends StatefulWidget {
     required this.myStack,
     required this.bigBlind,
     required this.potLimit,
+    required this.money,
     required this.onAction,
   });
 
@@ -38,6 +40,7 @@ class _ActionBarState extends State<ActionBar> {
   int get _call => widget.legal['call'] as int;
   int get _currentBet => widget.myBet + _call;
   int get _allIn => widget.myBet + widget.myStack;
+  Money get _m => widget.money;
 
   @override
   void didUpdateWidget(covariant ActionBar old) {
@@ -63,8 +66,12 @@ class _ActionBarState extends State<ActionBar> {
   }
 
   String _raiseLabel(int to) {
-    if (to == _allIn) return 'All-in ${chips(to)}';
-    return _currentBet == 0 ? 'Bet ${chips(to)}' : 'Raise na ${chips(to)}';
+    if (to == _allIn) return 'ALL-IN ${_m(to)}';
+    return _currentBet == 0 ? 'BET ${_m(to)}' : 'RAISE NA ${_m(to)}';
+  }
+
+  void _step(int dir) {
+    setState(() => _amount = (_amount + dir * widget.bigBlind).clamp(_min!, _max!));
   }
 
   @override
@@ -80,43 +87,58 @@ class _ActionBarState extends State<ActionBar> {
         'Pot': _potFraction(1),
         if (!widget.potLimit) 'All-in': _max!,
       };
-      // Korak klizača: veliki blajnd (ili 1 kad je opseg mali).
       final step = max(1, min(widget.bigBlind, (_max! - _min!) ~/ 20));
       final divisions = _max! > _min! ? max(1, (_max! - _min!) ~/ step) : null;
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Wrap(
-            spacing: 6,
-            alignment: WrapAlignment.center,
+          Row(
             children: [
               for (final e in presets.entries)
-                ChoiceChip(
-                  label: Text(e.key),
-                  selectedColor: accent,
-                  showCheckmark: false,
-                  selected: _amount == e.value,
-                  onSelected: (_) => setState(() => _amount = e.value),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size.fromHeight(36),
+                        backgroundColor: _amount == e.value ? accent : Colors.transparent,
+                        side: BorderSide(color: _amount == e.value ? accent : Colors.white24),
+                      ),
+                      onPressed: () => setState(() => _amount = e.value),
+                      child: Text(e.key, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
                 ),
             ],
           ),
-          if (divisions != null)
-            Slider(
-              min: _min!.toDouble(),
-              max: _max!.toDouble(),
-              divisions: divisions,
-              value: _amount.clamp(_min!, _max!).toDouble(),
-              onChanged: (v) {
-                var to = v.round();
-                if (to != _max) to = (to ~/ step) * step;
-                setState(() => _amount = to.clamp(_min!, _max!));
-              },
-            ),
+          // Klizač sa dugmadima − / + (korak: veliki blajnd)
+          Row(
+            children: [
+              _RoundButton(icon: Icons.remove, onTap: _amount > _min! ? () => _step(-1) : null),
+              Expanded(
+                child: divisions == null
+                    ? const SizedBox(height: 44)
+                    : Slider(
+                        min: _min!.toDouble(),
+                        max: _max!.toDouble(),
+                        divisions: divisions,
+                        value: _amount.clamp(_min!, _max!).toDouble(),
+                        onChanged: (v) {
+                          var to = v.round();
+                          if (to != _max) to = (to ~/ step) * step;
+                          setState(() => _amount = to.clamp(_min!, _max!));
+                        },
+                      ),
+              ),
+              _RoundButton(icon: Icons.add, onTap: _amount < _max! ? () => _step(1) : null),
+            ],
+          ),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
                   onPressed: () => setState(() => _raising = false),
                   child: const Text('Nazad'),
                 ),
@@ -125,9 +147,17 @@ class _ActionBarState extends State<ActionBar> {
               Expanded(
                 flex: 2,
                 child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: accent),
+                  style: FilledButton.styleFrom(backgroundColor: accent, minimumSize: const Size.fromHeight(52)),
                   onPressed: _busy ? null : () => _send('raise', _amount),
-                  child: Text(_raiseLabel(_amount)),
+                  child: FittedBox(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(_raiseLabel(_amount), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                      Text(
+                        _m.inBB ? rsd(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ]),
+                  ),
                 ),
               ),
             ],
@@ -139,38 +169,82 @@ class _ActionBarState extends State<ActionBar> {
     return Row(
       children: [
         Expanded(
-          child: FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2B2F38), minimumSize: const Size.fromHeight(52)),
-            onPressed: _busy ? null : () => _send('fold'),
-            child: const Text('Fold'),
+          child: _ActionButton(
+            title: 'FOLD',
+            color: const Color(0xFF3A3F4B),
+            onTap: _busy ? null : () => _send('fold'),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1B54B0), minimumSize: const Size.fromHeight(52)),
-            onPressed: _busy ? null : () => _send(canCheck ? 'check' : 'call'),
-            child: FittedBox(
-              child: Text(canCheck ? 'Check' : (_call >= widget.myStack ? 'All-in ${chips(_call)}' : 'Call ${chips(_call)}')),
-            ),
+          child: _ActionButton(
+            title: canCheck ? 'CHECK' : (_call >= widget.myStack ? 'ALL-IN' : 'CALL'),
+            subtitle: canCheck ? null : _m(_call),
+            color: canCheck ? const Color(0xFF2E7D5B) : const Color(0xFF1B6FD8),
+            onTap: _busy ? null : () => _send(canCheck ? 'check' : 'call'),
           ),
         ),
         if (canRaise) ...[
           const SizedBox(width: 8),
           Expanded(
-            child: FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: accent, minimumSize: const Size.fromHeight(52)),
-              onPressed: _busy
+            child: _ActionButton(
+              title: _currentBet == 0 ? 'BET' : 'RAISE',
+              subtitle: _min == _allIn ? 'all-in' : 'od ${_m(_min)}',
+              color: accent,
+              onTap: _busy
                   ? null
                   : () => setState(() {
                         _raising = true;
                         _amount = _min!;
                       }),
-              child: Text(_currentBet == 0 ? 'Bet' : 'Raise'),
             ),
           ),
         ],
       ],
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Color color;
+  final VoidCallback? onTap;
+  const _ActionButton({required this.title, required this.color, this.subtitle, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: color,
+        minimumSize: const Size.fromHeight(56),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      onPressed: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+          if (subtitle != null)
+            FittedBox(child: Text(subtitle!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoundButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _RoundButton({required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filled(
+      style: IconButton.styleFrom(backgroundColor: panelLight, disabledBackgroundColor: panel, minimumSize: const Size(44, 44)),
+      onPressed: onTap,
+      icon: Icon(icon),
     );
   }
 }

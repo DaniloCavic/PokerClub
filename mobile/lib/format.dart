@@ -10,6 +10,9 @@ String chips(num? n) {
   return v < 0 ? '-$buf' : buf.toString();
 }
 
+/// Iznos u dinarima: 12500 → "12.500 RSD"
+String rsd(num? n) => '${chips(n)} RSD';
+
 String variantName(String v) => v == 'OMAHA' ? 'Omaha' : "Hold'em";
 String variantLong(String v) => v == 'OMAHA' ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit";
 
@@ -26,3 +29,25 @@ const txLabels = {
   'BUY_IN': 'Ulaz za sto',
   'CASH_OUT': 'Povratak sa stola',
 };
+
+/// Iznos u žetonima ili u velikim blajndovima (BB), po izboru igrača.
+class Money {
+  final int bb;
+  final bool inBB;
+  const Money(this.bb, this.inBB);
+
+  String call(num? v) {
+    final n = (v ?? 0);
+    if (!inBB || bb <= 0) return rsd(n);
+    return '${bbNumber(n / bb)} BB';
+  }
+}
+
+/// 12.5 → "12,5", 40.0 → "40" (najviše jedna decimala).
+String bbNumber(double x) {
+  final r = (x * 10).round() / 10;
+  if (r == r.roundToDouble()) return chips(r.round());
+  final whole = r.truncate();
+  final dec = ((r - whole).abs() * 10).round();
+  return '${chips(whole)},$dec';
+}

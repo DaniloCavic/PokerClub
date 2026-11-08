@@ -6,9 +6,13 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/action_bar.dart';
+import '../widgets/avatar.dart';
 import '../widgets/playing_card.dart';
 
 typedef Json = Map<String, dynamic>;
+
+/// Potez izabran unapred, dok igrač još nije na redu.
+enum PreAction { checkFold, callAny }
 
 class TableScreen extends StatefulWidget {
   final String tableId;
@@ -21,12 +25,16 @@ class TableScreen extends StatefulWidget {
 class _TableScreenState extends State<TableScreen> {
   late final AppState app;
   Timer? _ticker;
+  PreAction? _pre;
+  int _preHand = -1;
+  bool _sending = false;
 
   @override
   void initState() {
     super.initState();
     app = context.read<AppState>();
     app.watch(widget.tableId);
+    app.tableNotifier(widget.tableId).addListener(_onState);
     // Osvežavanje tajmera za potez.
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final st = app.tableNotifier(widget.tableId).value;
@@ -37,9 +45,35 @@ class _TableScreenState extends State<TableScreen> {
   @override
   void dispose() {
     _ticker?.cancel();
+    app.tableNotifier(widget.tableId).removeListener(_onState);
     app.unwatch(widget.tableId);
     app.refreshMe();
     super.dispose();
+  }
+
+  /// Kad igrač dođe na red, a ima izabran potez unapred — odigraj ga odmah.
+  void _onState() {
+    final st = app.tableNotifier(widget.tableId).value;
+    if (st == null || _pre == null || _sending) return;
+    if (st['handNo'] != _preHand) {
+      setState(() => _pre = null);
+      return;
+    }
+    final legal = st['legal'] as Json?;
+    if (legal == null) return;
+    final pre = _pre!;
+    _pre = null;
+    final canCheck = legal['check'] == true;
+    final action = canCheck ? 'check' : (pre == PreAction.callAny ? 'call' : 'fold');
+    _sending = true;
+    app.run('table:act', {'tableId': widget.tableId, 'action': action}).whenComplete(() => _sending = false);
+  }
+
+  void _setPre(Json st, PreAction? p) {
+    setState(() {
+      _pre = _pre == p ? null : p;
+      _preHand = st['handNo'] as int;
+    });
   }
 
   Future<bool> _confirmLeave(Json? st) async {
@@ -50,8 +84,8 @@ class _TableScreenState extends State<TableScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Napustiti sto?'),
         content: Text(st['inProgress'] == true
-            ? 'Ako ste u ruci, odustajete od nje. Žetoni sa stola se vraćaju na vaš nalog.'
-            : 'Žetoni sa stola se vraćaju na vaš nalog.'),
+            ? 'Ako ste u ruci, odustajete od nje. Novac sa stola se vraća na vaš nalog.'
+            : 'Novac sa stola se vraća na vaš nalog.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ostani')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ustani')),
@@ -65,9 +99,11 @@ class _TableScreenState extends State<TableScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final showBB = context.select<AppState, bool>((a) => a.showBB);
     return ValueListenableBuilder<Json?>(
       valueListenable: app.tableNotifier(widget.tableId),
       builder: (context, st, _) {
+        final money = Money((st?['bigBlind'] as int?) ?? 0, showBB);
         return PopScope(
           canPop: st == null || (st['mySeat'] as int) < 0,
           onPopInvokedWithResult: (didPop, _) async {
@@ -78,21 +114,30 @@ class _TableScreenState extends State<TableScreen> {
           child: Scaffold(
             appBar: AppBar(
               title: Text(st?['name'] ?? 'Sto', overflow: TextOverflow.ellipsis),
-              actions: [if (st != null && (st['mySeat'] as int) >= 0) _menu(st)],
+              actions: [
+                if (st != null)
+                  TextButton(
+                    onPressed: () => app.setShowBB(!showBB),
+                    child: Text(showBB ? 'BB' : 'RSD', style: const TextStyle(color: gold, fontWeight: FontWeight.w800)),
+                  ),
+                if (st != null && (st['mySeat'] as int) >= 0) _menu(st, showBB),
+              ],
             ),
-            body: st == null ? const Center(child: CircularProgressIndicator()) : _body(st),
+            body: st == null ? const Center(child: CircularProgressIndicator()) : _body(st, money),
           ),
         );
       },
     );
   }
 
-  Widget _menu(Json st) {
+  Widget _menu(Json st, bool showBB) {
     final me = (st['seats'] as List)[st['mySeat'] as int] as Json;
     final sittingOut = me['sittingOut'] == true;
     return PopupMenuButton<String>(
       onSelected: (v) async {
         switch (v) {
+          case 'bb':
+            app.setShowBB(!showBB);
           case 'topup':
             _topUp(st, me);
           case 'sitout':
@@ -103,7 +148,14 @@ class _TableScreenState extends State<TableScreen> {
         }
       },
       itemBuilder: (_) => [
-        const PopupMenuItem(value: 'topup', child: ListTile(leading: Icon(Icons.add_circle), title: Text('Dopuni žetone'))),
+        PopupMenuItem(
+          value: 'bb',
+          child: ListTile(
+            leading: const Icon(Icons.swap_horiz),
+            title: Text(showBB ? 'Prikaži u dinarima (RSD)' : 'Prikaži u velikim blajndovima (BB)'),
+          ),
+        ),
+        const PopupMenuItem(value: 'topup', child: ListTile(leading: Icon(Icons.add_circle), title: Text('Dopuni'))),
         PopupMenuItem(
           value: 'sitout',
           child: ListTile(
@@ -116,15 +168,26 @@ class _TableScreenState extends State<TableScreen> {
     );
   }
 
-  Widget _body(Json st) {
+  Widget _body(Json st, Money money) {
     final mySeat = st['mySeat'] as int;
     return SafeArea(
       child: Column(
         children: [
           _InfoBar(st: st),
-          Expanded(child: LayoutBuilder(builder: (_, c) => _TableView(st: st, size: c.biggest, onSit: (i) => _sit(st, i)))),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (_, c) => _TableView(st: st, size: c.biggest, money: money, onSit: (i) => _sit(st, i)),
+            ),
+          ),
           if (mySeat >= 0)
-            _MyPanel(st: st, app: app, onTopUp: () => _topUp(st, (st['seats'] as List)[mySeat] as Json))
+            _MyPanel(
+              st: st,
+              app: app,
+              money: money,
+              pre: _pre,
+              onPre: (p) => _setPre(st, p),
+              onTopUp: () => _topUp(st, (st['seats'] as List)[mySeat] as Json),
+            )
           else
             const Padding(
               padding: EdgeInsets.all(16),
@@ -146,7 +209,7 @@ class _TableScreenState extends State<TableScreen> {
         max: max,
         balance: app.balance,
         confirm: 'Sedi',
-        info: 'Blajndovi ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · ulaz ${chips(min)}–${chips(max)}',
+        info: 'Blajndovi ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · ulaz ${rsd(min)} – ${rsd(max)}',
       ),
     );
     if (amount == null) return;
@@ -156,18 +219,18 @@ class _TableScreenState extends State<TableScreen> {
   Future<void> _topUp(Json st, Json me) async {
     final room = (st['maxBuyIn'] as int) - (me['stack'] as int);
     if (room <= 0) {
-      app.toast('Već imate najviše žetona koliko sme na ovom stolu.');
+      app.toast('Već imate najviše koliko sme na ovom stolu.');
       return;
     }
     final amount = await showDialog<int>(
       context: context,
       builder: (_) => ChipsDialog(
-        title: 'Dopuna žetona',
+        title: 'Dopuna',
         min: 1,
         max: room,
         balance: app.balance,
         confirm: 'Dopuni',
-        info: 'Na stolu imate ${chips(me['stack'])}, najviše ${chips(st['maxBuyIn'])}. Dopuna važi od sledeće ruke.',
+        info: 'Na stolu imate ${rsd(me['stack'])}, najviše ${rsd(st['maxBuyIn'])}. Dopuna važi od sledeće ruke.',
       ),
     );
     if (amount == null) return;
@@ -183,6 +246,8 @@ class _InfoBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final rake = st['rakePercent'] as num;
     final short = st['variant'] == 'OMAHA' ? 'PLO' : 'NLH';
+    const streets = {'preflop': 'PRE-FLOP', 'flop': 'FLOP', 'turn': 'TURN', 'river': 'RIVER', 'showdown': 'OTVARANJE'};
+    final street = streets[st['street']];
     return Container(
       width: double.infinity,
       color: const Color(0xFF101217),
@@ -195,11 +260,13 @@ class _InfoBar extends StatelessWidget {
             child: Text(short, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
           ),
           const SizedBox(width: 8),
-          Text('${chips(st['smallBlind'])} / ${chips(st['bigBlind'])}',
+          Text('Blajndovi ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
           const Spacer(),
+          if (street != null)
+            Text(street, style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w800)),
           Text(
-            '${rake > 0 ? 'Rake $rake%' : 'Bez rake-a'}${(st['handNo'] as int) > 0 ? '  ·  Ruka #${st['handNo']}' : ''}',
+            '${street != null ? '  ·  ' : ''}${rake > 0 ? 'Rake $rake%' : 'Bez rake-a'}',
             style: const TextStyle(fontSize: 12, color: Colors.white54),
           ),
         ],
@@ -208,12 +275,29 @@ class _InfoBar extends StatelessWidget {
   }
 }
 
+/// Naziv i boja poteza za prikaz kod igrača i u spisku poteza.
+({String label, Color color}) actLabel(Json act, Money money) {
+  final amount = act['amount'] as int? ?? 0;
+  return switch (act['type'] as String) {
+    'sb' => (label: 'SB ${money(amount)}', color: const Color(0xFF4A4F5C)),
+    'bb' => (label: 'BB ${money(amount)}', color: const Color(0xFF4A4F5C)),
+    'fold' => (label: 'FOLD', color: const Color(0xFF2B2F38)),
+    'check' => (label: 'CHECK', color: const Color(0xFF2E7D5B)),
+    'call' => (label: 'CALL ${money(amount)}', color: const Color(0xFF1B6FD8)),
+    'bet' => (label: 'BET ${money(amount)}', color: const Color(0xFFE07A18)),
+    'raise' => (label: 'RAISE ${money(amount)}', color: accent),
+    'allin' => (label: 'ALL-IN ${money(amount)}', color: const Color(0xFF9B1BD8)),
+    _ => (label: '', color: Colors.black),
+  };
+}
+
 /// Ovalni sto sa sedištima. Igrač je uvek dole u sredini.
 class _TableView extends StatelessWidget {
   final Json st;
   final Size size;
+  final Money money;
   final void Function(int seat) onSit;
-  const _TableView({required this.st, required this.size, required this.onSit});
+  const _TableView({required this.st, required this.size, required this.money, required this.onSit});
 
   @override
   Widget build(BuildContext context) {
@@ -222,10 +306,10 @@ class _TableView extends StatelessWidget {
     final mySeat = st['mySeat'] as int;
     final base = mySeat >= 0 ? mySeat : 0;
     final w = size.width, h = size.height;
-    final center = Offset(w / 2, h / 2);
-    // Sedišta su malo izvan ivice stola (kao u poker aplikacijama).
-    final rx = w * 0.40, ry = h * 0.39;
+    final center = Offset(w / 2, h * 0.47);
+    final rx = w * 0.38, ry = h * 0.36;
     final app = context.read<AppState>();
+    const seatW = 104.0;
 
     Offset pos(int i, [double scale = 1]) {
       final k = (i - base + n) % n;
@@ -250,10 +334,10 @@ class _TableView extends StatelessWidget {
     final children = <Widget>[
       // Sto: tamna ivica i zelena čoja
       Positioned(
-        left: w * 0.07,
-        top: h * 0.12,
-        width: w * 0.86,
-        height: h * 0.76,
+        left: w * 0.06,
+        top: h * 0.08,
+        width: w * 0.88,
+        height: h * 0.78,
         child: Container(
           padding: const EdgeInsets.all(9),
           decoration: BoxDecoration(
@@ -267,29 +351,24 @@ class _TableView extends StatelessWidget {
               border: Border.all(color: Colors.white10, width: 2),
               gradient: const RadialGradient(colors: [feltLight, felt, feltDark], stops: [0, 0.65, 1], radius: 0.9),
             ),
-            alignment: const Alignment(0, 0.42),
-            child: Text(
-              'POKER KLUB',
-              style: TextStyle(color: Colors.white.withOpacity(0.06), fontSize: w * 0.07, fontWeight: FontWeight.w900, letterSpacing: 4),
-            ),
           ),
         ),
       ),
-      // Sredina: ukupan pot i karte na stolu
+      // Sredina: ukupan pot, karte na stolu, rezultat
       Positioned(
         left: 0,
         right: 0,
-        top: h / 2 - cardW * 1.4 / 2 - 34,
+        top: center.dy - cardW * 1.4 / 2 - 34,
         child: Column(
           children: [
             AnimatedOpacity(
               duration: const Duration(milliseconds: 200),
               opacity: (st['pot'] as int) > 0 ? 1 : 0,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-                decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                child: Text('Ukupan pot: ${chips(st['pot'])}',
-                    style: const TextStyle(color: gold, fontWeight: FontWeight.w700, fontSize: 13)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                child: Text('Pot: ${money(st['pot'])}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
               ),
             ),
             const SizedBox(height: 8),
@@ -321,13 +400,15 @@ class _TableView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            if (result != null) _ResultText(result: result),
+            if (result != null) _ResultText(result: result, money: money),
             if (st['closing'] == true) const Text('Sto se zatvara posle ove ruke.', style: TextStyle(color: gold)),
             if (st['inProgress'] != true && result == null && seats.where((s) => s != null).length < 2)
               const Text('Čeka se još igrača…', style: TextStyle(color: Colors.white70)),
           ],
         ),
       ),
+      // Spisak poslednjih poteza (gore levo)
+      Positioned(left: 8, top: 4, child: _ActionFeed(actions: ((st['actions'] as List?) ?? []).cast<Json>(), money: money)),
     ];
 
     for (var i = 0; i < n; i++) {
@@ -355,13 +436,24 @@ class _TableView extends StatelessWidget {
         ));
         continue;
       }
+      final isMe = i == mySeat;
       final bet = s['bet'] as int;
+      // Smer od igrača ka sredini stola (za ulog i dugme).
+      final toCenter = center - p;
+      final dir = toCenter / max(1.0, toCenter.distance);
+      final side = Offset(-dir.dy, dir.dx);
       if (bet > 0) {
-        final b = pos(i, 0.58);
-        children.add(Positioned(left: b.dx - 45, top: b.dy - 11, width: 90, child: Center(child: _BetChips(amount: bet))));
+        // Ulog stoji ispred igrača, prema sredini stola, da ne preklapa pot.
+        var b = isMe ? Offset(center.dx, pos(i).dy - 150) : p + dir * min(100.0, toCenter.distance * 0.45);
+        // Ako bi ulog prekrio natpis sa potom, pomeri ga iznad ili ispod njega.
+        final potY = center.dy - cardW * 0.7 - 21;
+        if (!isMe && (b.dy - potY).abs() < 30 && (b.dx - center.dx).abs() < 125) {
+          b = Offset(b.dx, p.dy < center.dy ? potY - 32 : potY + 32);
+        }
+        children.add(Positioned(left: b.dx - 55, top: b.dy - 13, width: 110, child: Center(child: _BetChips(text: money(bet)))));
       }
       if (st['button'] == i) {
-        final d = pos(i, 0.72) + const Offset(30, -6);
+        final d = isMe ? Offset(center.dx + 62, pos(i).dy - 120) : p + dir * 62 + side * 46;
         children.add(Positioned(
           left: d.dx - 11,
           top: d.dy - 11,
@@ -384,11 +476,11 @@ class _TableView extends StatelessWidget {
         final total = (st['actionSeconds'] as int) * 1000;
         timeLeft = ((deadline - app.serverNow) / total).clamp(0.0, 1.0);
       }
-      final isMe = i == mySeat;
-      const seatW = 96.0;
+      // Svoje sedište: dovoljno visoko da se vidi cela pločica sa žetonima.
+      final top = isMe ? min(p.dy - 100, h - 192) : p.dy - 64;
       children.add(Positioned(
         left: p.dx - seatW / 2,
-        top: p.dy - (isMe ? 92 : 62),
+        top: top,
         width: seatW,
         child: _SeatView(
           seat: s,
@@ -396,6 +488,7 @@ class _TableView extends StatelessWidget {
           won: won[i],
           timeLeft: timeLeft,
           best: best,
+          money: money,
           handName: (result?['shown'] as List?)?.cast<Json>().where((x) => x['seat'] == i).map((x) => x['handName'] as String).firstOrNull,
         ),
       ));
@@ -404,58 +497,96 @@ class _TableView extends StatelessWidget {
   }
 }
 
+class _ActionFeed extends StatelessWidget {
+  final List<Json> actions;
+  final Money money;
+  const _ActionFeed({required this.actions, required this.money});
+
+  @override
+  Widget build(BuildContext context) {
+    final list = actions.reversed.take(4).toList();
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var k = 0; k < list.length; k++)
+          Opacity(
+            opacity: 1 - k * 0.22,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text('${list[k]['name']}  ', style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                Text(
+                  actLabel(list[k], money).label,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color.lerp(actLabel(list[k], money).color, Colors.white, 0.35)),
+                ),
+              ]),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _ResultText extends StatelessWidget {
   final Json result;
-  const _ResultText({required this.result});
+  final Money money;
+  const _ResultText({required this.result, required this.money});
 
   @override
   Widget build(BuildContext context) {
     final pots = (result['pots'] as List).cast<Json>();
-    final p = pots.first;
-    final handName = p['handName'] as String?;
-    if (handName == null) return const SizedBox.shrink();
+    final lines = <String>[];
+    for (var k = 0; k < pots.length; k++) {
+      final p = pots[k];
+      final names = (p['winners'] as List).map((w) => w['name']).join(' i ');
+      final prefix = pots.length > 1 ? (k == 0 ? 'Glavni pot: ' : 'Sporedni pot: ') : '';
+      lines.add('$prefix$names dobija ${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
+    }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 36),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
-      child: Text(handName, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 14)),
+      child: Text(lines.join('\n'),
+          textAlign: TextAlign.center, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 13)),
     );
   }
 }
 
 /// Ulog ispred igrača: mala gomila žetona i iznos.
 class _BetChips extends StatelessWidget {
-  final int amount;
-  const _BetChips({required this.amount});
+  final String text;
+  const _BetChips({required this.text});
 
   @override
   Widget build(BuildContext context) {
     const colors = [Color(0xFFE0182D), Color(0xFF2F80ED), Color(0xFF27AE60)];
     return Container(
-      padding: const EdgeInsets.fromLTRB(3, 2, 8, 2),
-      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white24),
+      ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         SizedBox(
-          width: 22,
+          width: 24,
           height: 18,
           child: Stack(children: [
             for (var k = 0; k < 3; k++)
               Positioned(
-                left: k * 3.0,
+                left: k * 3.5,
                 top: 3.0 - k * 1.5,
                 child: Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: colors[k],
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
+                  width: 15,
+                  height: 15,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: colors[k], border: Border.all(color: Colors.white, width: 2)),
                 ),
               ),
           ]),
         ),
-        const SizedBox(width: 2),
-        Text(chips(amount), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+        const SizedBox(width: 3),
+        Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14)),
       ]),
     );
   }
@@ -468,7 +599,16 @@ class _SeatView extends StatelessWidget {
   final double? timeLeft;
   final String? handName;
   final Set<String> best;
-  const _SeatView({required this.seat, required this.isMe, required this.won, required this.best, this.timeLeft, this.handName});
+  final Money money;
+  const _SeatView({
+    required this.seat,
+    required this.isMe,
+    required this.won,
+    required this.best,
+    required this.money,
+    this.timeLeft,
+    this.handName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -478,19 +618,28 @@ class _SeatView extends StatelessWidget {
     final acting = timeLeft != null;
     final name = seat['name'] as String;
     final away = seat['sittingOut'] == true && seat['inHand'] != true;
-    String? status = seat['lastAction'] as String?;
-    if (seat['leaving'] == true) {
-      status = 'Ustaje';
+    final act = seat['lastAct'] as Json?;
+
+    // Šta piše na traci iznad imena: pobeda, potez, ili stanje igrača.
+    ({String label, Color color})? strip;
+    if (won != null) {
+      strip = (label: 'WIN +${money(won)}', color: gold);
+    } else if (acting) {
+      strip = (label: 'NA POTEZU', color: const Color(0xFF2E7D5B));
+    } else if (act != null) {
+      strip = actLabel(act, money);
+    } else if (seat['leaving'] == true) {
+      strip = (label: 'USTAJE', color: const Color(0xFF2B2F38));
     } else if (away) {
-      status = 'Pauza';
+      strip = (label: 'PAUZA', color: const Color(0xFF2B2F38));
     } else if (seat['stack'] == 0 && seat['inHand'] != true) {
-      status = 'Bez žetona';
+      strip = (label: 'PRAZAN STEK', color: const Color(0xFF2B2F38));
     }
 
     // Karte: svoje velike iznad avatara, tuđe poleđine pored, otvorene posle ruke.
     Widget? cardsRow;
     if (cards != null && cards.isNotEmpty) {
-      final cw = isMe ? (cards.length > 2 ? 34.0 : 44.0) : (cards.length > 2 ? 22.0 : 28.0);
+      final cw = isMe ? (cards.length > 2 ? 36.0 : 46.0) : (cards.length > 2 ? 23.0 : 30.0);
       cardsRow = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -501,14 +650,14 @@ class _SeatView extends StatelessWidget {
             ),
         ],
       );
-    } else if (count > 0) {
+    } else if (count > 0 && !folded) {
       cardsRow = SizedBox(
-        width: 40,
+        width: 44,
         height: 30,
         child: Stack(children: [
           for (var k = 0; k < count; k++)
             Positioned(
-              left: 6.0 + k * (count > 2 ? 5 : 9),
+              left: 8.0 + k * (count > 2 ? 5 : 9),
               top: 2,
               child: Transform.rotate(angle: (k - (count - 1) / 2) * 0.18, child: const PlayingCard(width: 18)),
             ),
@@ -519,30 +668,21 @@ class _SeatView extends StatelessWidget {
     final avatar = Stack(
       alignment: Alignment.center,
       children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [avatarColor(name), Color.lerp(avatarColor(name), Colors.black, 0.5)!],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            border: Border.all(color: won != null ? gold : (isMe ? Colors.white70 : Colors.white24), width: won != null ? 3 : 2),
-            boxShadow: [
-              const BoxShadow(color: Colors.black54, blurRadius: 4),
-              if (won != null) const BoxShadow(color: Color(0xAAF2C14E), blurRadius: 14),
-            ],
-          ),
-          alignment: Alignment.center,
-          child: Text(name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+        Avatar(
+          name: name,
+          url: seat['avatarUrl'] as String?,
+          size: 50,
+          borderColor: won != null ? gold : (isMe ? Colors.white70 : Colors.white24),
+          borderWidth: won != null ? 3 : 2,
+          shadow: [
+            const BoxShadow(color: Colors.black54, blurRadius: 4),
+            if (won != null) const BoxShadow(color: Color(0xAAF2C14E), blurRadius: 14),
+          ],
         ),
         if (acting)
           SizedBox(
-            width: 60,
-            height: 60,
+            width: 58,
+            height: 58,
             child: CircularProgressIndicator(
               value: timeLeft,
               strokeWidth: 4,
@@ -555,71 +695,67 @@ class _SeatView extends StatelessWidget {
 
     final plate = Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: const Color(0xF0101217),
+        color: const Color(0xF2101217),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: acting ? winGreen : Colors.white12),
+        border: Border.all(color: acting ? winGreen : (won != null ? gold : Colors.white12), width: acting || won != null ? 1.5 : 1),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white70)),
-          Text(
-            seat['allIn'] == true ? 'ALL-IN' : chips(seat['stack']),
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: seat['allIn'] == true ? accent : gold),
+          if (strip != null)
+            Container(
+              width: double.infinity,
+              color: strip.color,
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                strip.label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                  color: won != null ? Colors.black : Colors.white,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 3),
+            child: Column(children: [
+              Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+              Text(
+                seat['allIn'] == true ? 'ALL-IN' : money(seat['stack']),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: seat['allIn'] == true ? accent : Colors.white),
+              ),
+            ]),
           ),
         ],
       ),
     );
 
-    final label = won != null
-        ? _Badge(text: 'WIN +${chips(won)}', color: gold, dark: true)
-        : handName != null
-            ? _Badge(text: handName!, color: Colors.black87)
-            : status != null
-                ? _Badge(text: status.toUpperCase(), color: _actionColor(status))
-                : null;
-
     return Opacity(
-      opacity: (folded && cards == null) || away ? 0.5 : 1,
+      opacity: (folded && cards == null) || away ? 0.55 : 1,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(height: isMe ? 62 : 32, child: cardsRow == null ? null : Center(child: cardsRow)),
+          SizedBox(height: isMe ? 66 : 32, child: cardsRow == null ? null : Center(child: cardsRow)),
           avatar,
           Transform.translate(offset: const Offset(0, -6), child: plate),
-          if (label != null) Transform.translate(offset: const Offset(0, -4), child: label),
+          if (handName != null)
+            Transform.translate(
+              offset: const Offset(0, -3),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(10)),
+                child: Text(handName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: gold)),
+              ),
+            ),
         ],
-      ),
-    );
-  }
-
-  Color _actionColor(String s) {
-    final a = s.toLowerCase();
-    if (a.startsWith('raise') || a.startsWith('bet') || a.startsWith('all-in')) return accentDark;
-    if (a.startsWith('call')) return const Color(0xFF1B54B0);
-    if (a.startsWith('check')) return const Color(0xFF3A3D45);
-    return Colors.black54;
-  }
-}
-
-class _Badge extends StatelessWidget {
-  final String text;
-  final Color color;
-  final bool dark;
-  const _Badge({required this.text, required this.color, this.dark = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: dark ? Colors.black : Colors.white),
       ),
     );
   }
@@ -629,8 +765,18 @@ class _Badge extends StatelessWidget {
 class _MyPanel extends StatelessWidget {
   final Json st;
   final AppState app;
+  final Money money;
+  final PreAction? pre;
+  final void Function(PreAction p) onPre;
   final VoidCallback onTopUp;
-  const _MyPanel({required this.st, required this.app, required this.onTopUp});
+  const _MyPanel({
+    required this.st,
+    required this.app,
+    required this.money,
+    required this.pre,
+    required this.onPre,
+    required this.onTopUp,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -638,6 +784,7 @@ class _MyPanel extends StatelessWidget {
     final legal = st['legal'] as Json?;
     final tableId = st['id'] as String;
     final myHand = st['myHand'] as String?;
+    final inHand = me['inHand'] == true && me['folded'] != true && st['inProgress'] == true;
 
     Widget bottom;
     if (legal != null) {
@@ -648,24 +795,40 @@ class _MyPanel extends StatelessWidget {
         myStack: me['stack'] as int,
         bigBlind: st['bigBlind'] as int,
         potLimit: st['variant'] == 'OMAHA',
+        money: money,
         onAction: (action, [amount]) =>
             app.run('table:act', {'tableId': tableId, 'action': action, if (amount != null) 'amount': amount}),
       );
     } else if (me['sittingOut'] == true) {
       bottom = FilledButton.icon(
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
         icon: const Icon(Icons.play_arrow),
         label: const Text('Vrati se u igru'),
         onPressed: () => app.run('table:sitout', {'tableId': tableId, 'value': false}),
       );
     } else if (me['stack'] == 0 && me['inHand'] != true) {
-      bottom = FilledButton.icon(icon: const Icon(Icons.add_circle), label: const Text('Dopuni žetone'), onPressed: onTopUp);
+      bottom = FilledButton.icon(
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+        icon: const Icon(Icons.add_circle),
+        label: const Text('Dopuni'),
+        onPressed: onTopUp,
+      );
+    } else if (inHand && me['allIn'] != true) {
+      // Potez unapred, kao u velikim poker aplikacijama.
+      bottom = Row(
+        children: [
+          Expanded(child: _PreButton(label: 'Check / Fold', selected: pre == PreAction.checkFold, onTap: () => onPre(PreAction.checkFold))),
+          const SizedBox(width: 8),
+          Expanded(child: _PreButton(label: 'Call bilo šta', selected: pre == PreAction.callAny, onTap: () => onPre(PreAction.callAny))),
+        ],
+      );
     } else {
       bottom = SizedBox(
         height: 48,
         child: Center(
           child: Text(
-            me['inHand'] == true && me['folded'] != true
-                ? 'Čeka se potez drugog igrača…'
+            inHand
+                ? 'Čeka se potez drugih igrača…'
                 : st['inProgress'] == true
                     ? 'Igrate od sledeće ruke.'
                     : 'Sledeća ruka uskoro počinje…',
@@ -690,18 +853,37 @@ class _MyPanel extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(10)),
-                  child: Text(myHand, style: const TextStyle(color: gold, fontWeight: FontWeight.w700)),
+                  child: Text(myHand, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 15)),
                 ),
               const Spacer(),
-              if (legal != null && (legal['call'] as int) > 0)
-                Text('Za call: ${chips(legal['call'])}  ·  ', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-              Text('Nalog: ${chips(app.balance)}', style: const TextStyle(color: Colors.white38, fontSize: 12)),
+              Text('Nalog: ${rsd(app.balance)}', style: const TextStyle(color: Colors.white38, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 8),
           bottom,
         ],
       ),
+    );
+  }
+}
+
+class _PreButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _PreButton({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        backgroundColor: selected ? const Color(0xFF1B3A2E) : Colors.transparent,
+        side: BorderSide(color: selected ? winGreen : Colors.white24, width: selected ? 2 : 1),
+      ),
+      onPressed: onTap,
+      icon: Icon(selected ? Icons.check_box : Icons.check_box_outline_blank, size: 20, color: selected ? winGreen : Colors.white54),
+      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 }
@@ -749,13 +931,13 @@ class _ChipsDialogState extends State<ChipsDialog> {
         children: [
           Text(widget.info, style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 4),
-          Text('Na nalogu: ${chips(widget.balance)}', style: const TextStyle(color: Colors.white70)),
+          Text('Na nalogu: ${rsd(widget.balance)}', style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 16),
           if (!enough)
-            Text('Nemate dovoljno žetona na nalogu (potrebno bar ${chips(widget.min)}). Javite se svom agentu za uplatu.',
+            Text('Nemate dovoljno na nalogu (potrebno bar ${rsd(widget.min)}). Javite se svom agentu za uplatu.',
                 style: const TextStyle(color: Color(0xFFFF8A80)))
           else ...[
-            Center(child: Text(chips(_value), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold))),
+            Center(child: Text(rsd(_value), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold))),
             if (_top > widget.min)
               Slider(
                 min: widget.min.toDouble(),
@@ -766,8 +948,8 @@ class _ChipsDialogState extends State<ChipsDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton(onPressed: () => setState(() => _value = widget.min), child: Text('Min ${chips(widget.min)}')),
-                TextButton(onPressed: () => setState(() => _value = _top), child: Text('Max ${chips(_top)}')),
+                TextButton(onPressed: () => setState(() => _value = widget.min), child: Text('Min ${rsd(widget.min)}')),
+                TextButton(onPressed: () => setState(() => _value = _top), child: Text('Max ${rsd(_top)}')),
               ],
             ),
           ],

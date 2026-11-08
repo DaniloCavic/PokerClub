@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/avatar.dart';
 import 'account_screen.dart';
 import 'table_screen.dart';
 
@@ -25,36 +26,73 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final seatedAt = ((app.user?['seatedAt'] as List?) ?? []).cast<String>();
+    final user = app.user ?? {};
+    final seatedAt = ((user['seatedAt'] as List?) ?? []).cast<String>();
     final tables = app.lobby.where((t) => _filter == 'ALL' || t['variant'] == _filter).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text.rich(TextSpan(children: [
-          TextSpan(text: 'POKER '),
-          TextSpan(text: 'KLUB', style: TextStyle(color: accent)),
-        ]), style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
+        // Stanje na nalogu gore levo.
+        leadingWidth: 150,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(10)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Stanje', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                  Text(rsd(app.balance), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: gold)),
+                ],
+              ),
+            ),
+          ),
+        ),
+        title: const Text.rich(
+          TextSpan(children: [TextSpan(text: 'POKER '), TextSpan(text: 'KLUB', style: TextStyle(color: accent))]),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
+        ),
         actions: [
-          IconButton(
-            tooltip: 'Moj nalog',
-            icon: const Icon(Icons.account_circle),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
+              child: Avatar(name: user['displayName']?.toString() ?? '', url: user['avatarUrl'] as String?, size: 38),
+            ),
           ),
         ],
       ),
       body: Column(
         children: [
-          _BalanceBar(name: app.user?['displayName']?.toString() ?? '', balance: app.balance, connected: app.connected),
+          if (!app.connected)
+            Container(
+              width: double.infinity,
+              color: accentDark,
+              padding: const EdgeInsets.all(6),
+              child: const Text('Povezivanje sa serverom…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
+            ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'ALL', label: Text('Svi')),
-                ButtonSegment(value: 'HOLDEM', label: Text("Hold'em")),
-                ButtonSegment(value: 'OMAHA', label: Text('Omaha')),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Row(
+              children: [
+                const Text('Cash stolovi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                const Spacer(),
+                for (final f in const [('ALL', 'Svi'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: ChoiceChip(
+                      label: Text(f.$2),
+                      selected: _filter == f.$1,
+                      showCheckmark: false,
+                      selectedColor: accent,
+                      onSelected: (_) => setState(() => _filter = f.$1),
+                    ),
+                  ),
               ],
-              selected: {_filter},
-              onSelectionChanged: (s) => setState(() => _filter = s.first),
             ),
           ),
           Expanded(
@@ -69,53 +107,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       Center(child: Text('Trenutno nema otvorenih stolova.', style: TextStyle(color: Colors.white60))),
                     ])
                   : ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                       itemCount: tables.length,
                       itemBuilder: (_, i) => _TableTile(table: tables[i], seated: seatedAt.contains(tables[i]['id'])),
                     ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BalanceBar extends StatelessWidget {
-  final String name;
-  final int balance;
-  final bool connected;
-  const _BalanceBar({required this.name, required this.balance, required this.connected});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(colors: [Color(0xFF3A0911), Color(0xFF121418)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(color: Colors.white70)),
-                Row(children: [
-                  const Icon(Icons.toll, color: gold, size: 20),
-                  const SizedBox(width: 6),
-                  Text(chips(balance), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                ]),
-              ],
-            ),
-          ),
-          if (!connected)
-            const Row(children: [
-              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-              SizedBox(width: 8),
-              Text('Povezivanje…', style: TextStyle(color: Colors.white60)),
-            ]),
         ],
       ),
     );
@@ -133,25 +130,42 @@ class _TableTile extends StatelessWidget {
     final players = t['players'] as int;
     final max = t['maxSeats'] as int;
     final rake = (t['rakePercent'] as num);
-    return Card(
+    final omaha = t['variant'] == 'OMAHA';
+    final color = omaha ? const Color(0xFF7B3FC4) : accent;
+    void open() => Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id'])));
+
+    return Container(
       margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(colors: [Color.lerp(panel, color, 0.18)!, panel], begin: Alignment.centerLeft, end: Alignment.centerRight),
+        border: Border.all(color: seated ? gold : Colors.white10),
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id']))),
+        borderRadius: BorderRadius.circular(16),
+        onTap: open,
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
+              // Ulozi velikim brojevima, kao u lobiju velikih poker sajtova
               Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: t['variant'] == 'OMAHA' ? const Color(0xFF6A3D9A) : accent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text(t['variant'] == 'OMAHA' ? 'PLO' : 'NLH',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                width: 74,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(12)),
+                child: Column(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
+                    child: Text(omaha ? 'PLO' : 'NLH', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  ),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    child: Text('${chips(t['smallBlind'])}/${chips(t['bigBlind'])}',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  ),
+                  const Text('RSD', style: TextStyle(fontSize: 10, color: Colors.white54)),
+                ]),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -160,41 +174,43 @@ class _TableTile extends StatelessWidget {
                   children: [
                     Row(children: [
                       Flexible(
-                        child: Text(t['name'], style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                        child: Text(t['name'], style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
                       ),
                       if (seated) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(color: gold, borderRadius: BorderRadius.circular(6)),
-                          child: const Text('SEDITE', style: TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: const Text('SEDITE', style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w900)),
                         ),
                       ],
                     ]),
                     const SizedBox(height: 2),
-                    Text(variantLong(t['variant']), style: const TextStyle(color: Colors.white60, fontSize: 13)),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Blajndovi ${chips(t['smallBlind'])}/${chips(t['bigBlind'])} · ulaz ${chips(t['minBuyIn'])}–${chips(t['maxBuyIn'])}'
-                      '${rake > 0 ? ' · rake $rake%' : ''}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
+                    Text(omaha ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit",
+                        style: const TextStyle(color: Colors.white60, fontSize: 12.5)),
+                    const SizedBox(height: 6),
+                    Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}', style: const TextStyle(fontSize: 12.5)),
+                    if (rake > 0) Text('Rake $rake%', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                    const SizedBox(height: 6),
+                    // Popunjenost stola: tačkice za zauzeta i slobodna mesta
+                    Row(children: [
+                      for (var k = 0; k < max; k++)
+                        Container(
+                          width: 9,
+                          height: 9,
+                          margin: const EdgeInsets.only(right: 3),
+                          decoration: BoxDecoration(shape: BoxShape.circle, color: k < players ? winGreen : Colors.white12),
+                        ),
+                      const SizedBox(width: 4),
+                      Text('$players/$max', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    ]),
                   ],
                 ),
               ),
-              Column(
-                children: [
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.person, size: 16, color: Colors.white54),
-                    Text(' $players/$max', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                  ]),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(14)),
-                    child: const Text('IGRAJ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
-                  ),
-                ],
+              FilledButton(
+                style: FilledButton.styleFrom(minimumSize: const Size(76, 40), padding: const EdgeInsets.symmetric(horizontal: 12)),
+                onPressed: open,
+                child: Text(seated ? 'NASTAVI' : 'IGRAJ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
               ),
             ],
           ),
