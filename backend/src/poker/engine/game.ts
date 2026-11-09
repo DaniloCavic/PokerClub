@@ -14,6 +14,8 @@ export interface GameConfig {
   rakeBps: number;
   /** Najviše rake-a po ruci; 0 = bez ograničenja. */
   rakeCap: number;
+  /** Ante koji pre deljenja plaća svaki igrač koji dobija karte (0 = bez ante-a). */
+  ante?: number;
 }
 
 export interface Seat {
@@ -39,7 +41,7 @@ export interface Seat {
   lastAct: SeatAct | null;
 }
 
-export type ActKind = 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
+export type ActKind = 'ante' | 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
 export interface SeatAct {
   type: ActKind;
   amount: number;
@@ -210,6 +212,23 @@ export class PokerGame {
       let i = this.sbSeat;
       for (let n = 0; n < ready.size; n++) {
         this.seats[i]!.hole.push(this.draw());
+        i = this.next(i, inHand);
+      }
+    }
+
+    // Ante: svaki igrač u ruci stavlja ga direktno u pot (ne računa se kao ulog u rundi).
+    const ante = this.config.ante ?? 0;
+    if (ante > 0) {
+      let i = this.sbSeat;
+      for (let n = 0; n < ready.size; n++) {
+        const s = this.seats[i]!;
+        const paid = Math.min(ante, s.stack);
+        s.stack -= paid;
+        s.committed += paid;
+        this.collected += paid;
+        if (s.stack === 0) s.allIn = true;
+        this.actions.push({ seat: i, name: s.name, street: 'preflop', type: 'ante', amount: paid });
+        this.log.push(`${s.name}: ante ${paid}${s.allIn ? ' (all-in)' : ''}`);
         i = this.next(i, inHand);
       }
     }

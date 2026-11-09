@@ -94,7 +94,7 @@ model PokerTable {
   rakeBps       Int       @default(0)
   /// Najviše rake-a po ruci; 0 = bez ograničenja.
   rakeCap       Int       @default(0)
-  actionSeconds Int       @default(20)
+  actionSeconds Int       @default(15)
   isOpen        Boolean   @default(true)
   /// Zakazano otvaranje: pre ovog trenutka igrači ne mogu da uđu za sto.
   opensAt       DateTime?

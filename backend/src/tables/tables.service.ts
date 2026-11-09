@@ -12,6 +12,9 @@ import { agentCut, splitRake } from '../poker/engine/rake';
 /** Pauza između dve ruke (da se vidi ko je dobio). */
 const BETWEEN_HANDS_MS = Number(process.env.BETWEEN_HANDS_MS || 5000);
 /** Igrač koji ne igra (sit out) duže od ovoga automatski ustaje sa stola. */
+/** Dodatno vreme (TIME) posle isteka osnovnog vremena za potez. */
+const TIME_BANK_MS = Number(process.env.TIME_BANK_MS || 30_000);
+/** Igrač koji ne igra (sit out) duže od ovoga automatski ustaje sa stola. */
 const SIT_OUT_LIMIT_MS = Number(process.env.SIT_OUT_LIMIT_MS || 10 * 60_000);
 
 interface Runtime {
@@ -21,6 +24,8 @@ interface Runtime {
   turnTimer?: NodeJS.Timeout;
   turnKey?: string;
   deadline: number | null;
+  /** Kad počinje dodatno vreme (TIME) za igrača na potezu. */
+  timeBankAt: number | null;
   nextHandTimer?: NodeJS.Timeout;
   /** Stekovi na početku ruke (za istoriju). */
   startStacks: Record<number, number>;
@@ -86,9 +91,12 @@ export class TablesService implements OnModuleInit {
         maxSeats: table.maxSeats,
         rakeBps: table.rakeBps,
         rakeCap: table.rakeCap,
+        // Ante je petina velikog blajnda.
+        ante: Math.floor(table.bigBlind / 5),
       }),
       queue: Promise.resolve(),
       deadline: null,
+      timeBankAt: null,
       startStacks: {},
       lastResult: null,
       sitOutSince: new Map(),
@@ -203,6 +211,11 @@ export class TablesService implements OnModuleInit {
       bbSeat: g.inProgress ? g.bbSeat : -1,
       toAct: g.toAct,
       deadline: rt.deadline,
+      timeBankAt: rt.timeBankAt,
+      timeBankSeconds: TIME_BANK_MS / 1000,
+      // Pot iz prethodnih rundi (gomila žetona na sredini stola), bez uloga u tekućoj rundi.
+      collected: g.inProgress ? g.collected : 0,
+      ante: Math.floor(rt.table.bigBlind / 5),
       serverTime: Date.now(),
       seats: g.seats.map((s, i) => {
         if (!s) return null;
@@ -470,13 +483,16 @@ export class TablesService implements OnModuleInit {
       clearTimeout(rt.turnTimer);
       rt.turnKey = undefined;
       rt.deadline = null;
+      rt.timeBankAt = null;
       return;
     }
     const key = `${g.handNo}:${g.street}:${g.toAct}:${g.currentBet}:${g.seats[g.toAct]!.bet}`;
     if (key === rt.turnKey) return;
     clearTimeout(rt.turnTimer);
     rt.turnKey = key;
-    const ms = rt.table.actionSeconds * 1000;
+    // Osnovno vreme za potez, pa dodatno vreme (TIME); tek kad istekne i ono, igra se check ili fold.
+    const ms = rt.table.actionSeconds * 1000 + TIME_BANK_MS;
+    rt.timeBankAt = Date.now() + rt.table.actionSeconds * 1000;
     rt.deadline = Date.now() + ms;
     rt.turnTimer = setTimeout(() => {
       void this.exclusive(rt, async () => {

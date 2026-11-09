@@ -41,7 +41,7 @@ const EMPTY: TableForm = {
   maxSeats: 9,
   rakePercent: 5,
   rakeCap: 50,
-  actionSeconds: 20,
+  actionSeconds: 15,
   opensAt: '',
 };
 
@@ -218,7 +218,7 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
             <input type="number" min={2} max={9} value={f.maxSeats} onChange={num('maxSeats')} />
           </label>
           <label>
-            Vreme za potez (sekunde)
+            Vreme za potez (sekunde, posle još 30 s TIME)
             <input type="number" min={10} max={120} value={f.actionSeconds} onChange={num('actionSeconds')} />
           </label>
           <label>

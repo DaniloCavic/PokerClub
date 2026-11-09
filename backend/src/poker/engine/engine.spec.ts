@@ -307,6 +307,53 @@ describe("Hold'em ruka", () => {
   });
 });
 
+describe('ante', () => {
+  const withAnte: GameConfig = { ...holdem, ante: 2 };
+
+  it('svaki igrač u ruci plaća ante, igrač na pauzi ne', () => {
+    const g = new PokerGame(withAnte);
+    g.sit(0, 'a', 'Ana', 1000);
+    g.sit(1, 'b', 'Bojan', 1000);
+    g.sit(2, 'c', 'Ceca', 1000);
+    g.sit(3, 'd', 'Dule', 1000);
+    g.seats[3]!.sittingOut = true;
+    g.startHand();
+    expect(g.collected).toBe(6);
+    expect(g.potTotal()).toBe(6 + 5 + 10);
+    expect(g.seats[3]!.stack).toBe(1000);
+    expect(g.seats[0]!.stack).toBe(998);
+    expect(g.actions.filter((a) => a.type === 'ante')).toHaveLength(3);
+    // Ante se ne računa u ulog: dugme i dalje dorovnjava 10.
+    expect(g.legalActions(0)!.call).toBe(10);
+  });
+
+  it('dobitnik dobija i ante-e, žetoni su očuvani', () => {
+    const g = new PokerGame(withAnte);
+    g.sit(0, 'a', 'Ana', 1000);
+    g.sit(1, 'b', 'Bojan', 1000);
+    g.sit(2, 'c', 'Ceca', 1000);
+    g.startHand();
+    g.act(0, 'fold');
+    g.act(1, 'fold');
+    expect(stacks(g)).toEqual([998, 993, 1009, null, null, null]);
+  });
+
+  it('igrač sa manje od ante-a je odmah all-in', () => {
+    const g = new PokerGame(withAnte);
+    g.sit(0, 'a', 'Ana', 1000);
+    g.sit(1, 'b', 'Bojan', 1000);
+    g.sit(2, 'c', 'Ceca', 1);
+    g.startHand();
+    expect(g.seats[2]!.allIn).toBe(true);
+    let guard = 0;
+    while (g.inProgress && guard++ < 50) {
+      const l = g.legalActions(g.toAct)!;
+      g.act(g.toAct, l.check ? 'check' : 'call');
+    }
+    expect(g.seats.reduce((s, x) => s + (x?.stack ?? 0), 0)).toBe(2001);
+  });
+});
+
 describe('Omaha (pot-limit)', () => {
   it('deli četiri karte i ograničava povišenje na pot', () => {
     const g = new PokerGame(omaha);
@@ -344,7 +391,7 @@ describe('nasumične ruke', () => {
     for (let round = 0; round < 300; round++) {
       const variant = round % 2 ? 'HOLDEM' : 'OMAHA';
       const rake = round % 3 === 0 ? { rakeBps: 500, rakeCap: round % 2 ? 0 : 7 } : {};
-      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake });
+      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake, ante: round % 2 ? 2 : 0 });
       const n = 2 + (round % 8);
       let total = 0;
       for (let i = 0; i < n; i++) {

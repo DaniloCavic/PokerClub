@@ -13,6 +13,7 @@ const _streetNames = {'preflop': 'PRE-FLOP', 'flop': 'FLOP', 'turn': 'TURN', 'ri
 ({String label, Color color}) historyLabel(Json act, Money money) {
   final amount = act['amount'] as int? ?? 0;
   return switch (act['type'] as String) {
+    'ante' => (label: 'ante ${money(amount)}', color: Colors.white38),
     'sb' => (label: 'mali blajnd ${money(amount)}', color: Colors.white60),
     'bb' => (label: 'veliki blajnd ${money(amount)}', color: Colors.white60),
     'fold' => (label: 'FOLD', color: Colors.white54),
