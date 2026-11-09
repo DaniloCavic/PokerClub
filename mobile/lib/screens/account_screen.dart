@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -91,14 +92,17 @@ class _AccountScreenState extends State<AccountScreen> {
       body: RefreshIndicator(
         onRefresh: app.refreshMe,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          // Na računaru sadržaj ne ide preko cele širine.
+          padding: EdgeInsets.fromLTRB(max(16, (MediaQuery.of(context).size.width - 640) / 2), 8,
+              max(16, (MediaQuery.of(context).size.width - 640) / 2), 24),
           children: [
             // Zaglavlje: slika, ime i stanje
             Container(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(colors: [Color(0xFF4A0A12), Color(0xFF16181E)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF4A0A12), Color(0xFF16181E)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                 border: Border.all(color: Colors.white10),
               ),
               child: Column(children: [
@@ -113,9 +117,12 @@ class _AccountScreenState extends State<AccountScreen> {
                         child: Container(
                           width: 34,
                           height: 34,
-                          decoration: BoxDecoration(color: accent, shape: BoxShape.circle, border: Border.all(color: bg, width: 3)),
+                          decoration:
+                              BoxDecoration(color: accent, shape: BoxShape.circle, border: Border.all(color: bg, width: 3)),
                           child: _uploading
-                              ? const Padding(padding: EdgeInsets.all(7), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              ? const Padding(
+                                  padding: EdgeInsets.all(7),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.photo_camera, size: 17),
                         ),
                       ),
@@ -263,11 +270,14 @@ class _PasswordDialogState extends State<_PasswordDialog> {
         children: [
           TextField(controller: _old, obscureText: true, decoration: const InputDecoration(labelText: 'Stara lozinka')),
           const SizedBox(height: 12),
-          TextField(controller: _new, obscureText: true, decoration: const InputDecoration(labelText: 'Nova lozinka (bar 6 znakova)')),
+          TextField(
+              controller: _new, obscureText: true, decoration: const InputDecoration(labelText: 'Nova lozinka (bar 6 znakova)')),
           const SizedBox(height: 12),
-          TextField(controller: _confirm, obscureText: true, decoration: const InputDecoration(labelText: 'Ponovite novu lozinku')),
+          TextField(
+              controller: _confirm, obscureText: true, decoration: const InputDecoration(labelText: 'Ponovite novu lozinku')),
           if (_error != null)
-            Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80)))),
+            Padding(
+                padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80)))),
         ],
       ),
       actions: [

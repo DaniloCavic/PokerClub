@@ -141,22 +141,34 @@ class _TableScreenState extends State<TableScreen> {
             onMenu: mySeat >= 0 ? () => _menu(st) : null,
           ),
           Expanded(
-            child: LayoutBuilder(
-              builder: (_, c) => ValueListenableBuilder<List<Json>>(
-                valueListenable: app.chatOf(widget.tableId),
-                builder: (_, chat, __) =>
-                    _TableView(st: st, size: c.biggest, money: money, chat: chat, onSit: (i) => _sit(st, i)),
-              ),
-            ),
+            child: LayoutBuilder(builder: (_, c) {
+              // Na širokom ekranu (računar) sto zadržava dobru srazmeru i stoji u sredini.
+              final w = min(c.maxWidth, c.maxHeight * 1.6);
+              final h = min(c.maxHeight, w * 2.0);
+              return Center(
+                child: SizedBox(
+                  width: w,
+                  height: h,
+                  child: ValueListenableBuilder<List<Json>>(
+                    valueListenable: app.chatOf(widget.tableId),
+                    builder: (_, chat, __) =>
+                        _TableView(st: st, size: Size(w, h), money: money, chat: chat, onSit: (i) => _sit(st, i)),
+                  ),
+                ),
+              );
+            }),
           ),
           if (mySeat >= 0)
-            _MyPanel(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: _MyPanel(
               st: st,
               app: app,
               money: money,
               pre: _pre,
               onPre: (p) => _setPre(st, p),
               onTopUp: () => _topUp(st, (st['seats'] as List)[mySeat] as Json),
+              ),
             )
           else
             const Padding(
@@ -385,7 +397,7 @@ class _TableView extends StatelessWidget {
       if (won.containsKey(s['seat'])) best.addAll((s['best'] as List).cast<String>());
     }
     final board = (st['board'] as List).cast<String>();
-    final cardW = min(38.0, (w * 0.56) / 5 - 4);
+    final cardW = min(min(w, h) > 600 ? 46.0 : 38.0, (w * 0.56) / 5 - 4);
     final boardTop = center.dy - cardW * 1.4 / 2 - 6;
 
     final children = <Widget>[
@@ -416,7 +428,7 @@ class _TableView extends StatelessWidget {
         left: 0,
         right: 0,
         top: boardTop + cardW * 1.4 + 30,
-        child: IgnorePointer(child: _FeltInfo(st: st, w: w)),
+        child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75))),
       ),
       // Ukupan pot iznad karata
       Positioned(
