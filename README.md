@@ -44,9 +44,10 @@ pa igrač ne može da vidi tuđe karte niti da prevari izmenom aplikacije.
 zatvaranje, ko sedi, podizanje sa stola, istorija ruku), igrači (pravljenje, uplata, isplata, blokada, nova lozinka,
 istorija), transakcije, agenti (samo administrator).
 
-**Aplikacija za igrače**: prijava, lobi sa filterom Hold'em/Omaha, sto sa sedištima oko stola, karte u četiri boje,
-tajmer, Fold / Check / Call / Bet / Raise sa brzim izborom (½ pota, ¾ pota, pot, all-in), ulaz i dopuna žetona,
-pauza, nalog sa istorijom i promenom lozinke.
+**Aplikacija za igrače**: prijava, lobi sa stanjem u RSD gore levo, sto sa avatarima, karte u četiri boje,
+potez svakog igrača ispisan kod njega (CHECK, CALL, RAISE…), jačina ruke (npr. „Dva para K i 9"),
+prikaz iznosa u RSD ili BB (prekidač na stolu), potezi unapred (Check/Fold, Call bilo šta),
+istorija ruke u toku i prethodnih ruku, profil sa slikom, transakcije i promena lozinke.
 
 ## Pokretanje na računaru
 
