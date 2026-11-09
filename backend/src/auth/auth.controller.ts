@@ -102,6 +102,58 @@ export class MeController {
     return { items, total, page: p, pageSize: 30 };
   }
 
+  /**
+   * Istorija ruku koje je igrač odigrao (najnovije prve).
+   * Tuđe karte se vide samo ako su otvorene na kraju ruke.
+   */
+  @Get('hands')
+  async hands(@CurrentUser() user: User, @Query('tableId') tableId?: string, @Query('page') page = '1') {
+    const p = Math.max(1, Number(page) || 1);
+    const where = { playerIds: { has: user.id }, ...(tableId ? { tableId } : {}) };
+    const [hands, total] = await Promise.all([
+      this.prisma.hand.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (p - 1) * 20,
+        take: 20,
+        include: { table: { select: { name: true, variant: true, smallBlind: true, bigBlind: true } } },
+      }),
+      this.prisma.hand.count({ where }),
+    ]);
+    return {
+      total,
+      page: p,
+      pageSize: 20,
+      items: hands.map((h) => {
+        const d = h.details as {
+          players: { seat: number; userId: string; name: string; startStack: number; endStack: number; cards: string }[];
+          pots: unknown[];
+          shown: { seat: number }[];
+          actions?: unknown[];
+        };
+        const shown = new Set((d.shown ?? []).map((x) => x.seat));
+        return {
+          id: h.id,
+          handNo: h.handNo,
+          createdAt: h.createdAt,
+          table: h.table,
+          board: h.board ? h.board.split(' ') : [],
+          pot: h.pot,
+          pots: d.pots,
+          actions: d.actions ?? [],
+          players: d.players.map((pl) => ({
+            seat: pl.seat,
+            name: pl.name,
+            isMe: pl.userId === user.id,
+            startStack: pl.startStack,
+            endStack: pl.endStack,
+            cards: pl.userId === user.id || shown.has(pl.seat) ? pl.cards.split(' ') : null,
+          })),
+        };
+      }),
+    };
+  }
+
   @Get('tables')
   lobby() {
     return this.tables.lobby();

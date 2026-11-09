@@ -190,7 +190,12 @@ class _TableTile extends StatelessWidget {
                         style: const TextStyle(color: Colors.white60, fontSize: 12.5)),
                     const SizedBox(height: 6),
                     Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}', style: const TextStyle(fontSize: 12.5)),
-                    if (rake > 0) Text('Rake $rake%', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                    // Rake je tu za informaciju, ali neupadljivo.
+                    if (rake > 0)
+                      Text(
+                        'rake $rake%${(t['rakeCap'] as int? ?? 0) > 0 ? ', najviše ${rsd(t['rakeCap'])}' : ''}',
+                        style: const TextStyle(fontSize: 10.5, color: Colors.white30),
+                      ),
                     const SizedBox(height: 6),
                     // Popunjenost stola: tačkice za zauzeta i slobodna mesta
                     Row(children: [

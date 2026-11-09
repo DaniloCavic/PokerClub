@@ -126,8 +126,11 @@ model Hand {
   rake      Int
   /// Igrači, karte, dobici i tok ruke.
   details   Json
+  /// Ko je igrao ruku (za istoriju ruku igrača).
+  playerIds String[]  @default([])
   createdAt DateTime   @default(now())
 
   @@index([tableId, createdAt])
   @@index([createdAt])
+  @@index([playerIds], type: Gin)
 }

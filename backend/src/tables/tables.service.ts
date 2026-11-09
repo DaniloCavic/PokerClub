@@ -59,7 +59,7 @@ export class TablesService implements OnModuleInit {
     for (const s of seats) await this.cashOutRow(s.tableId, s.userId, 'Server je ponovo pokrenut');
     if (seats.length) this.log.log(`Vraćeni žetoni za ${seats.length} sedišta.`);
     const open = await this.prisma.pokerTable.findMany({ where: { isOpen: true } });
-    for (const t of open) this.createRuntime(t);
+    for (const t of open) await this.continueNumbering(this.createRuntime(t));
   }
 
   private createRuntime(table: PokerTable) {
@@ -82,6 +82,12 @@ export class TablesService implements OnModuleInit {
     };
     this.runtimes.set(table.id, rt);
     return rt;
+  }
+
+  /** Brojevi ruku se nastavljaju i posle ponovnog pokretanja servera. */
+  private async continueNumbering(rt: Runtime) {
+    const last = await this.prisma.hand.aggregate({ where: { tableId: rt.table.id }, _max: { handNo: true } });
+    rt.game.handNo = last._max.handNo ?? 0;
   }
 
   private rt(tableId: string): Runtime {
@@ -191,8 +197,8 @@ export class TablesService implements OnModuleInit {
       }),
       mySeat,
       myHand: this.currentHand(rt, mySeat),
-      // Poslednji potezi u ruci (za spisak na stolu).
-      actions: g.actions.slice(-6),
+      // Svi potezi u ruci koja je u toku (spisak na stolu i istorija ruke).
+      actions: g.actions,
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: rt.lastResult,
     };
@@ -364,7 +370,7 @@ export class TablesService implements OnModuleInit {
   // ---------- Upravljanje stolovima ----------
 
   async open(table: PokerTable) {
-    if (!this.runtimes.has(table.id)) this.createRuntime(table);
+    if (!this.runtimes.has(table.id)) await this.continueNumbering(this.createRuntime(table));
     this.lobbyChanged();
   }
 
@@ -477,7 +483,14 @@ export class TablesService implements OnModuleInit {
           board: r.board.map(cardToString).join(' '),
           pot,
           rake: r.rake,
-          details: { players, pots: rt.lastResult.pots, shown: rt.lastResult.shown, log: r.log } as unknown as Prisma.InputJsonValue,
+          details: {
+            players,
+            pots: rt.lastResult.pots,
+            shown: rt.lastResult.shown,
+            actions: g.actions,
+            log: r.log,
+          } as unknown as Prisma.InputJsonValue,
+          playerIds: players.map((p) => p.userId),
         },
       }),
       ...g.seats.flatMap((s) =>

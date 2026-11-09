@@ -161,14 +161,6 @@ class _AccountScreenState extends State<AccountScreen> {
                 title: hasPhoto ? 'Promeni sliku profila' : 'Dodaj sliku profila',
                 onTap: () => _photoMenu(hasPhoto),
               ),
-              SwitchListTile(
-                secondary: const Icon(Icons.swap_horiz, color: Colors.white70),
-                title: const Text('Iznosi za stolom u BB'),
-                subtitle: const Text('Umesto u dinarima, u velikim blajndovima', style: TextStyle(fontSize: 12)),
-                value: app.showBB,
-                activeColor: accent,
-                onChanged: app.setShowBB,
-              ),
             ]),
             const SizedBox(height: 12),
             _MenuCard(children: [

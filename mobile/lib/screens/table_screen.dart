@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/action_bar.dart';
 import '../widgets/avatar.dart';
+import '../widgets/hand_history.dart';
 import '../widgets/playing_card.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -116,9 +117,10 @@ class _TableScreenState extends State<TableScreen> {
               title: Text(st?['name'] ?? 'Sto', overflow: TextOverflow.ellipsis),
               actions: [
                 if (st != null)
-                  TextButton(
-                    onPressed: () => app.setShowBB(!showBB),
-                    child: Text(showBB ? 'BB' : 'RSD', style: const TextStyle(color: gold, fontWeight: FontWeight.w800)),
+                  IconButton(
+                    tooltip: 'Istorija ruku',
+                    icon: const Icon(Icons.history),
+                    onPressed: () => showHandHistory(context, tableId: widget.tableId, table: app.tableNotifier(widget.tableId)),
                   ),
                 if (st != null && (st['mySeat'] as int) >= 0) _menu(st, showBB),
               ],
@@ -173,7 +175,7 @@ class _TableScreenState extends State<TableScreen> {
     return SafeArea(
       child: Column(
         children: [
-          _InfoBar(st: st),
+          _InfoBar(st: st, showBB: money.inBB, onToggle: (v) => app.setShowBB(v)),
           Expanded(
             child: LayoutBuilder(
               builder: (_, c) => _TableView(st: st, size: c.biggest, money: money, onSit: (i) => _sit(st, i)),
@@ -209,7 +211,7 @@ class _TableScreenState extends State<TableScreen> {
         max: max,
         balance: app.balance,
         confirm: 'Sedi',
-        info: 'Blajndovi ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · ulaz ${rsd(min)} – ${rsd(max)}',
+        info: 'Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD · ulaz ${rsd(min)} – ${rsd(max)}',
       ),
     );
     if (amount == null) return;
@@ -240,11 +242,12 @@ class _TableScreenState extends State<TableScreen> {
 
 class _InfoBar extends StatelessWidget {
   final Json st;
-  const _InfoBar({required this.st});
+  final bool showBB;
+  final ValueChanged<bool> onToggle;
+  const _InfoBar({required this.st, required this.showBB, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
-    final rake = st['rakePercent'] as num;
     final short = st['variant'] == 'OMAHA' ? 'PLO' : 'NLH';
     const streets = {'preflop': 'PRE-FLOP', 'flop': 'FLOP', 'turn': 'TURN', 'river': 'RIVER', 'showdown': 'OTVARANJE'};
     final street = streets[st['street']];
@@ -260,14 +263,33 @@ class _InfoBar extends StatelessWidget {
             child: Text(short, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
           ),
           const SizedBox(width: 8),
-          Text('Blajndovi ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text('Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
+                overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          ),
+          if (street != null) ...[
+            const SizedBox(width: 8),
+            Text(street, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w900)),
+          ],
           const Spacer(),
-          if (street != null)
-            Text(street, style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w800)),
-          Text(
-            '${street != null ? '  ·  ' : ''}${rake > 0 ? 'Rake $rake%' : 'Bez rake-a'}',
-            style: const TextStyle(fontSize: 12, color: Colors.white54),
+          // Prekidač prikaza iznosa: dinari ili veliki blajndovi
+          Container(
+            decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.all(2),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              for (final opt in const [(false, 'RSD'), (true, 'BB')])
+                GestureDetector(
+                  onTap: () => onToggle(opt.$1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: showBB == opt.$1 ? accent : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(opt.$2, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                  ),
+                ),
+            ]),
           ),
         ],
       ),
