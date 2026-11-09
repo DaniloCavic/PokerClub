@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/brand.dart';
 
 class TransactionsScreen extends StatefulWidget {
-  const TransactionsScreen({super.key});
+  /// U glavnom okviru aplikacije kao Blagajna (bez sopstvene gornje trake).
+  final bool embedded;
+  const TransactionsScreen({super.key, this.embedded = false});
 
   @override
   State<TransactionsScreen> createState() => _TransactionsScreenState();
@@ -54,98 +57,113 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Transakcije')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: Column(
-            children: [
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(14)),
-                child: Row(children: [
-                  const Text('Stanje', style: TextStyle(color: Colors.white60)),
-                  const Spacer(),
-                  Text(rsd(app.balance), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: gold)),
-                ]),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(children: [
-                  for (final f in const [('', 'Sve'), ('money', 'Uplate i isplate'), ('tables', 'Stolovi')])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(f.$2),
-                        selected: _type == f.$1,
-                        showCheckmark: false,
-                        selectedColor: accent,
-                        onSelected: (_) {
-                          setState(() => _type = f.$1);
-                          _load(reset: true);
-                        },
-                      ),
-                    ),
-                ]),
-              ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => _load(reset: true),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    itemCount: _items.length + 1,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
-                    itemBuilder: (_, i) {
-                      if (i == _items.length) {
-                        if (_loading) {
-                          return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
-                        }
-                        if (_items.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.all(32),
-                            child: Center(child: Text('Nema transakcija.', style: TextStyle(color: Colors.white60))),
-                          );
-                        }
-                        return _items.length < _total
-                            ? TextButton(onPressed: () => _load(), child: const Text('Učitaj još'))
-                            : const SizedBox(height: 8);
-                      }
-                      final t = _items[i];
-                      final amount = (t['amount'] as num).toInt();
-                      final icon = _icons[t['type']] ?? (Icons.circle, Colors.white54);
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                            backgroundColor: icon.$2.withOpacity(0.15), child: Icon(icon.$1, color: icon.$2, size: 20)),
-                        title: Text(txLabels[t['type']] ?? t['type'], style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text([dateTime(t['createdAt']), if (t['note'] != null) t['note']].join(' · '),
-                            style: const TextStyle(fontSize: 12)),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '${amount > 0 ? '+' : ''}${rsd(amount)}',
-                              style:
-                                  TextStyle(fontWeight: FontWeight.w900, color: amount > 0 ? winGreen : const Color(0xFFFF6B6B)),
-                            ),
-                            Text('stanje ${rsd(t['balanceAfter'])}', style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+    final body = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Column(
+          children: [
+            if (widget.embedded)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GoldText('Blagajna', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
                 ),
               ),
-            ],
-          ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: LuxPanel(
+                padding: const EdgeInsets.all(16),
+                child: Column(children: [
+                  Row(children: [
+                    const Icon(Icons.account_balance_wallet, color: gold),
+                    const SizedBox(width: 8),
+                    const Text('Stanje na nalogu', style: TextStyle(color: Colors.white70)),
+                    const Spacer(),
+                    GoldText(rsd(app.balance), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                  ]),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Uplate i isplate radi vaš agent. Javite mu se za uplatu ili isplatu; promena se ovde vidi odmah.',
+                    style: TextStyle(color: Colors.white54, fontSize: 12.5),
+                  ),
+                ]),
+              ),
+            ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                for (final f in const [('', 'Sve'), ('money', 'Uplate i isplate'), ('tables', 'Stolovi')])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(f.$2),
+                      selected: _type == f.$1,
+                      showCheckmark: false,
+                      selectedColor: accent,
+                      onSelected: (_) {
+                        setState(() => _type = f.$1);
+                        _load(reset: true);
+                      },
+                    ),
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => _load(reset: true),
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  itemCount: _items.length + 1,
+                  separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                  itemBuilder: (_, i) {
+                    if (i == _items.length) {
+                      if (_loading) {
+                        return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
+                      }
+                      if (_items.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: Text('Nema transakcija.', style: TextStyle(color: Colors.white60))),
+                        );
+                      }
+                      return _items.length < _total
+                          ? TextButton(onPressed: () => _load(), child: const Text('Učitaj još'))
+                          : const SizedBox(height: 8);
+                    }
+                    final t = _items[i];
+                    final amount = (t['amount'] as num).toInt();
+                    final icon = _icons[t['type']] ?? (Icons.circle, Colors.white54);
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                          backgroundColor: icon.$2.withOpacity(0.15), child: Icon(icon.$1, color: icon.$2, size: 20)),
+                      title: Text(txLabels[t['type']] ?? t['type'], style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text([dateTime(t['createdAt']), if (t['note'] != null) t['note']].join(' · '),
+                          style: const TextStyle(fontSize: 12)),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${amount > 0 ? '+' : ''}${rsd(amount)}',
+                            style: TextStyle(fontWeight: FontWeight.w900, color: amount > 0 ? winGreen : const Color(0xFFFF6B6B)),
+                          ),
+                          Text('stanje ${rsd(t['balanceAfter'])}', style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
+    if (widget.embedded) return body;
+    return Scaffold(appBar: AppBar(title: const Text('Transakcije')), body: body);
   }
 }

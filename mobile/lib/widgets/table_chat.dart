@@ -17,7 +17,7 @@ void showTableChat(BuildContext context, String tableId) {
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (_) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: FractionallySizedBox(heightFactor: 0.6, child: _ChatSheet(tableId: tableId)),
+      child: FractionallySizedBox(heightFactor: 0.6, child: TableChatView(tableId: tableId)),
     ),
   ).whenComplete(() {
     app.openChat = null;
@@ -25,15 +25,17 @@ void showTableChat(BuildContext context, String tableId) {
   });
 }
 
-class _ChatSheet extends StatefulWidget {
+/// Chat stola (u bočnom panelu ili u listi odozdo).
+class TableChatView extends StatefulWidget {
   final String tableId;
-  const _ChatSheet({required this.tableId});
+  final bool compact;
+  const TableChatView({super.key, required this.tableId, this.compact = false});
 
   @override
-  State<_ChatSheet> createState() => _ChatSheetState();
+  State<TableChatView> createState() => _ChatSheetState();
 }
 
-class _ChatSheetState extends State<_ChatSheet> {
+class _ChatSheetState extends State<TableChatView> {
   final _text = TextEditingController();
   bool _sending = false;
 
@@ -51,12 +53,14 @@ class _ChatSheetState extends State<_ChatSheet> {
     final app = context.read<AppState>();
     final myId = app.user?['id'];
     return Column(children: [
-      const SizedBox(height: 8),
-      Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-      const Padding(
-        padding: EdgeInsets.all(10),
-        child: Text('Chat stola', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-      ),
+      if (!widget.compact) ...[
+        const SizedBox(height: 8),
+        Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+        const Padding(
+          padding: EdgeInsets.all(10),
+          child: Text('Chat stola', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        ),
+      ],
       Expanded(
         child: ValueListenableBuilder<List<Json>>(
           valueListenable: app.chatOf(widget.tableId),
@@ -83,7 +87,8 @@ class _ChatSheetState extends State<_ChatSheet> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      if (!mine) Text(m['name'] as String, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w700)),
+                      if (!mine)
+                        Text(m['name'] as String, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w700)),
                       Text(m['text'] as String),
                       Text('${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}',
                           style: const TextStyle(fontSize: 10, color: Colors.white54)),

@@ -9,7 +9,9 @@ import '../widgets/avatar.dart';
 import 'transactions_screen.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key});
+  /// U glavnom okviru aplikacije (bez sopstvene gornje trake).
+  final bool embedded;
+  const AccountScreen({super.key, this.embedded = false});
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -87,102 +89,99 @@ class _AccountScreenState extends State<AccountScreen> {
     final name = u['displayName']?.toString() ?? '';
     final hasPhoto = u['avatarUrl'] != null;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Moj profil')),
-      body: RefreshIndicator(
-        onRefresh: app.refreshMe,
-        child: ListView(
-          // Na računaru sadržaj ne ide preko cele širine.
-          padding: EdgeInsets.fromLTRB(max(16, (MediaQuery.of(context).size.width - 640) / 2), 8,
-              max(16, (MediaQuery.of(context).size.width - 640) / 2), 24),
-          children: [
-            // Zaglavlje: slika, ime i stanje
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(
-                    colors: [Color(0xFF4A0A12), Color(0xFF16181E)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Column(children: [
-                GestureDetector(
-                  onTap: _uploading ? null : () => _photoMenu(hasPhoto),
-                  child: Stack(
-                    children: [
-                      Avatar(name: name, url: u['avatarUrl'] as String?, size: 104, borderColor: Colors.white70, borderWidth: 3),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 34,
-                          height: 34,
-                          decoration:
-                              BoxDecoration(color: accent, shape: BoxShape.circle, border: Border.all(color: bg, width: 3)),
-                          child: _uploading
-                              ? const Padding(
-                                  padding: EdgeInsets.all(7),
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.photo_camera, size: 17),
-                        ),
+    final body = RefreshIndicator(
+      onRefresh: app.refreshMe,
+      child: ListView(
+        // Na računaru sadržaj ne ide preko cele širine.
+        padding: EdgeInsets.fromLTRB(max(16, (MediaQuery.of(context).size.width - 640) / 2), 8,
+            max(16, (MediaQuery.of(context).size.width - 640) / 2), 24),
+        children: [
+          // Zaglavlje: slika, ime i stanje
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF4A0A12), Color(0xFF16181E)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Column(children: [
+              GestureDetector(
+                onTap: _uploading ? null : () => _photoMenu(hasPhoto),
+                child: Stack(
+                  children: [
+                    Avatar(name: name, url: u['avatarUrl'] as String?, size: 104, borderColor: Colors.white70, borderWidth: 3),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(color: accent, shape: BoxShape.circle, border: Border.all(color: bg, width: 3)),
+                        child: _uploading
+                            ? const Padding(
+                                padding: EdgeInsets.all(7), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.photo_camera, size: 17),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                Text('@${u['username'] ?? ''}', style: const TextStyle(color: Colors.white60)),
-                if (u['agentName'] != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text('Agent: ${u['agentName']}', style: const TextStyle(color: Colors.white54, fontSize: 13)),
-                  ),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(14)),
-                  child: Column(children: [
-                    const Text('Stanje na nalogu', style: TextStyle(color: Colors.white60, fontSize: 13)),
-                    const SizedBox(height: 2),
-                    Text(rsd(app.balance), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: gold)),
-                  ]),
+              ),
+              const SizedBox(height: 12),
+              Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+              Text('@${u['username'] ?? ''}', style: const TextStyle(color: Colors.white60)),
+              if (u['agentName'] != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('Agent: ${u['agentName']}', style: const TextStyle(color: Colors.white54, fontSize: 13)),
                 ),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            _MenuCard(children: [
-              _MenuItem(
-                icon: Icons.receipt_long,
-                title: 'Transakcije',
-                subtitle: 'Uplate, isplate i stolovi',
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionsScreen())),
-              ),
-              _MenuItem(
-                icon: Icons.lock,
-                title: 'Promena lozinke',
-                onTap: () => showDialog(context: context, builder: (_) => const _PasswordDialog()),
-              ),
-              _MenuItem(
-                icon: Icons.photo_camera,
-                title: hasPhoto ? 'Promeni sliku profila' : 'Dodaj sliku profila',
-                onTap: () => _photoMenu(hasPhoto),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(14)),
+                child: Column(children: [
+                  const Text('Stanje na nalogu', style: TextStyle(color: Colors.white60, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(rsd(app.balance), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: gold)),
+                ]),
               ),
             ]),
-            const SizedBox(height: 12),
-            _MenuCard(children: [
-              _MenuItem(icon: Icons.logout, title: 'Odjava', color: accent, onTap: app.logout),
-            ]),
-            const SizedBox(height: 12),
-            const Text(
-              'Uplate i isplate radi vaš agent. Novac koji imate za stolom vraća se na nalog kad ustanete.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          _MenuCard(children: [
+            _MenuItem(
+              icon: Icons.receipt_long,
+              title: 'Transakcije',
+              subtitle: 'Uplate, isplate i stolovi',
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionsScreen())),
             ),
-          ],
-        ),
+            _MenuItem(
+              icon: Icons.lock,
+              title: 'Promena lozinke',
+              onTap: () => showDialog(context: context, builder: (_) => const _PasswordDialog()),
+            ),
+            _MenuItem(
+              icon: Icons.photo_camera,
+              title: hasPhoto ? 'Promeni sliku profila' : 'Dodaj sliku profila',
+              onTap: () => _photoMenu(hasPhoto),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          _MenuCard(children: [
+            _MenuItem(icon: Icons.logout, title: 'Odjava', color: accent, onTap: app.logout),
+          ]),
+          const SizedBox(height: 12),
+          const Text(
+            'Uplate i isplate radi vaš agent. Novac koji imate za stolom vraća se na nalog kad ustanete.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
       ),
     );
+    if (widget.embedded) return body;
+    return Scaffold(appBar: AppBar(title: const Text('Moj profil')), body: body);
   }
 }
 
@@ -287,3 +286,6 @@ class _PasswordDialogState extends State<_PasswordDialog> {
     );
   }
 }
+
+/// Dijalog za promenu lozinke (iz profila i podešavanja).
+void showPasswordDialog(BuildContext context) => showDialog(context: context, builder: (_) => const _PasswordDialog());

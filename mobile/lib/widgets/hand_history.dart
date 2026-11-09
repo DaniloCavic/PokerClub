@@ -35,15 +35,20 @@ void showHandHistory(BuildContext context, {required String tableId, required Va
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (_) => FractionallySizedBox(
       heightFactor: 0.85,
-      child: _HistorySheet(tableId: tableId, table: table),
+      child: Column(children: [
+        const SizedBox(height: 8),
+        Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+        Expanded(child: HandHistoryTabs(tableId: tableId, table: table)),
+      ]),
     ),
   );
 }
 
-class _HistorySheet extends StatelessWidget {
+/// Istorija za sto: potezi u ruci koja je u toku i prethodne ruke (u panelu ili u listi odozdo).
+class HandHistoryTabs extends StatelessWidget {
   final String tableId;
   final ValueNotifier<Json?> table;
-  const _HistorySheet({required this.tableId, required this.table});
+  const HandHistoryTabs({super.key, required this.tableId, required this.table});
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +56,6 @@ class _HistorySheet extends StatelessWidget {
       length: 2,
       child: Column(
         children: [
-          const SizedBox(height: 8),
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
           const TabBar(
             indicatorColor: accent,
             labelColor: Colors.white,
@@ -83,7 +86,7 @@ class _HistorySheet extends StatelessWidget {
                   );
                 },
               ),
-              _PreviousHands(tableId: tableId, bigBlind: (table.value?['bigBlind'] as int?) ?? 0),
+              PreviousHands(tableId: tableId, bigBlind: (table.value?['bigBlind'] as int?) ?? 0),
             ]),
           ),
         ],
@@ -151,16 +154,17 @@ class ActionsByStreet extends StatelessWidget {
   }
 }
 
-class _PreviousHands extends StatefulWidget {
-  final String tableId;
+class PreviousHands extends StatefulWidget {
+  /// null = ruke sa svih stolova.
+  final String? tableId;
   final int bigBlind;
-  const _PreviousHands({required this.tableId, required this.bigBlind});
+  const PreviousHands({super.key, this.tableId, required this.bigBlind});
 
   @override
-  State<_PreviousHands> createState() => _PreviousHandsState();
+  State<PreviousHands> createState() => _PreviousHandsState();
 }
 
-class _PreviousHandsState extends State<_PreviousHands> {
+class _PreviousHandsState extends State<PreviousHands> {
   List<Json> _items = [];
   int _total = 0;
   int _page = 1;
@@ -178,7 +182,10 @@ class _PreviousHandsState extends State<_PreviousHands> {
     setState(() => _loading = true);
     try {
       final page = reset ? 1 : _page + 1;
-      final res = await context.read<AppState>().api.get('/me/hands?tableId=${widget.tableId}&page=$page');
+      final res = await context
+          .read<AppState>()
+          .api
+          .get('/me/hands?${widget.tableId != null ? 'tableId=${widget.tableId}&' : ''}page=$page');
       final items = (res['items'] as List).cast<Json>();
       setState(() {
         _page = page;
@@ -201,7 +208,9 @@ class _PreviousHandsState extends State<_PreviousHands> {
       return Center(
         child: _loading
             ? const CircularProgressIndicator()
-            : const Text('Još niste odigrali nijednu ruku za ovim stolom.', style: TextStyle(color: Colors.white54)),
+            : Text(
+                widget.tableId == null ? 'Još niste odigrali nijednu ruku.' : 'Još niste odigrali nijednu ruku za ovim stolom.',
+                style: const TextStyle(color: Colors.white54)),
       );
     }
     return RefreshIndicator(
@@ -215,7 +224,8 @@ class _PreviousHandsState extends State<_PreviousHands> {
                 ? TextButton(onPressed: _loading ? null : () => _load(), child: const Text('Učitaj još'))
                 : const SizedBox(height: 16);
           }
-          return _HandTile(hand: _items[i], money: money);
+          final bb = ((_items[i]['table'] as Map?)?['bigBlind'] as int?) ?? widget.bigBlind;
+          return _HandTile(hand: _items[i], money: Money(bb, money.inBB), showTable: widget.tableId == null);
         },
       ),
     );
@@ -225,7 +235,8 @@ class _PreviousHandsState extends State<_PreviousHands> {
 class _HandTile extends StatelessWidget {
   final Json hand;
   final Money money;
-  const _HandTile({required this.hand, required this.money});
+  final bool showTable;
+  const _HandTile({required this.hand, required this.money, this.showTable = false});
 
   @override
   Widget build(BuildContext context) {
@@ -245,13 +256,15 @@ class _HandTile extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Ruka #${hand['handNo']}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              Text(showTable ? '${(hand['table'] as Map?)?['name'] ?? 'Sto'} · #${hand['handNo']}' : 'Ruka #${hand['handNo']}',
+                  overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
               Text(dateTime(hand['createdAt']), style: const TextStyle(fontSize: 11, color: Colors.white54)),
             ]),
           ),
           Text(
             '${diff > 0 ? '+' : ''}${money(diff)}',
-            style: TextStyle(fontWeight: FontWeight.w900, color: diff > 0 ? winGreen : (diff < 0 ? const Color(0xFFFF6B6B) : Colors.white54)),
+            style: TextStyle(
+                fontWeight: FontWeight.w900, color: diff > 0 ? winGreen : (diff < 0 ? const Color(0xFFFF6B6B) : Colors.white54)),
           ),
         ]),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),

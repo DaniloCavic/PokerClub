@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'state/app_state.dart';
 import 'theme.dart';
 import 'screens/login_screen.dart';
-import 'screens/lobby_screen.dart';
+import 'screens/home_shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,9 +26,9 @@ class PokerApp extends StatelessWidget {
       home: Selector<AppState, AuthStatus>(
         selector: (_, s) => s.status,
         builder: (_, status, __) => switch (status) {
-          AuthStatus.loading => const Scaffold(body: Center(child: CircularProgressIndicator())),
+          AuthStatus.loading => const Scaffold(body: Center(child: CircularProgressIndicator(color: gold))),
           AuthStatus.loggedOut => const LoginScreen(),
-          AuthStatus.loggedIn => const LobbyScreen(),
+          AuthStatus.loggedIn => const HomeShell(),
         },
       ),
     );

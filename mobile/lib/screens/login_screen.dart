@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/brand.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -34,10 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(colors: [Color(0xFF4A0A12), Color(0xFF16090C), bg], radius: 1.1, center: Alignment(0, -0.5)),
-        ),
+      body: LuxBackground(
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -47,19 +45,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('♠ ♥ ♦ ♣', textAlign: TextAlign.center, style: TextStyle(fontSize: 30, color: accent, letterSpacing: 8)),
-                    const SizedBox(height: 8),
-                    const Text.rich(
-                      TextSpan(children: [
-                        TextSpan(text: 'POKER KLUB\n', style: TextStyle(color: Colors.white, fontSize: 22, letterSpacing: 4)),
-                        TextSpan(text: 'TRILING', style: TextStyle(color: accent)),
-                      ]),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text("Texas Hold'em i Omaha · cash stolovi",
-                        textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+                    const Center(child: TrilingLogo(size: 46, horizontal: false)),
+                    const SizedBox(height: 10),
+                    Text("Texas Hold'em i Omaha · cash stolovi",
+                        textAlign: TextAlign.center, style: TextStyle(color: gold.withOpacity(0.8), letterSpacing: 1)),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _username,
@@ -86,12 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80))),
                     ],
                     const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed: _busy ? null : _submit,
-                      child: _busy
-                          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Text('Prijava'),
-                    ),
+                    LuxButton(title: _busy ? 'Prijava…' : 'PRIJAVA', onTap: _busy ? null : _submit),
                     const SizedBox(height: 24),
                     const Text(
                       'Nalog vam otvara vaš agent.',

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api.dart';
 import '../config.dart';
+import '../widgets/playing_card.dart';
 
 enum AuthStatus { loading, loggedOut, loggedIn }
 
@@ -44,6 +45,30 @@ class AppState extends ChangeNotifier {
   /// Prikaz iznosa za stolom u velikim blajndovima umesto u žetonima.
   bool showBB = false;
 
+  /// Karte u četiri boje umesto klasičnih.
+  bool fourColor = false;
+
+  /// Svoje karte su sakrivene dok ih igrač ne dodirne.
+  bool hideCards = false;
+
+  /// Kad igrač ostane bez novca na stolu, sam se dopuni do najvećeg ulaza.
+  bool autoRebuy = false;
+
+  Future<void> setSetting(String key, bool v) async {
+    switch (key) {
+      case 'fourColor':
+        fourColor = v;
+        CardStyle.fourColor = v;
+      case 'hideCards':
+        hideCards = v;
+      case 'autoRebuy':
+        autoRebuy = v;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, v);
+  }
+
   Future<void> setShowBB(bool v) async {
     showBB = v;
     notifyListeners();
@@ -63,6 +88,10 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     showBB = prefs.getBool('showBB') ?? false;
+    fourColor = prefs.getBool('fourColor') ?? false;
+    CardStyle.fourColor = fourColor;
+    hideCards = prefs.getBool('hideCards') ?? false;
+    autoRebuy = prefs.getBool('autoRebuy') ?? false;
     final token = prefs.getString('token');
     if (token == null) {
       status = AuthStatus.loggedOut;
