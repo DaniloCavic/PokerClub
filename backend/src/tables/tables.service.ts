@@ -7,6 +7,7 @@ import { avatarUrl } from '../common/public-user';
 import { cardToString } from '../poker/engine/cards';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
+import { agentCut, splitRake } from '../poker/engine/rake';
 
 /** Pauza između dve ruke (da se vidi ko je dobio). */
 const BETWEEN_HANDS_MS = Number(process.env.BETWEEN_HANDS_MS || 5000);
@@ -104,6 +105,22 @@ export class TablesService implements OnModuleInit {
     rt.game.handNo = last._max.handNo ?? 0;
   }
 
+  /** Zakazan sto: pre vremena otvaranja igrači ne mogu da uđu. */
+  assertUnlocked(tableId: string) {
+    const opensAt = this.rt(tableId).table.opensAt;
+    if (opensAt && opensAt.getTime() > Date.now()) {
+      const when = opensAt.toLocaleString('sr-Latn-RS', {
+        timeZone: process.env.APP_TIMEZONE || 'Europe/Belgrade',
+        weekday: 'long',
+        day: 'numeric',
+        month: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      throw new GameError(`Sto se otvara ${when}.`);
+    }
+  }
+
   private rt(tableId: string): Runtime {
     const rt = this.runtimes.get(tableId);
     if (!rt) throw new GameError('Sto nije otvoren.');
@@ -139,6 +156,7 @@ export class TablesService implements OnModuleInit {
       maxSeats: t.maxSeats,
       // Rake se igračima ne prikazuje (vidi ga samo agent u admin panelu).
       actionSeconds: t.actionSeconds,
+      opensAt: t.opensAt,
       players: rt.game.seats.filter(Boolean).length,
     };
   }
@@ -299,6 +317,7 @@ export class TablesService implements OnModuleInit {
     return this.exclusive(rt, async () => {
       const t = rt.table;
       if (rt.closing) throw new GameError('Sto se zatvara.');
+      this.assertUnlocked(tableId);
       const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
       if (user.role !== 'PLAYER') throw new GameError('Samo igrači mogu da sednu za sto.');
       if (rt.game.seatOf(userId) >= 0) throw new GameError('Već sedite za ovim stolom.');
@@ -510,9 +529,34 @@ export class TablesService implements OnModuleInit {
       cards: g.seats[i]!.hole.map(cardToString).join(' '),
     })).filter((p) => p.cards);
 
+    // Rake se deli na igrače srazmerno ulogu; od dela svakog igrača njegov agent dobija svoj procenat.
+    let rakeShares: Prisma.RakeShareCreateWithoutHandInput[] = [];
+    if (r.rake > 0) {
+      const contributors = Object.keys(rt.startStacks)
+        .map(Number)
+        .filter((i) => g.seats[i])
+        .map((i) => ({ key: g.seats[i]!.userId, amount: g.seats[i]!.committed }));
+      const parts = splitRake(r.rake, contributors);
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: parts.map((p) => p.key) } },
+        select: { id: true, agentId: true, agent: { select: { rakeShareBps: true } } },
+      });
+      rakeShares = parts.map((p) => {
+        const u = users.find((x) => x.id === p.key);
+        return {
+          table: { connect: { id: rt.table.id } },
+          user: { connect: { id: p.key } },
+          ...(u?.agentId ? { agent: { connect: { id: u.agentId } } } : {}),
+          amount: p.amount,
+          agentCut: u?.agentId ? agentCut(p.amount, u.agent?.rakeShareBps ?? 0) : 0,
+        };
+      });
+    }
+
     await this.prisma.$transaction([
       this.prisma.hand.create({
         data: {
+          rakeShares: { create: rakeShares },
           tableId: rt.table.id,
           handNo: r.handNo,
           board: r.board.map(cardToString).join(' '),

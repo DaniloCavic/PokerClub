@@ -1,4 +1,4 @@
-# Poker klub
+# Poker klub Triling
 
 Aplikacija za cash poker za **virtuelne žetone** (bez novčane vrednosti): Texas Hold'em (no-limit) i Omaha (pot-limit).
 Agenti otvaraju stolove, prave i blokiraju igrače, uplaćuju i isplaćuju žetone. Igrači igraju u mobilnoj aplikaciji.
@@ -14,12 +14,18 @@ pa igrač ne može da vidi tuđe karte niti da prevari izmenom aplikacije.
 
 ## Uloge
 
-- **Administrator** (pravi se automatski pri prvom pokretanju iz `ADMIN_USERNAME` / `ADMIN_PASSWORD`):
-  pravi i blokira agente, vidi sve igrače, stolove i transakcije, može da premesti igrača drugom agentu.
-- **Agent** (prijava u admin panel na `/admin`): pravi svoje igrače, uplaćuje i isplaćuje im žetone,
-  blokira ih, podiže ih sa stola, otvara i zatvara svoje stolove i bira rake. Vidi samo svoje igrače i stolove.
-  Blokada agenta privremeno blokira i sve njegove igrače.
-- **Igrač** (prijava u aplikaciji): bira sto, seda sa delom žetona sa naloga, igra, dopunjuje žetone i ustaje.
+- **Super agent** (pravi se automatski pri prvom pokretanju iz `ADMIN_USERNAME` / `ADMIN_PASSWORD`):
+  jedini pravi, menja, otvara, zatvara i **zakazuje** cash stolove (npr. „četvrtak u 18:00" — pre toga igrači ne mogu da uđu).
+  Pravi agente i svakom određuje **procenat rake-a** njegovih igrača. Vidi sve igrače, sve agente i sve brojke i upravlja svima.
+- **Agent**: pravi svoje igrače, uplaćuje i isplaćuje im novac, blokira ih i podiže sa stola. Stolove samo vidi.
+  U pregledu vidi rake svojih igrača i svoju zaradu.
+- **Igrač** (aplikacija na `/igra`): bira sto, seda, igra, dopunjuje i ustaje. Rake igraču nije prikazan nigde.
+
+**Raspodela rake-a:** rake svake ruke deli se na igrače srazmerno ulogu u potu. Od dela svakog igrača njegov agent
+dobija svoj procenat (onaj koji važi u trenutku ruke), a ostatak pripada super agentu. Igrači bez agenta: ceo rake
+super agentu. Rake iz ruka odigranih pre uvođenja raspodele vodi se kao rake super agenta.
+
+Admin panel (`/admin`) je prilagođen i telefonu (tabele se prikazuju kao kartice).
 
 ## Šta je urađeno
 

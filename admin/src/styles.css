@@ -71,9 +71,39 @@ tr.clickable:hover { background: #eef4f0; cursor: pointer; }
 .card-chip { display: inline-block; min-width: 28px; text-align: center; padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-weight: 600; font-size: 13px; }
 .card-chip.red { color: var(--danger); }
 .log { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.6; }
+.stat.gold b { color: var(--gold); }
+.badge.blue { background: #e1ebf7; color: #0c4076; }
+
+/* Telefon: meni na vrhu, tabele kao kartice, dugmad lako dodirljiva */
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; }
-  .sidebar { display: flex; gap: 4px; overflow-x: auto; padding: 8px; }
-  .sidebar h1, .sidebar .who { display: none; }
-  main { padding: 16px; }
+  .sidebar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; gap: 4px; overflow-x: auto; padding: 8px; align-items: center;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar h1 { display: block; font-size: 15px; margin: 0 8px 0 4px; white-space: nowrap; }
+  .sidebar .who { display: none; }
+  .sidebar a { white-space: nowrap; padding: 8px 12px; }
+  .sidebar .logout { margin-top: 0; }
+  main { padding: 14px 12px 40px; }
+  h2 { font-size: 20px; }
+  button { padding: 10px 14px; }
+  input, select, textarea { font-size: 16px; } /* iPhone ne zumira polja */
+  .card { padding: 10px; }
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat { padding: 10px; }
+  .stat b { font-size: 19px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .drawer { width: 100%; padding: 14px 12px 40px; }
+  .kv { grid-template-columns: 1fr; gap: 0 0; }
+  .kv b { margin-bottom: 8px; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+  tr { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; background: var(--panel); }
+  td { border: 0; padding: 4px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: right; flex-wrap: wrap; }
+  td::before { content: attr(data-label); color: var(--muted); font-size: 12px; text-align: left; flex-shrink: 0; }
+  td[data-label=""]::before { content: none; }
+  td.row { justify-content: flex-end; }
+  td[colspan] { justify-content: center; }
 }

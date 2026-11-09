@@ -51,3 +51,17 @@ String bbNumber(double x) {
   final dec = ((r - whole).abs() * 10).round();
   return '${chips(whole)},$dec';
 }
+
+const _days = ['ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja'];
+
+/// "četvrtak 12.11. u 18:00" (danas/sutra se pišu rečima).
+String opensLabel(DateTime d) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(d.year, d.month, d.day);
+  final diff = day.difference(today).inDays;
+  final time = '${two(d.hour)}:${two(d.minute)}';
+  if (diff == 0) return 'danas u $time';
+  if (diff == 1) return 'sutra u $time';
+  return '${_days[d.weekday - 1]} ${d.day}.${d.month}. u $time';
+}

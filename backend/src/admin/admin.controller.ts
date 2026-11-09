@@ -50,8 +50,13 @@ export class AdminController {
     return actor.role === 'ADMIN' ? { role: 'PLAYER' } : { role: 'PLAYER', agentId: actor.id };
   }
 
-  private tableScope(actor: User): Prisma.PokerTableWhereInput {
-    return actor.role === 'ADMIN' ? {} : { createdById: actor.id };
+  /** Stolove vide i agenti (samo pregled); pravi ih i menja samo super agent. */
+  private tableScope(_actor: User): Prisma.PokerTableWhereInput {
+    return {};
+  }
+
+  private isSuper(actor: User) {
+    return actor.role === 'ADMIN';
   }
 
   private async player(actor: User, id: string) {
@@ -107,6 +112,15 @@ export class AdminController {
         where: { type, createdAt: { gte: today }, user: players },
         _sum: { amount: true },
       });
+    // Rake: super agent vidi ukupan rake i podelu sa agentima; agent vidi rake svojih igrača i svoj deo.
+    const shareWhere = (since?: Date): Prisma.RakeShareWhereInput => ({
+      ...(this.isSuper(actor) ? {} : { agentId: actor.id }),
+      ...(since ? { createdAt: { gte: since } } : {}),
+    });
+    const [sharesToday, sharesTotal] = await Promise.all([
+      this.prisma.rakeShare.aggregate({ where: shareWhere(today), _sum: { amount: true, agentCut: true } }),
+      this.prisma.rakeShare.aggregate({ where: shareWhere(), _sum: { amount: true, agentCut: true } }),
+    ]);
     const [playerCount, blocked, balances, atTables, dep, wd, rakeToday, rakeTotal, openTables, handsToday] = await Promise.all([
       this.prisma.user.count({ where: players }),
       this.prisma.user.count({ where: { ...players, isBlocked: true } }),
@@ -127,8 +141,22 @@ export class AdminController {
       seatedPlayers: atTables._count,
       depositsToday: dep._sum.amount ?? 0,
       withdrawalsToday: -(wd._sum.amount ?? 0),
-      rakeToday: rakeToday._sum.rake ?? 0,
-      rakeTotal: rakeTotal._sum.rake ?? 0,
+      ...(this.isSuper(actor)
+        ? {
+            rakeToday: rakeToday._sum.rake ?? 0,
+            rakeTotal: rakeTotal._sum.rake ?? 0,
+            agentsCutToday: sharesToday._sum.agentCut ?? 0,
+            agentsCutTotal: sharesTotal._sum.agentCut ?? 0,
+            superShareToday: (rakeToday._sum.rake ?? 0) - (sharesToday._sum.agentCut ?? 0),
+            superShareTotal: (rakeTotal._sum.rake ?? 0) - (sharesTotal._sum.agentCut ?? 0),
+          }
+        : {
+            playersRakeToday: sharesToday._sum.amount ?? 0,
+            playersRakeTotal: sharesTotal._sum.amount ?? 0,
+            myCutToday: sharesToday._sum.agentCut ?? 0,
+            myCutTotal: sharesTotal._sum.agentCut ?? 0,
+            rakeSharePercent: actor.rakeShareBps / 100,
+          }),
       openTables,
       handsToday,
     };
@@ -280,22 +308,34 @@ export class AdminController {
       include: { _count: { select: { players: true, tables: true } } },
     });
     const balances = await this.prisma.user.groupBy({ by: ['agentId'], where: { role: 'PLAYER' }, _sum: { balance: true } });
-    const rake = await this.prisma.$queryRaw<{ id: string; rake: bigint }[]>`
-      SELECT t."createdById" AS id, COALESCE(SUM(h.rake), 0) AS rake
-      FROM "Hand" h JOIN "PokerTable" t ON t.id = h."tableId" GROUP BY t."createdById"`;
-    return agents.map((a) => ({
-      ...publicUser(a),
-      players: a._count.players,
-      tables: a._count.tables,
-      playersBalance: balances.find((b) => b.agentId === a.id)?._sum.balance ?? 0,
-      rakeTotal: Number(rake.find((r) => r.id === a.id)?.rake ?? 0),
-    }));
+    const rake = await this.prisma.rakeShare.groupBy({ by: ['agentId'], _sum: { amount: true, agentCut: true } });
+    return agents.map((a) => {
+      const r = rake.find((x) => x.agentId === a.id)?._sum;
+      return {
+        ...publicUser(a),
+        rakePercent: a.rakeShareBps / 100,
+        players: a._count.players,
+        playersBalance: balances.find((b) => b.agentId === a.id)?._sum.balance ?? 0,
+        playersRake: r?.amount ?? 0,
+        agentCut: r?.agentCut ?? 0,
+        superShare: (r?.amount ?? 0) - (r?.agentCut ?? 0),
+      };
+    });
   }
 
   @Roles('ADMIN')
   @Post('agents')
   async createAgent(@Body() dto: CreateUserDto) {
-    return publicUser(await this.createAccount(dto, 'AGENT', null));
+    const a = await this.createAccount(dto, 'AGENT', null);
+    const u = await this.prisma.user.update({ where: { id: a.id }, data: { rakeShareBps: this.shareBps(dto.rakePercent) } });
+    return publicUser(u);
+  }
+
+  private shareBps(percent?: number) {
+    if (percent === undefined || percent === null) return 0;
+    const bps = Math.round(Number(percent) * 100);
+    if (!Number.isFinite(bps) || bps < 0 || bps > 10_000) throw new BadRequestException('Procenat mora biti između 0 i 100.');
+    return bps;
   }
 
   @Roles('ADMIN')
@@ -307,6 +347,7 @@ export class AdminController {
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.note !== undefined) data.note = dto.note || null;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
+    if (dto.rakePercent !== undefined) data.rakeShareBps = this.shareBps(dto.rakePercent);
     return publicUser(await this.prisma.user.update({ where: { id }, data }));
   }
 
@@ -342,8 +383,13 @@ export class AdminController {
     if (dto.maxBuyIn < dto.minBuyIn) throw new BadRequestException('Najveći ulaz ne može biti manji od najmanjeg.');
     const rakeBps = Math.round(Number(dto.rakePercent) * 100);
     if (!Number.isFinite(rakeBps)) throw new BadRequestException('Neispravan rake.');
-    const { rakePercent: _ignored, ...rest } = dto;
-    return { ...rest, rakeBps };
+    const { rakePercent: _ignored, opensAt, ...rest } = dto;
+    let opens: Date | null = null;
+    if (opensAt) {
+      opens = new Date(opensAt);
+      if (Number.isNaN(opens.getTime())) throw new BadRequestException('Neispravno vreme otvaranja.');
+    }
+    return { ...rest, rakeBps, opensAt: opens };
   }
 
   private tableView(t: Prisma.PokerTableGetPayload<{ include: { createdBy: { select: { displayName: true } } } }>) {
@@ -360,6 +406,7 @@ export class AdminController {
       rakeCap: t.rakeCap,
       actionSeconds: t.actionSeconds,
       isOpen: t.isOpen,
+      opensAt: t.opensAt,
       createdBy: t.createdBy.displayName,
       createdById: t.createdById,
       createdAt: t.createdAt,
@@ -382,10 +429,11 @@ export class AdminController {
     });
     return items.map((t) => {
       const r = rake.find((x) => x.tableId === t.id);
-      return { ...this.tableView(t), rakeTotal: r?._sum.rake ?? 0, hands: r?._count ?? 0 };
+      return { ...this.tableView(t), rakeTotal: this.isSuper(actor) ? (r?._sum.rake ?? 0) : null, hands: r?._count ?? 0 };
     });
   }
 
+  @Roles('ADMIN')
   @Post('tables')
   async createTable(@CurrentUser() actor: User, @Body() dto: TableDto) {
     const t = await this.prisma.pokerTable.create({
@@ -396,6 +444,7 @@ export class AdminController {
     return this.tableView(t);
   }
 
+  @Roles('ADMIN')
   @Patch('tables/:id')
   async updateTable(@CurrentUser() actor: User, @Param('id') id: string, @Body() dto: TableDto) {
     await this.table(actor, id);
@@ -408,6 +457,7 @@ export class AdminController {
     return this.tableView(t);
   }
 
+  @Roles('ADMIN')
   @Post('tables/:id/close')
   async closeTable(@CurrentUser() actor: User, @Param('id') id: string) {
     await this.table(actor, id);
@@ -416,6 +466,7 @@ export class AdminController {
     return { ok: true };
   }
 
+  @Roles('ADMIN')
   @Post('tables/:id/open')
   async openTable(@CurrentUser() actor: User, @Param('id') id: string) {
     await this.table(actor, id);
@@ -441,14 +492,22 @@ export class AdminController {
       this.prisma.hand.count({ where: { tableId: id } }),
       this.prisma.hand.aggregate({ where: { tableId: id }, _sum: { rake: true } }),
     ]);
-    return { table: { ...this.tableView(t), rakeTotal: rake._sum.rake ?? 0 }, hands: { items: hands, total, page: pg, pageSize: PAGE } };
+    const sup = this.isSuper(actor);
+    return {
+      table: { ...this.tableView(t), rakeTotal: sup ? (rake._sum.rake ?? 0) : null },
+      hands: { items: sup ? hands : hands.map(({ rake: _r, ...h }) => h), total, page: pg, pageSize: PAGE },
+    };
   }
 
   @Get('hands/:id')
   async hand(@CurrentUser() actor: User, @Param('id') id: string) {
     const h = await this.prisma.hand.findUnique({ where: { id }, include: { table: { select: { name: true, createdById: true, variant: true } } } });
-    if (!h || (actor.role !== 'ADMIN' && h.table.createdById !== actor.id)) throw new NotFoundException('Ruka nije pronađena.');
-    return h;
+    if (!h) throw new NotFoundException('Ruka nije pronađena.');
+    if (this.isSuper(actor)) return h;
+    // Agent vidi tok ruke, ali ne i ukupan rake stola.
+    const d = h.details as { log?: string[] };
+    const { rake: _r, ...rest } = h;
+    return { ...rest, details: { ...d, log: (d.log ?? []).filter((l) => !l.startsWith('Rake')) } };
   }
 
   // ---------- Transakcije ----------

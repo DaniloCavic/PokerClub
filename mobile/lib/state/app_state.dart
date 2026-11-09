@@ -242,19 +242,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> watch(String tableId) async {
+  /// Vraća false ako sto ne može da se otvori (npr. zakazan za kasnije).
+  Future<bool> watch(String tableId) async {
     _watching.add(tableId);
-    await _watch(tableId);
+    final ok = await _watch(tableId);
+    if (!ok) _watching.remove(tableId);
+    return ok;
   }
 
-  Future<void> _watch(String tableId) async {
+  Future<bool> _watch(String tableId) async {
     final res = await emit('table:watch', {'tableId': tableId});
     if (res['ok'] == true) {
       _onTable(Map<String, dynamic>.from(res['state'] as Map));
       chatOf(tableId).value = ((res['chat'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      return true;
     } else if (res['error'] != null) {
       toast(res['error'].toString());
     }
+    return false;
   }
 
   Future<void> unwatch(String tableId) async {

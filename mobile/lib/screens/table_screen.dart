@@ -35,7 +35,10 @@ class _TableScreenState extends State<TableScreen> {
   void initState() {
     super.initState();
     app = context.read<AppState>();
-    app.watch(widget.tableId);
+    app.watch(widget.tableId).then((ok) {
+      // Sto nije dostupan (npr. zakazan za kasnije): vrati se u lobi.
+      if (!ok && mounted) Navigator.of(context).maybePop();
+    });
     app.tableNotifier(widget.tableId).addListener(_onState);
     // Osvežavanje tajmera za potez.
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
@@ -595,13 +598,11 @@ class _FeltInfo extends StatelessWidget {
     final omaha = st['variant'] == 'OMAHA';
     const faint = TextStyle(fontSize: 10.5, color: Color(0x80FFFFFF), height: 1.35);
     return Column(children: [
-      Text.rich(
-        const TextSpan(children: [
-          TextSpan(text: 'THE '),
-          TextSpan(text: 'VAULT', style: TextStyle(color: Color(0x66E0182D))),
-        ]),
-        style: TextStyle(fontSize: w * 0.075, fontWeight: FontWeight.w900, color: const Color(0x33FFFFFF), letterSpacing: 2),
-      ),
+      // Znak kluba na čoji
+      Text('POKER KLUB',
+          style: TextStyle(fontSize: w * 0.032, fontWeight: FontWeight.w800, color: const Color(0x40FFFFFF), letterSpacing: 4)),
+      Text('TRILING',
+          style: TextStyle(fontSize: w * 0.075, fontWeight: FontWeight.w900, color: const Color(0x66E0182D), letterSpacing: 2, height: 1)),
       Text(omaha ? 'PLO' : 'NLH', style: TextStyle(fontSize: w * 0.04, fontWeight: FontWeight.w900, color: const Color(0x33FFFFFF))),
       const SizedBox(height: 6),
       Text(st['name'] as String, style: faint.copyWith(fontWeight: FontWeight.w700)),

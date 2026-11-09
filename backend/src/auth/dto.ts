@@ -42,6 +42,13 @@ export class CreateUserDto {
   @MaxLength(100)
   password: string;
 
+  /** Za agenta: procenat rake-a njegovih igrača koji mu pripada (0–100). */
+  @IsOptional()
+  @IsNumber({}, { message: 'Procenat mora biti broj.' })
+  @Min(0, { message: 'Procenat mora biti između 0 i 100.' })
+  @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
+  rakePercent?: number;
+
   /** Samo admin: kom agentu igrač pripada. */
   @IsOptional()
   @IsString()
@@ -71,6 +78,12 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Procenat mora biti broj.' })
+  @Min(0, { message: 'Procenat mora biti između 0 i 100.' })
+  @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
+  rakePercent?: number;
 
   /** Samo admin: premeštanje igrača drugom agentu. */
   @IsOptional()
@@ -131,6 +144,11 @@ export class TableDto {
   /** Najviše rake-a po ruci; 0 = bez ograničenja. */
   @IsInt() @Min(0) @Max(1_000_000_000)
   rakeCap: number;
+
+  /** Zakazano otvaranje (ISO vreme); prazno = odmah. */
+  @IsOptional()
+  @IsString()
+  opensAt?: string | null;
 
   @IsInt() @Min(10, { message: 'Vreme za potez: 10–120 sekundi.' }) @Max(120, { message: 'Vreme za potez: 10–120 sekundi.' })
   actionSeconds: number;

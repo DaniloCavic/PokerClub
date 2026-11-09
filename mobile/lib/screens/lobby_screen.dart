@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../format.dart';
@@ -16,11 +17,22 @@ class LobbyScreen extends StatefulWidget {
 
 class _LobbyScreenState extends State<LobbyScreen> {
   String _filter = 'ALL';
+  Timer? _clock;
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => context.read<AppState>().joinLobby());
+    // Zakazani stolovi se sami otključaju kad dođe vreme.
+    _clock = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -52,10 +64,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
           ),
         ),
-        title: const Text.rich(
-          TextSpan(children: [TextSpan(text: 'THE '), TextSpan(text: 'VAULT', style: TextStyle(color: accent))]),
-          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
-        ),
+        // Naziv kluba u dva reda, da stane i na uzak ekran
+        title: const Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('POKER KLUB', style: TextStyle(fontSize: 10, letterSpacing: 3, color: Colors.white70, fontWeight: FontWeight.w700)),
+          Text('TRILING', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: accent, letterSpacing: 1.5, height: 1.1)),
+        ]),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -136,7 +149,15 @@ class _TableTile extends StatelessWidget {
     final max = t['maxSeats'] as int;
     final omaha = t['variant'] == 'OMAHA';
     final color = omaha ? const Color(0xFF7B3FC4) : accent;
-    void open() => Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id'])));
+    final opensAt = t['opensAt'] == null ? null : DateTime.parse(t['opensAt'] as String).toLocal();
+    final locked = opensAt != null && opensAt.isAfter(DateTime.now());
+    void open() {
+      if (locked) {
+        context.read<AppState>().toast('Sto se otvara ${opensLabel(opensAt)}.');
+        return;
+      }
+      Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id'])));
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -197,6 +218,18 @@ class _TableTile extends StatelessWidget {
                         style: const TextStyle(color: Colors.white60, fontSize: 12.5)),
                     const SizedBox(height: 6),
                     Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}', style: const TextStyle(fontSize: 12.5)),
+                    if (locked)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(children: [
+                          const Icon(Icons.lock_clock, size: 14, color: gold),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text('Otvara se ${opensLabel(opensAt)}',
+                                style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
+                          ),
+                        ]),
+                      ),
                     const SizedBox(height: 6),
                     // Popunjenost stola: tačkice za zauzeta i slobodna mesta
                     Row(children: [
@@ -214,10 +247,15 @@ class _TableTile extends StatelessWidget {
                 ),
               ),
               FilledButton(
-                style:
-                    FilledButton.styleFrom(minimumSize: const Size(76, 40), padding: const EdgeInsets.symmetric(horizontal: 12)),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(76, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  backgroundColor: locked ? panelLight : accent,
+                ),
                 onPressed: open,
-                child: Text(seated ? 'NASTAVI' : 'IGRAJ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+                child: locked
+                    ? const Icon(Icons.lock, size: 18)
+                    : Text(seated ? 'NASTAVI' : 'IGRAJ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
               ),
             ],
           ),

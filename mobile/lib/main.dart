@@ -18,7 +18,7 @@ class PokerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
     return MaterialApp(
-      title: 'The Vault',
+      title: 'Poker klub Triling',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       navigatorKey: app.navigatorKey,

@@ -13,7 +13,23 @@ interface TableForm {
   rakePercent: number;
   rakeCap: number;
   actionSeconds: number;
+  /** Zakazano otvaranje, lokalno vreme "YYYY-MM-DDTHH:mm"; prazno = odmah. */
+  opensAt: string;
 }
+
+/** ISO vreme → vrednost za polje datetime-local (lokalno vreme). */
+const toLocalInput = (iso?: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+export const fmtOpens = (iso?: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString('sr-Latn-RS', { weekday: 'long', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+const isScheduled = (iso?: string | null) => !!iso && new Date(iso).getTime() > Date.now();
 
 const EMPTY: TableForm = {
   name: '',
@@ -26,12 +42,14 @@ const EMPTY: TableForm = {
   rakePercent: 5,
   rakeCap: 50,
   actionSeconds: 20,
+  opensAt: '',
 };
 
 export function Tables({ me }: { me: Me }) {
   const { data, error, reload } = useLoad<any[]>(() => api('GET', '/admin/tables'));
   const [editing, setEditing] = useState<{ id?: string; form: TableForm } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const isSuper = me.role === 'ADMIN';
 
   useEffect(() => {
     const t = setInterval(reload, 5000);
@@ -43,8 +61,9 @@ export function Tables({ me }: { me: Me }) {
     <>
       <div className="row">
         <h2 className="grow">Stolovi</h2>
-        <button onClick={() => setEditing({ form: { ...EMPTY } })}>+ Novi sto</button>
+        {isSuper && <button onClick={() => setEditing({ form: { ...EMPTY } })}>+ Novi sto</button>}
       </div>
+      {!isSuper && <p className="muted small">Stolove pravi i otvara super agent. Ovde vidite ko sedi za kojim stolom.</p>}
       {error && <div className="error">{error}</div>}
       <div className="card">
         <table>
@@ -56,8 +75,7 @@ export function Tables({ me }: { me: Me }) {
               <th>Ulaz</th>
               <th>Rake</th>
               <th>Igrači</th>
-              <th>Rake ukupno</th>
-              {me.role === 'ADMIN' && <th>Agent</th>}
+              {isSuper && <th>Rake ukupno</th>}
               <th>Stanje</th>
             </tr>
           </thead>
@@ -80,11 +98,12 @@ export function Tables({ me }: { me: Me }) {
                 <td>
                   {t.live ? t.live.seats.length : 0}/{t.maxSeats}
                 </td>
-                <td>{fmt(t.rakeTotal)}</td>
-                {me.role === 'ADMIN' && <td>{t.createdBy}</td>}
+                {isSuper && <td>{fmt(t.rakeTotal)}</td>}
                 <td>
                   {t.live?.closing ? (
                     <span className="badge">Zatvara se</span>
+                  ) : t.isOpen && isScheduled(t.opensAt) ? (
+                    <span className="badge blue">Otvara se {fmtOpens(t.opensAt)}</span>
                   ) : t.isOpen ? (
                     <span className="badge green">Otvoren</span>
                   ) : (
@@ -96,7 +115,7 @@ export function Tables({ me }: { me: Me }) {
             {data?.length === 0 && (
               <tr>
                 <td colSpan={9} className="muted">
-                  Još nema stolova. Napravite prvi sto.
+                  {isSuper ? 'Još nema stolova. Napravite prvi sto.' : 'Još nema stolova.'}
                 </td>
               </tr>
             )}
@@ -118,6 +137,7 @@ export function Tables({ me }: { me: Me }) {
       {openId && (
         <TableDetails
           id={openId}
+          isSuper={isSuper}
           onClose={() => {
             setOpenId(null);
             reload();
@@ -126,7 +146,10 @@ export function Tables({ me }: { me: Me }) {
             setOpenId(null);
             setEditing({
               id: t.id,
-              form: Object.fromEntries(Object.keys(EMPTY).map((k) => [k, t[k]])) as unknown as TableForm,
+              form: {
+                ...(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, t[k]])) as unknown as TableForm),
+                opensAt: toLocalInput(t.opensAt),
+              },
             });
           }}
         />
@@ -146,7 +169,10 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
     setBusy(true);
     setError('');
     try {
-      await api(id ? 'PATCH' : 'POST', id ? `/admin/tables/${id}` : '/admin/tables', f);
+      await api(id ? 'PATCH' : 'POST', id ? `/admin/tables/${id}` : '/admin/tables', {
+        ...f,
+        opensAt: f.opensAt ? new Date(f.opensAt).toISOString() : null,
+      });
       onSaved();
     } catch (err) {
       setError((err as Error).message);
@@ -196,6 +222,10 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
             <input type="number" min={10} max={120} value={f.actionSeconds} onChange={num('actionSeconds')} />
           </label>
           <label>
+            Otvaranje stola (prazno = odmah)
+            <input type="datetime-local" value={f.opensAt} onChange={(e) => setF({ ...f, opensAt: e.target.value })} />
+          </label>
+          <label>
             Rake (%)
             <input type="number" min={0} max={10} step={0.5} value={f.rakePercent} onChange={num('rakePercent')} />
           </label>
@@ -219,7 +249,7 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
   );
 }
 
-function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void; onEdit: (t: any) => void }) {
+function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: boolean; onClose: () => void; onEdit: (t: any) => void }) {
   const [page, setPage] = useState(1);
   const { data, error, reload } = useLoad<any>(() => api('GET', `/admin/tables/${id}?page=${page}`), [id, page]);
   const [msg, setMsg] = useState('');
@@ -269,8 +299,18 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
           </b>
           <span>Vreme za potez</span>
           <b>{t.actionSeconds} s</b>
-          <span>Rake ukupno</span>
-          <b>{fmt(t.rakeTotal)}</b>
+          {t.opensAt && (
+            <>
+              <span>Otvaranje</span>
+              <b>{fmtOpens(t.opensAt)}</b>
+            </>
+          )}
+          {isSuper && (
+            <>
+              <span>Rake ukupno</span>
+              <b>{fmt(t.rakeTotal)}</b>
+            </>
+          )}
           <span>Napravio</span>
           <b>
             {t.createdBy}, {fmtDate(t.createdAt)}
@@ -278,7 +318,7 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
           <span>ID stola</span>
           <b className="muted small">{t.id}</b>
         </div>
-        <div className="row" style={{ marginTop: 12 }}>
+        {isSuper && <div className="row" style={{ marginTop: 12 }}>
           {t.isOpen ? (
             <button
               className="danger"
@@ -301,8 +341,8 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
               )}
             </>
           )}
-        </div>
-        {t.isOpen && <p className="muted small">Podešavanja se menjaju kad je sto zatvoren.</p>}
+        </div>}
+        {isSuper && t.isOpen && <p className="muted small">Podešavanja se menjaju kad je sto zatvoren.</p>}
         {msg && <div className="muted">{msg}</div>}
       </div>
 
@@ -355,7 +395,7 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
               <th>Vreme</th>
               <th>Sto</th>
               <th>Pot</th>
-              <th>Rake</th>
+              {isSuper && <th>Rake</th>}
             </tr>
           </thead>
           <tbody>
@@ -367,7 +407,7 @@ function TableDetails({ id, onClose, onEdit }: { id: string; onClose: () => void
                   <Cards cards={h.board} />
                 </td>
                 <td>{fmt(h.pot)}</td>
-                <td>{fmt(h.rake)}</td>
+                {isSuper && <td>{fmt(h.rake)}</td>}
               </tr>
             ))}
           </tbody>
@@ -399,8 +439,12 @@ function HandView({ id, onClose }: { id: string; onClose: () => void }) {
               </b>
               <span>Pot</span>
               <b>{fmt(data.pot)}</b>
-              <span>Rake</span>
-              <b>{fmt(data.rake)}</b>
+              {data.rake !== undefined && (
+                <>
+                  <span>Rake</span>
+                  <b>{fmt(data.rake)}</b>
+                </>
+              )}
             </div>
           </div>
           <div className="card">

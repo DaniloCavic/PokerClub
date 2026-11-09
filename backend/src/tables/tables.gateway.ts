@@ -96,6 +96,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
   @SubscribeMessage('table:watch')
   watch(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg) {
     return this.handle(socket, async () => {
+      this.tables.assertUnlocked(String(msg?.tableId));
       const state = this.tables.view(String(msg?.tableId), socket.data.userId);
       await socket.join(`table:${state.id}`);
       return { state, chat: this.tables.chatHistory(state.id) };

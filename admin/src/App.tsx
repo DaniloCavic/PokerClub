@@ -29,6 +29,8 @@ export function App() {
     location.hash = page;
   }, [page]);
 
+  useResponsiveTables();
+
   if (loading) return <div className="muted center">Učitavanje…</div>;
   if (!me) return <Login onDone={setMe} />;
 
@@ -45,11 +47,11 @@ export function App() {
     <div className="layout">
       <nav className="sidebar">
         <h1>
-          ♠ Poker <span>klub</span>
+          Poker klub <span>Triling</span>
         </h1>
         <div className="who">
           {me.displayName}
-          <small>{me.role === 'ADMIN' ? 'Administrator' : 'Agent'}</small>
+          <small>{me.role === 'ADMIN' ? 'Super agent' : 'Agent'}</small>
         </div>
         {pages.map((p) => (
           <a key={p.id} className={current === p.id ? 'active' : ''} onClick={() => setPage(p.id)}>
@@ -67,7 +69,7 @@ export function App() {
         </a>
       </nav>
       <main>
-        {current === 'dashboard' && <Dashboard />}
+        {current === 'dashboard' && <Dashboard me={me} />}
         {current === 'tables' && <Tables me={me} />}
         {current === 'players' && <Players me={me} />}
         {current === 'transactions' && <Transactions />}
@@ -101,11 +103,35 @@ function Login({ onDone }: { onDone: (me: Me) => void }) {
 
   return (
     <form className="card login" onSubmit={submit}>
-      <h2>♠ Poker klub — agenti</h2>
+      <h2>Poker klub Triling — agenti</h2>
       <input placeholder="Korisničko ime" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
       <input placeholder="Lozinka" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       {error && <div className="error">{error}</div>}
       <button disabled={busy || !username || !password}>Prijava</button>
     </form>
   );
+}
+
+/**
+ * Na telefonu se tabele prikazuju kao kartice: svaka ćelija dobija natpis iz zaglavlja
+ * (data-label), a CSS ga prikazuje levo od vrednosti.
+ */
+function useResponsiveTables() {
+  useEffect(() => {
+    const label = () => {
+      document.querySelectorAll('table').forEach((table) => {
+        const heads = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim() ?? '');
+        table.querySelectorAll('tbody tr').forEach((tr) => {
+          Array.from(tr.children).forEach((td, i) => {
+            const l = heads[i] ?? '';
+            if (td.getAttribute('data-label') !== l) td.setAttribute('data-label', l);
+          });
+        });
+      });
+    };
+    label();
+    const obs = new MutationObserver(label);
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, []);
 }

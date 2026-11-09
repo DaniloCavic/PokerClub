@@ -37,6 +37,8 @@ model User {
   isBlocked     Boolean   @default(false)
   blockedReason String?
   note          String?
+  /// Za agente: procenat rake-a njegovih igrača koji pripada agentu (u baznim poenima, 3000 = 30 %).
+  rakeShareBps  Int       @default(0)
   /// Agent kome igrač pripada.
   agentId       String?
   agent         User?     @relation("AgentPlayers", fields: [agentId], references: [id])
@@ -52,6 +54,8 @@ model User {
   actions      Transaction[] @relation("TxActor")
   tables       PokerTable[]
   seats        TableSeat[]
+  rakePaid     RakeShare[] @relation("RakePlayer")
+  rakeEarned   RakeShare[] @relation("RakeAgent")
 
   @@index([role, agentId])
 }
@@ -92,6 +96,8 @@ model PokerTable {
   rakeCap       Int       @default(0)
   actionSeconds Int       @default(20)
   isOpen        Boolean   @default(true)
+  /// Zakazano otvaranje: pre ovog trenutka igrači ne mogu da uđu za sto.
+  opensAt       DateTime?
   createdById   String
   createdBy     User      @relation(fields: [createdById], references: [id])
   createdAt     DateTime  @default(now())
@@ -100,6 +106,7 @@ model PokerTable {
   hands        Hand[]
   seats        TableSeat[]
   transactions Transaction[]
+  rakeShares   RakeShare[]
 }
 
 /// Ko sedi za stolom i sa koliko žetona (stanje posle poslednje završene ruke).
@@ -126,6 +133,7 @@ model Hand {
   rake      Int
   /// Igrači, karte, dobici i tok ruke.
   details   Json
+  rakeShares RakeShare[]
   /// Ko je igrao ruku (za istoriju ruku igrača).
   playerIds String[]  @default([])
   createdAt DateTime   @default(now())
@@ -133,4 +141,26 @@ model Hand {
   @@index([tableId, createdAt])
   @@index([createdAt])
   @@index([playerIds], type: Gin)
+}
+
+/// Deo rake-a jedne ruke koji je platio jedan igrač (srazmerno ulogu u potu)
+/// i koliko od toga pripada njegovom agentu (procenat važeći u trenutku ruke).
+/// Ostatak (amount − agentCut) pripada super agentu.
+model RakeShare {
+  id        String     @id @default(cuid())
+  handId    String
+  hand      Hand       @relation(fields: [handId], references: [id])
+  tableId   String
+  table     PokerTable @relation(fields: [tableId], references: [id])
+  userId    String
+  user      User       @relation("RakePlayer", fields: [userId], references: [id])
+  agentId   String?
+  agent     User?      @relation("RakeAgent", fields: [agentId], references: [id])
+  amount    Int
+  agentCut  Int
+  createdAt DateTime   @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+  @@index([userId])
 }

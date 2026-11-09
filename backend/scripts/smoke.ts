@@ -72,7 +72,7 @@ async function main() {
 
   console.log('Agent i igrači');
   const agentName = `agent_${suffix}`;
-  await call('POST', '/admin/agents', admin, { username: agentName, displayName: 'Agent Proba', password: 'lozinka1' });
+  await call('POST', '/admin/agents', admin, { username: agentName, displayName: 'Agent Proba', password: 'lozinka1', rakePercent: 30 });
   const agent = await login(agentName, 'lozinka1');
   const players: { id: string; username: string }[] = [];
   for (let i = 0; i < 4; i++) {
@@ -90,11 +90,22 @@ async function main() {
   const deposited = 4 * 5000 - 1000;
 
   console.log('Stolovi');
-  const holdem = await call('POST', '/admin/tables', agent, {
+  await call('POST', '/admin/tables', agent, {
+    name: 'zabranjen', variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
+    maxSeats: 6, rakePercent: 5, rakeCap: 20, actionSeconds: 10,
+  }).then(
+    () => assert(false, 'agent ne sme da pravi stolove'),
+    (e) => assert(/403/.test(e.message), 'samo super agent pravi stolove'),
+  );
+  const scheduled = await call('POST', '/admin/tables', admin, {
+    name: `Zakazan ${suffix}`, variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
+    maxSeats: 9, rakePercent: 5, rakeCap: 20, actionSeconds: 10, opensAt: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+  const holdem = await call('POST', '/admin/tables', admin, {
     name: `NL ${suffix}`, variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
     maxSeats: 6, rakePercent: 5, rakeCap: 20, actionSeconds: 10,
   });
-  const omaha = await call('POST', '/admin/tables', agent, {
+  const omaha = await call('POST', '/admin/tables', admin, {
     name: `PLO ${suffix}`, variant: 'OMAHA', smallBlind: 10, bigBlind: 20, minBuyIn: 400, maxBuyIn: 2000,
     maxSeats: 9, rakePercent: 2.5, rakeCap: 0, actionSeconds: 10,
   });
@@ -114,6 +125,8 @@ async function main() {
     const r = await emit(bots[i].socket, 'table:sit', { tableId: omaha.id, seat: i * 2, buyIn: 800 });
     assert(r.ok, `${bots[i].name} seo za Omaha sto`);
   }
+  const early = await emit(bots[3].socket, 'table:sit', { tableId: scheduled.id, seat: 0, buyIn: 500 });
+  assert(!early.ok && /otvara/.test(early.error), `zakazan sto se ne može koristiti pre vremena (${early.error})`);
   const bad = await emit(bots[3].socket, 'table:sit', { tableId: omaha.id, seat: 0, buyIn: 800 });
   assert(!bad.ok && /zauzeto/.test(bad.error), 'zauzeto mesto se odbija');
   console.log('Chat');
@@ -154,8 +167,9 @@ async function main() {
   );
 
   console.log('Zatvaranje stolova');
-  await call('POST', `/admin/tables/${holdem.id}/close`, agent);
-  await call('POST', `/admin/tables/${omaha.id}/close`, agent);
+  await call('POST', `/admin/tables/${holdem.id}/close`, admin);
+  await call('POST', `/admin/tables/${omaha.id}/close`, admin);
+  await call('POST', `/admin/tables/${scheduled.id}/close`, admin);
   for (let k = 0; k < 30; k++) {
     const t = await call('GET', '/admin/tables', agent);
     if (t.filter((x: any) => x.live).length === 0) break;
@@ -163,8 +177,17 @@ async function main() {
   }
   const stats = await call('GET', '/admin/stats', agent);
   assert(stats.chipsOnTables === 0, 'posle zatvaranja nema žetona na stolovima');
-  const totalRake = (await call('GET', '/admin/tables', agent)).reduce((s: number, t: any) => s + t.rakeTotal, 0);
-  assert(stats.rakeTotal === totalRake && totalRake > 0, `rake ukupno ${totalRake}`);
+  const ourTables = (await call('GET', '/admin/tables', admin)).filter((t: any) => [holdem.id, omaha.id].includes(t.id));
+  const totalRake = ourTables.reduce((s: number, t: any) => s + t.rakeTotal, 0);
+  assert(stats.playersRakeTotal === totalRake && totalRake > 0, `rake igrača ovog agenta: ${totalRake}`);
+  // Deo agenta se zaokružuje na ceo dinar po igraču i ruci, pa zbir može malo da odstupa od tačnih 30 %.
+  assert(
+    Math.abs(stats.myCutTotal - totalRake * 0.3) <= Math.max(3, totalRake * 0.08),
+    `agent dobija 30 % rake-a svojih igrača: ${stats.myCutTotal} od ${totalRake}`,
+  );
+  const agentsList = await call('GET', '/admin/agents', admin);
+  const me = agentsList.find((a: any) => a.username === agentName);
+  assert(me.agentCut + me.superShare === me.playersRake, `super agentu ostaje ostatak: ${me.superShare}`);
   assert(
     stats.balanceOnAccounts + totalRake === deposited,
     `žetoni očuvani: na nalozima ${stats.balanceOnAccounts} + rake ${totalRake} = uplaćeno ${deposited}`,

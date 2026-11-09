@@ -26,7 +26,7 @@ export function Agents() {
         <button onClick={() => setCreating(true)}>+ Novi agent</button>
       </div>
       <p className="muted small">
-        Agent pravi svoje igrače i stolove, uplaćuje i isplaćuje žetone. Blokada agenta privremeno blokira i sve njegove igrače.
+        Agent pravi svoje igrače, uplaćuje i isplaćuje im novac. Od rake-a svojih igrača dobija svoj procenat, a ostatak pripada vama. Blokada agenta privremeno blokira i sve njegove igrače.
       </p>
       {error && <div className="error">{error}</div>}
       {msg && <div className="muted">{msg}</div>}
@@ -36,10 +36,12 @@ export function Agents() {
             <tr>
               <th>Korisničko ime</th>
               <th>Ime</th>
+              <th>Procenat</th>
               <th>Igrača</th>
-              <th>Stolova</th>
-              <th>Žetoni igrača</th>
-              <th>Rake ukupno</th>
+              <th>Na nalozima igrača</th>
+              <th>Rake igrača</th>
+              <th>Agentu</th>
+              <th>Vama</th>
               <th>Poslednji put</th>
               <th></th>
             </tr>
@@ -51,12 +53,27 @@ export function Agents() {
                   <b>{a.username}</b>
                 </td>
                 <td>{a.displayName}</td>
+                <td>
+                  <b>{a.rakePercent}%</b>
+                </td>
                 <td>{a.players}</td>
-                <td>{a.tables}</td>
                 <td>{fmt(a.playersBalance)}</td>
-                <td>{fmt(a.rakeTotal)}</td>
+                <td>{fmt(a.playersRake)}</td>
+                <td>{fmt(a.agentCut)}</td>
+                <td className="plus">{fmt(a.superShare)}</td>
                 <td>{fmtDate(a.lastSeenAt)}</td>
                 <td className="row">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      const v = prompt(`Procenat rake-a za agenta ${a.displayName} (0–100). Važi za ruke od sada:`, String(a.rakePercent));
+                      if (v === null) return;
+                      const n = Number(v.replace(',', '.'));
+                      void run(() => api('PATCH', `/admin/agents/${a.id}`, { rakePercent: n }), 'Procenat je promenjen.');
+                    }}
+                  >
+                    Procenat
+                  </button>
                   <button
                     className="secondary"
                     onClick={() => {
@@ -86,7 +103,7 @@ export function Agents() {
             ))}
             {data?.length === 0 && (
               <tr>
-                <td colSpan={8} className="muted">
+                <td colSpan={10} className="muted">
                   Još nema agenata.
                 </td>
               </tr>
