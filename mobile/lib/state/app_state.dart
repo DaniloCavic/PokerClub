@@ -28,6 +28,16 @@ class AppState extends ChangeNotifier {
   final Map<String, ValueNotifier<Map<String, dynamic>?>> tables = {};
   final Set<String> _watching = {};
 
+  /// Chat svakog stola (poslednje poruke) i broj nepročitanih.
+  final Map<String, ValueNotifier<List<Map<String, dynamic>>>> chats = {};
+  final Map<String, ValueNotifier<int>> unread = {};
+  String? openChat;
+
+  ValueNotifier<List<Map<String, dynamic>>> chatOf(String id) => chats.putIfAbsent(id, () => ValueNotifier([]));
+  ValueNotifier<int> unreadOf(String id) => unread.putIfAbsent(id, () => ValueNotifier(0));
+
+  Future<bool> sendChat(String tableId, String text) => run('table:chat', {'tableId': tableId, 'text': text});
+
   /// Razlika serverskog i lokalnog sata (ms), da tajmer ne zavisi od sata telefona.
   int clockOffset = 0;
 
@@ -181,6 +191,13 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     s.on('table:state', (data) => _onTable(Map<String, dynamic>.from(data as Map)));
+    s.on('table:chat', (data) {
+      final m = Map<String, dynamic>.from(data as Map);
+      final id = m['tableId'] as String;
+      final list = chatOf(id);
+      list.value = [...list.value, Map<String, dynamic>.from(m['message'] as Map)].reversed.take(50).toList().reversed.toList();
+      if (openChat != id) unreadOf(id).value++;
+    });
     s.on('kicked', (data) {
       final reason = (data as Map)['reason']?.toString();
       if (reason != null) toast(reason);
@@ -234,6 +251,7 @@ class AppState extends ChangeNotifier {
     final res = await emit('table:watch', {'tableId': tableId});
     if (res['ok'] == true) {
       _onTable(Map<String, dynamic>.from(res['state'] as Map));
+      chatOf(tableId).value = ((res['chat'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } else if (res['error'] != null) {
       toast(res['error'].toString());
     }
@@ -242,6 +260,8 @@ class AppState extends ChangeNotifier {
   Future<void> unwatch(String tableId) async {
     _watching.remove(tableId);
     tables.remove(tableId);
+    chats.remove(tableId);
+    unread.remove(tableId);
     await emit('table:unwatch', {'tableId': tableId});
   }
 }

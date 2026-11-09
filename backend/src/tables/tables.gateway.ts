@@ -98,7 +98,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
     return this.handle(socket, async () => {
       const state = this.tables.view(String(msg?.tableId), socket.data.userId);
       await socket.join(`table:${state.id}`);
-      return { state };
+      return { state, chat: this.tables.chatHistory(state.id) };
     });
   }
 
@@ -132,6 +132,11 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
   @SubscribeMessage('table:sitout')
   sitOut(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { value: boolean }) {
     return this.handle(socket, () => this.tables.setSitOut(socket.data.userId, String(msg?.tableId), !!msg?.value));
+  }
+
+  @SubscribeMessage('table:chat')
+  chat(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { text: string }) {
+    return this.handle(socket, () => this.tables.chat(socket.data.userId, String(msg?.tableId), msg?.text));
   }
 
   @SubscribeMessage('table:leave')

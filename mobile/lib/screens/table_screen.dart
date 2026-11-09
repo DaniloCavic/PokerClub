@@ -9,6 +9,7 @@ import '../widgets/action_bar.dart';
 import '../widgets/avatar.dart';
 import '../widgets/hand_history.dart';
 import '../widgets/playing_card.dart';
+import '../widgets/table_chat.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -98,6 +99,11 @@ class _TableScreenState extends State<TableScreen> {
     return true;
   }
 
+  Future<void> _back(Json? st) async {
+    final nav = Navigator.of(context);
+    if (await _confirmLeave(st)) nav.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final showBB = context.select<AppState, bool>((a) => a.showBB);
@@ -108,65 +114,14 @@ class _TableScreenState extends State<TableScreen> {
         return PopScope(
           canPop: st == null || (st['mySeat'] as int) < 0,
           onPopInvokedWithResult: (didPop, _) async {
-            if (didPop) return;
-            final nav = Navigator.of(context);
-            if (await _confirmLeave(st)) nav.pop();
+            if (!didPop) await _back(st);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: Text(st?['name'] ?? 'Sto', overflow: TextOverflow.ellipsis),
-              actions: [
-                if (st != null)
-                  IconButton(
-                    tooltip: 'Istorija ruku',
-                    icon: const Icon(Icons.history),
-                    onPressed: () => showHandHistory(context, tableId: widget.tableId, table: app.tableNotifier(widget.tableId)),
-                  ),
-                if (st != null && (st['mySeat'] as int) >= 0) _menu(st, showBB),
-              ],
-            ),
+            backgroundColor: const Color(0xFF0E1012),
             body: st == null ? const Center(child: CircularProgressIndicator()) : _body(st, money),
           ),
         );
       },
-    );
-  }
-
-  Widget _menu(Json st, bool showBB) {
-    final me = (st['seats'] as List)[st['mySeat'] as int] as Json;
-    final sittingOut = me['sittingOut'] == true;
-    return PopupMenuButton<String>(
-      onSelected: (v) async {
-        switch (v) {
-          case 'bb':
-            app.setShowBB(!showBB);
-          case 'topup':
-            _topUp(st, me);
-          case 'sitout':
-            await app.run('table:sitout', {'tableId': widget.tableId, 'value': !sittingOut});
-          case 'leave':
-            final nav = Navigator.of(context);
-            if (await _confirmLeave(st)) nav.pop();
-        }
-      },
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'bb',
-          child: ListTile(
-            leading: const Icon(Icons.swap_horiz),
-            title: Text(showBB ? 'Prikaži u dinarima (RSD)' : 'Prikaži u velikim blajndovima (BB)'),
-          ),
-        ),
-        const PopupMenuItem(value: 'topup', child: ListTile(leading: Icon(Icons.add_circle), title: Text('Dopuni'))),
-        PopupMenuItem(
-          value: 'sitout',
-          child: ListTile(
-            leading: Icon(sittingOut ? Icons.play_arrow : Icons.pause),
-            title: Text(sittingOut ? 'Vrati se u igru' : 'Pauza (preskoči ruke)'),
-          ),
-        ),
-        const PopupMenuItem(value: 'leave', child: ListTile(leading: Icon(Icons.logout), title: Text('Ustani sa stola'))),
-      ],
     );
   }
 
@@ -175,10 +130,23 @@ class _TableScreenState extends State<TableScreen> {
     return SafeArea(
       child: Column(
         children: [
-          _InfoBar(st: st, showBB: money.inBB, onToggle: (v) => app.setShowBB(v)),
+          _TopBar(
+            st: st,
+            showBB: money.inBB,
+            onBack: () => _back(st),
+            onToggle: app.setShowBB,
+            onHistory: () => showHandHistory(context, tableId: widget.tableId, table: app.tableNotifier(widget.tableId)),
+            onChat: () => showTableChat(context, widget.tableId),
+            unread: app.unreadOf(widget.tableId),
+            onMenu: mySeat >= 0 ? () => _menu(st) : null,
+          ),
           Expanded(
             child: LayoutBuilder(
-              builder: (_, c) => _TableView(st: st, size: c.biggest, money: money, onSit: (i) => _sit(st, i)),
+              builder: (_, c) => ValueListenableBuilder<List<Json>>(
+                valueListenable: app.chatOf(widget.tableId),
+                builder: (_, chat, __) =>
+                    _TableView(st: st, size: c.biggest, money: money, chat: chat, onSit: (i) => _sit(st, i)),
+              ),
             ),
           ),
           if (mySeat >= 0)
@@ -192,10 +160,47 @@ class _TableScreenState extends State<TableScreen> {
             )
           else
             const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Dodirnite slobodno mesto da sednete za sto.', style: TextStyle(color: Colors.white70)),
+              padding: EdgeInsets.all(12),
+              child: Text('Dodirnite slobodno mesto da sednete za sto.', style: TextStyle(color: Colors.white60, fontSize: 13)),
             ),
         ],
+      ),
+    );
+  }
+
+  void _menu(Json st) {
+    final me = (st['seats'] as List)[st['mySeat'] as int] as Json;
+    final sittingOut = me['sittingOut'] == true;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: panel,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.add_circle),
+            title: const Text('Dopuni'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _topUp(st, me);
+            },
+          ),
+          ListTile(
+            leading: Icon(sittingOut ? Icons.play_arrow : Icons.pause),
+            title: Text(sittingOut ? 'Vrati se u igru' : 'Pauza (preskoči ruke)'),
+            onTap: () {
+              Navigator.pop(ctx);
+              app.run('table:sitout', {'tableId': widget.tableId, 'value': !sittingOut});
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.logout, color: accent),
+            title: const Text('Ustani sa stola'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _back(st);
+            },
+          ),
+        ]),
       ),
     );
   }
@@ -240,86 +245,114 @@ class _TableScreenState extends State<TableScreen> {
   }
 }
 
-class _InfoBar extends StatelessWidget {
+/// Sitne kontrole na vrhu: nazad, meni, prikaz u RSD/BB i istorija.
+class _TopBar extends StatelessWidget {
   final Json st;
   final bool showBB;
+  final VoidCallback onBack;
+  final VoidCallback onHistory;
+  final VoidCallback? onMenu;
+  final VoidCallback onChat;
+  final ValueNotifier<int> unread;
   final ValueChanged<bool> onToggle;
-  const _InfoBar({required this.st, required this.showBB, required this.onToggle});
+  const _TopBar({
+    required this.st,
+    required this.showBB,
+    required this.onBack,
+    required this.onHistory,
+    required this.onToggle,
+    required this.onChat,
+    required this.unread,
+    this.onMenu,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final short = st['variant'] == 'OMAHA' ? 'PLO' : 'NLH';
-    const streets = {'preflop': 'PRE-FLOP', 'flop': 'FLOP', 'turn': 'TURN', 'river': 'RIVER', 'showdown': 'OTVARANJE'};
-    final street = streets[st['street']];
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFF101217),
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(4)),
-            child: Text(short, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+    Widget round(IconData icon, VoidCallback? onTap, String tip) => Tooltip(
+          message: tip,
+          child: InkResponse(
+            onTap: onTap,
+            radius: 22,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), shape: BoxShape.circle),
+              child: Icon(icon, size: 18, color: Colors.white70),
+            ),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text('Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
-                overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-          ),
-          if (street != null) ...[
-            const SizedBox(width: 8),
-            Text(street, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w900)),
-          ],
-          const Spacer(),
-          // Prekidač prikaza iznosa: dinari ili veliki blajndovi
-          Container(
-            decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(8)),
-            padding: const EdgeInsets.all(2),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              for (final opt in const [(false, 'RSD'), (true, 'BB')])
-                GestureDetector(
-                  onTap: () => onToggle(opt.$1),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: showBB == opt.$1 ? accent : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(opt.$2, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
-                  ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      child: Row(children: [
+        round(Icons.arrow_back_ios_new, onBack, 'Nazad'),
+        const SizedBox(width: 6),
+        if (onMenu != null) round(Icons.menu, onMenu, 'Meni'),
+        const Spacer(),
+        // Prikaz iznosa: dinari ili veliki blajndovi
+        Container(
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), borderRadius: BorderRadius.circular(17)),
+          padding: const EdgeInsets.all(3),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            for (final opt in const [(false, 'RSD'), (true, 'BB')])
+              GestureDetector(
+                onTap: () => onToggle(opt.$1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(color: showBB == opt.$1 ? accent : Colors.transparent, borderRadius: BorderRadius.circular(14)),
+                  child: Text(opt.$2, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                 ),
-            ]),
-          ),
-        ],
-      ),
+              ),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        // Chat sa brojem nepročitanih poruka
+        ValueListenableBuilder<int>(
+          valueListenable: unread,
+          builder: (_, n, __) => Stack(clipBehavior: Clip.none, children: [
+            round(Icons.chat_bubble_outline, onChat, 'Chat'),
+            if (n > 0)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(8)),
+                  child: Text(n > 9 ? '9+' : '$n', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        round(Icons.history, onHistory, 'Istorija ruku'),
+      ]),
     );
   }
 }
 
-/// Naziv i boja poteza za prikaz kod igrača i u spisku poteza.
+/// Naziv i boja poteza za prikaz kod igrača.
 ({String label, Color color}) actLabel(Json act, Money money) {
   final amount = act['amount'] as int? ?? 0;
   return switch (act['type'] as String) {
-    'sb' => (label: 'SB ${money(amount)}', color: const Color(0xFF4A4F5C)),
-    'bb' => (label: 'BB ${money(amount)}', color: const Color(0xFF4A4F5C)),
+    'sb' => (label: 'SB', color: const Color(0xFF4A4F5C)),
+    'bb' => (label: 'BB', color: const Color(0xFF4A4F5C)),
     'fold' => (label: 'FOLD', color: const Color(0xFF2B2F38)),
     'check' => (label: 'CHECK', color: const Color(0xFF2E7D5B)),
-    'call' => (label: 'CALL ${money(amount)}', color: const Color(0xFF1B6FD8)),
-    'bet' => (label: 'BET ${money(amount)}', color: const Color(0xFFE07A18)),
-    'raise' => (label: 'RAISE ${money(amount)}', color: accent),
+    'call' => (label: 'CALL', color: const Color(0xFF1B6FD8)),
+    'bet' => (label: 'BET', color: const Color(0xFFE07A18)),
+    'raise' => (label: 'RAISE', color: accent),
     'allin' => (label: 'ALL-IN ${money(amount)}', color: const Color(0xFF9B1BD8)),
     _ => (label: '', color: Colors.black),
   };
 }
 
-/// Ovalni sto sa sedištima. Igrač je uvek dole u sredini.
+/// Veliki ovalni sto preko celog ekrana. Igrač je uvek dole u sredini.
 class _TableView extends StatelessWidget {
   final Json st;
   final Size size;
   final Money money;
+  final List<Json> chat;
   final void Function(int seat) onSit;
-  const _TableView({required this.st, required this.size, required this.money, required this.onSit});
+  const _TableView({required this.st, required this.size, required this.money, required this.chat, required this.onSit});
 
   @override
   Widget build(BuildContext context) {
@@ -328,15 +361,16 @@ class _TableView extends StatelessWidget {
     final mySeat = st['mySeat'] as int;
     final base = mySeat >= 0 ? mySeat : 0;
     final w = size.width, h = size.height;
-    final center = Offset(w / 2, h * 0.47);
-    final rx = w * 0.38, ry = h * 0.36;
+    final center = Offset(w / 2, h * 0.5);
+    // Sedišta stoje na ivici stola.
+    final rx = w * 0.40, ry = h * 0.41;
     final app = context.read<AppState>();
-    const seatW = 104.0;
+    const seatW = 86.0;
 
-    Offset pos(int i, [double scale = 1]) {
+    Offset pos(int i) {
       final k = (i - base + n) % n;
       final angle = pi / 2 + 2 * pi * k / n;
-      return center + Offset(rx * scale * cos(angle), ry * scale * sin(angle));
+      return center + Offset(rx * cos(angle), ry * sin(angle));
     }
 
     final result = st['result'] as Json?;
@@ -351,144 +385,161 @@ class _TableView extends StatelessWidget {
       if (won.containsKey(s['seat'])) best.addAll((s['best'] as List).cast<String>());
     }
     final board = (st['board'] as List).cast<String>();
-    final cardW = min(46.0, (w * 0.62) / 5 - 4);
+    final cardW = min(38.0, (w * 0.56) / 5 - 4);
+    final boardTop = center.dy - cardW * 1.4 / 2 - 6;
 
     final children = <Widget>[
-      // Sto: tamna ivica i zelena čoja
+      // Sto: tamna ivica i zelena čoja, skoro do ivica ekrana
       Positioned(
-        left: w * 0.06,
-        top: h * 0.08,
-        width: w * 0.88,
-        height: h * 0.78,
+        left: w * 0.08,
+        top: h * 0.05,
+        width: w * 0.84,
+        height: h * 0.90,
         child: Container(
-          padding: const EdgeInsets.all(9),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(w),
-            gradient: const LinearGradient(colors: [railInner, railOuter], begin: Alignment.topCenter, end: Alignment.bottomCenter),
-            boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 24, spreadRadius: 2)],
+            gradient: const LinearGradient(colors: [Color(0xFF34373D), Color(0xFF16181B)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+            boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 20, spreadRadius: 2)],
           ),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(w),
-              border: Border.all(color: Colors.white10, width: 2),
-              gradient: const RadialGradient(colors: [feltLight, felt, feltDark], stops: [0, 0.65, 1], radius: 0.9),
+              border: Border.all(color: Colors.black54, width: 3),
+              gradient: const RadialGradient(colors: [Color(0xFF2E7A3A), Color(0xFF1E5A28), Color(0xFF123A19)], stops: [0, 0.7, 1], radius: 0.95),
             ),
           ),
         ),
       ),
-      // Sredina: ukupan pot, karte na stolu, rezultat
+      // Znak kluba i podaci o igri na čoji (ispod karata)
       Positioned(
         left: 0,
         right: 0,
-        top: center.dy - cardW * 1.4 / 2 - 34,
-        child: Column(
+        top: boardTop + cardW * 1.4 + 30,
+        child: IgnorePointer(child: _FeltInfo(st: st, w: w)),
+      ),
+      // Ukupan pot iznad karata
+      Positioned(
+        left: 0,
+        right: 0,
+        top: boardTop - 40,
+        child: Center(
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: (st['pot'] as int) > 0 ? 1 : 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+              decoration: BoxDecoration(color: Colors.black.withOpacity(0.45), borderRadius: BorderRadius.circular(12)),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Ukupan pot', style: TextStyle(fontSize: 10, color: Colors.white70)),
+                Text(money(st['pot']), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white)),
+              ]),
+            ),
+          ),
+        ),
+      ),
+      // Karte na stolu (male)
+      Positioned(
+        left: 0,
+        right: 0,
+        top: boardTop,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: (st['pot'] as int) > 0 ? 1 : 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
-                child: Text('Pot: ${money(st['pot'])}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+            for (final c in board)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: PlayingCard(code: c, width: cardW, highlight: best.contains(c), dim: best.isNotEmpty && !best.contains(c)),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: cardW * 1.4,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var k = 0; k < 5; k++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: k < board.length
-                          ? PlayingCard(
-                              code: board[k],
-                              width: cardW,
-                              highlight: best.contains(board[k]),
-                              dim: best.isNotEmpty && !best.contains(board[k]),
-                            )
-                          : Container(
-                              width: cardW,
-                              height: cardW * 1.4,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(cardW * 0.12),
-                                border: Border.all(color: Colors.white10),
-                              ),
-                            ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (result != null) _ResultText(result: result, money: money),
-            if (st['closing'] == true) const Text('Sto se zatvara posle ove ruke.', style: TextStyle(color: gold)),
-            if (st['inProgress'] != true && result == null && seats.where((s) => s != null).length < 2)
-              const Text('Čeka se još igrača…', style: TextStyle(color: Colors.white70)),
           ],
         ),
       ),
-      // Spisak poslednjih poteza (gore levo)
-      Positioned(left: 8, top: 4, child: _ActionFeed(actions: ((st['actions'] as List?) ?? []).cast<Json>(), money: money)),
+      if (result != null || st['closing'] == true)
+        Positioned(
+          left: 0,
+          right: 0,
+          top: boardTop + cardW * 1.4 + 6,
+          child: Center(
+            child: result != null
+                ? _ResultText(result: result, money: money)
+                : const Text('Sto se zatvara posle ove ruke.', style: TextStyle(color: gold, fontSize: 12)),
+          ),
+        ),
     ];
 
+    // Ulozi i dugme se crtaju posle igrača, da ih pločice ne prekriju.
+    final overlays = <Widget>[];
     for (var i = 0; i < n; i++) {
       final s = seats[i];
       final p = pos(i);
       if (s == null) {
         if (mySeat >= 0) continue;
         children.add(Positioned(
-          left: p.dx - 28,
-          top: p.dy - 28,
+          left: p.dx - 27,
+          top: p.dy - 27,
           child: GestureDetector(
             onTap: () => onSit(i),
             child: Container(
-              width: 56,
-              height: 56,
+              width: 54,
+              height: 54,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.black38,
-                border: Border.all(color: accent.withOpacity(0.7), width: 2),
+                color: const Color(0xFF1B1D21),
+                border: Border.all(color: Colors.white24, width: 1.5),
               ),
-              alignment: Alignment.center,
-              child: const Text('SEDI', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+              child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.keyboard_double_arrow_down, size: 16, color: Colors.white70),
+                Text('Sedi', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+              ]),
             ),
           ),
         ));
         continue;
       }
       final isMe = i == mySeat;
-      final bet = s['bet'] as int;
-      // Smer od igrača ka sredini stola (za ulog i dugme).
       final toCenter = center - p;
       final dir = toCenter / max(1.0, toCenter.distance);
       final side = Offset(-dir.dy, dir.dx);
+      final bet = s['bet'] as int;
       if (bet > 0) {
-        // Ulog stoji ispred igrača, prema sredini stola, da ne preklapa pot.
-        var b = isMe ? Offset(center.dx, pos(i).dy - 150) : p + dir * min(100.0, toCenter.distance * 0.45);
-        // Ako bi ulog prekrio natpis sa potom, pomeri ga iznad ili ispod njega.
-        final potY = center.dy - cardW * 0.7 - 21;
-        if (!isMe && (b.dy - potY).abs() < 30 && (b.dx - center.dx).abs() < 125) {
-          b = Offset(b.dx, p.dy < center.dy ? potY - 32 : potY + 32);
-        }
-        children.add(Positioned(left: b.dx - 55, top: b.dy - 13, width: 110, child: Center(child: _BetChips(text: money(bet)))));
+        // Ulog: žeton i iznos ispred igrača, prema sredini stola.
+        // Svoj ulog gore desno od avatara (kao u velikim aplikacijama), tuđi prema sredini.
+        var b = isMe ? Offset(p.dx + 74, min(p.dy, h - 104) - 34) : p + dir * (70.0 + 34 * dir.dy.abs());
+        final potTop = boardTop - 40;
+        if ((b.dy - (potTop + 16)).abs() < 26 && (b.dx - center.dx).abs() < 70) b = Offset(b.dx, potTop - 18);
+        overlays.add(Positioned(left: b.dx - 40, top: b.dy - 18, width: 80, child: _BetChip(text: money(bet))));
       }
       if (st['button'] == i) {
-        final d = isMe ? Offset(center.dx + 62, pos(i).dy - 120) : p + dir * 62 + side * 46;
-        children.add(Positioned(
-          left: d.dx - 11,
-          top: d.dy - 11,
+        final d = p + dir * 48 + side * 40;
+        overlays.add(Positioned(
+          left: d.dx - 9,
+          top: d.dy - 9,
           child: Container(
-            width: 22,
-            height: 22,
-            decoration: const BoxDecoration(
-              color: gold,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 3)],
-            ),
+            width: 18,
+            height: 18,
+            decoration: const BoxDecoration(color: gold, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 3)]),
             alignment: Alignment.center,
-            child: const Text('D', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 12)),
+            child: const Text('D', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10)),
+          ),
+        ));
+      }
+      // Poslednja poruka igrača iz chata (do 6 sekundi) iznad njegovog avatara.
+      final recent = chat.lastWhere(
+        (m) => m['userId'] == s['userId'] && app.serverNow - (m['at'] as int) < 6000,
+        orElse: () => const {},
+      );
+      if (recent.isNotEmpty) {
+        overlays.add(Positioned(
+          left: p.dx - 70,
+          top: p.dy - 62,
+          width: 140,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: Text(recent['text'] as String,
+                  maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black, fontSize: 11)),
+            ),
           ),
         ));
       }
@@ -498,15 +549,17 @@ class _TableView extends StatelessWidget {
         final total = (st['actionSeconds'] as int) * 1000;
         timeLeft = ((deadline - app.serverNow) / total).clamp(0.0, 1.0);
       }
-      // Svoje sedište: dovoljno visoko da se vidi cela pločica sa žetonima.
-      final top = isMe ? min(p.dy - 100, h - 192) : p.dy - 64;
+      // Sedište je centrirano na avatar; svoje malo podignuto da stane cela pločica.
+      final avatarSize = isMe ? 60.0 : 50.0;
+      final topY = isMe ? min(p.dy - avatarSize / 2, h - avatarSize - 44) : p.dy - avatarSize / 2;
       children.add(Positioned(
         left: p.dx - seatW / 2,
-        top: top,
+        top: topY,
         width: seatW,
         child: _SeatView(
           seat: s,
           isMe: isMe,
+          avatarSize: avatarSize,
           won: won[i],
           timeLeft: timeLeft,
           best: best,
@@ -515,38 +568,34 @@ class _TableView extends StatelessWidget {
         ),
       ));
     }
-    return Stack(clipBehavior: Clip.none, children: children);
+    return Stack(clipBehavior: Clip.none, children: [...children, ...overlays]);
   }
 }
 
-class _ActionFeed extends StatelessWidget {
-  final List<Json> actions;
-  final Money money;
-  const _ActionFeed({required this.actions, required this.money});
+/// Natpis na čoji: znak kluba, naziv stola i pravila igre.
+class _FeltInfo extends StatelessWidget {
+  final Json st;
+  final double w;
+  const _FeltInfo({required this.st, required this.w});
 
   @override
   Widget build(BuildContext context) {
-    final list = actions.reversed.take(4).toList();
-    if (list.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var k = 0; k < list.length; k++)
-          Opacity(
-            opacity: 1 - k * 0.22,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Text('${list[k]['name']}  ', style: const TextStyle(fontSize: 11, color: Colors.white70)),
-                Text(
-                  actLabel(list[k], money).label,
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color.lerp(actLabel(list[k], money).color, Colors.white, 0.35)),
-                ),
-              ]),
-            ),
-          ),
-      ],
-    );
+    final omaha = st['variant'] == 'OMAHA';
+    const faint = TextStyle(fontSize: 10.5, color: Color(0x80FFFFFF), height: 1.35);
+    return Column(children: [
+      Text.rich(
+        const TextSpan(children: [
+          TextSpan(text: 'THE '),
+          TextSpan(text: 'VAULT', style: TextStyle(color: Color(0x66E0182D))),
+        ]),
+        style: TextStyle(fontSize: w * 0.075, fontWeight: FontWeight.w900, color: const Color(0x33FFFFFF), letterSpacing: 2),
+      ),
+      Text(omaha ? 'PLO' : 'NLH', style: TextStyle(fontSize: w * 0.04, fontWeight: FontWeight.w900, color: const Color(0x33FFFFFF))),
+      const SizedBox(height: 6),
+      Text(st['name'] as String, style: faint.copyWith(fontWeight: FontWeight.w700)),
+      Text('${omaha ? 'Omaha pot-limit' : "Hold'em no-limit"} · Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD', style: faint),
+      Text('Ulaz ${chips(st['minBuyIn'])} – ${rsd(st['maxBuyIn'])}', style: faint),
+    ]);
   }
 }
 
@@ -562,61 +611,52 @@ class _ResultText extends StatelessWidget {
     for (var k = 0; k < pots.length; k++) {
       final p = pots[k];
       final names = (p['winners'] as List).map((w) => w['name']).join(' i ');
-      final prefix = pots.length > 1 ? (k == 0 ? 'Glavni pot: ' : 'Sporedni pot: ') : '';
-      lines.add('$prefix$names dobija ${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
+      final prefix = pots.length > 1 ? (k == 0 ? 'Glavni: ' : 'Sporedni: ') : '';
+      lines.add('$prefix$names +${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
     }
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 36),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: Colors.black.withOpacity(0.55), borderRadius: BorderRadius.circular(10)),
       child: Text(lines.join('\n'),
-          textAlign: TextAlign.center, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 13)),
+          textAlign: TextAlign.center, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 11.5)),
     );
   }
 }
 
-/// Ulog ispred igrača: mala gomila žetona i iznos.
-class _BetChips extends StatelessWidget {
+/// Ulog ispred igrača: žeton i iznos ispod njega.
+class _BetChip extends StatelessWidget {
   final String text;
-  const _BetChips({required this.text});
+  const _BetChip({required this.text});
 
   @override
   Widget build(BuildContext context) {
-    const colors = [Color(0xFFE0182D), Color(0xFF2F80ED), Color(0xFF27AE60)];
-    return Container(
-      padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        SizedBox(
-          width: 24,
-          height: 18,
-          child: Stack(children: [
-            for (var k = 0; k < 3; k++)
-              Positioned(
-                left: k * 3.5,
-                top: 3.0 - k * 1.5,
-                child: Container(
-                  width: 15,
-                  height: 15,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: colors[k], border: Border.all(color: Colors.white, width: 2)),
-                ),
-              ),
-          ]),
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 16,
+        height: 16,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFFD7263D),
+          border: Border.all(color: Colors.white, width: 2.5),
+          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 2)],
         ),
-        const SizedBox(width: 3),
-        Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14)),
-      ]),
-    );
+      ),
+      const SizedBox(height: 1),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(color: Colors.black.withOpacity(0.55), borderRadius: BorderRadius.circular(8)),
+        child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11.5)),
+      ),
+    ]);
   }
 }
 
+/// Igrač: avatar sa malim kartama preko njega, ispod ime i stek.
 class _SeatView extends StatelessWidget {
   final Json seat;
   final bool isMe;
+  final double avatarSize;
   final int? won;
   final double? timeLeft;
   final String? handName;
@@ -625,6 +665,7 @@ class _SeatView extends StatelessWidget {
   const _SeatView({
     required this.seat,
     required this.isMe,
+    required this.avatarSize,
     required this.won,
     required this.best,
     required this.money,
@@ -641,61 +682,52 @@ class _SeatView extends StatelessWidget {
     final name = seat['name'] as String;
     final away = seat['sittingOut'] == true && seat['inHand'] != true;
     final act = seat['lastAct'] as Json?;
+    final a = avatarSize;
 
-    // Šta piše na traci iznad imena: pobeda, potez, ili stanje igrača.
-    ({String label, Color color})? strip;
+    // Oznaka ispod pločice: pobeda, potez ili stanje igrača.
+    ({String label, Color color})? tag;
     if (won != null) {
-      strip = (label: 'WIN +${money(won)}', color: gold);
-    } else if (acting) {
-      strip = (label: 'NA POTEZU', color: const Color(0xFF2E7D5B));
-    } else if (act != null) {
-      strip = actLabel(act, money);
+      tag = (label: 'WIN +${money(won)}', color: gold);
+    } else if (handName != null) {
+      tag = (label: handName!, color: Colors.black87);
+    } else if (act != null && !acting) {
+      tag = actLabel(act, money);
     } else if (seat['leaving'] == true) {
-      strip = (label: 'USTAJE', color: const Color(0xFF2B2F38));
+      tag = (label: 'USTAJE', color: const Color(0xFF2B2F38));
     } else if (away) {
-      strip = (label: 'PAUZA', color: const Color(0xFF2B2F38));
+      tag = (label: 'PAUZA', color: const Color(0xFF2B2F38));
     } else if (seat['stack'] == 0 && seat['inHand'] != true) {
-      strip = (label: 'PRAZAN STEK', color: const Color(0xFF2B2F38));
+      tag = (label: 'PRAZAN STEK', color: const Color(0xFF2B2F38));
     }
 
-    // Karte: svoje velike iznad avatara, tuđe poleđine pored, otvorene posle ruke.
-    Widget? cardsRow;
+    // Karte preko gornjeg dela avatara: svoje i otvorene licem, tuđe poleđinom.
+    Widget? cardsWidget;
     if (cards != null && cards.isNotEmpty) {
-      final cw = isMe ? (cards.length > 2 ? 36.0 : 46.0) : (cards.length > 2 ? 23.0 : 30.0);
-      cardsRow = Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          for (final c in cards)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: PlayingCard(code: c, width: cw, dim: folded, highlight: best.contains(c)),
-            ),
-        ],
-      );
+      final cw = isMe ? (cards.length > 2 ? 26.0 : 32.0) : (cards.length > 2 ? 19.0 : 24.0);
+      cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
+        for (var k = 0; k < cards.length; k++)
+          Transform.translate(
+            offset: Offset(-k * cw * 0.12, 0),
+            child: PlayingCard(code: cards[k], width: cw, dim: folded && !isMe, highlight: best.contains(cards[k])),
+          ),
+      ]);
     } else if (count > 0 && !folded) {
-      cardsRow = SizedBox(
-        width: 44,
-        height: 30,
-        child: Stack(children: [
-          for (var k = 0; k < count; k++)
-            Positioned(
-              left: 8.0 + k * (count > 2 ? 5 : 9),
-              top: 2,
-              child: Transform.rotate(angle: (k - (count - 1) / 2) * 0.18, child: const PlayingCard(width: 18)),
-            ),
-        ]),
-      );
+      const cw = 20.0;
+      cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
+        for (var k = 0; k < count; k++) Transform.translate(offset: Offset(-k * cw * 0.45, 0), child: const PlayingCard(width: cw)),
+      ]);
     }
 
-    final avatar = Stack(
-      alignment: Alignment.center,
-      children: [
+    final avatar = SizedBox(
+      width: a + 8,
+      height: a + 8,
+      child: Stack(alignment: Alignment.center, children: [
         Avatar(
           name: name,
           url: seat['avatarUrl'] as String?,
-          size: 50,
-          borderColor: won != null ? gold : (isMe ? Colors.white70 : Colors.white24),
-          borderWidth: won != null ? 3 : 2,
+          size: a,
+          borderColor: won != null ? gold : (acting ? winGreen : Colors.white24),
+          borderWidth: won != null || acting ? 2.5 : 1.5,
           shadow: [
             const BoxShadow(color: Colors.black54, blurRadius: 4),
             if (won != null) const BoxShadow(color: Color(0xAAF2C14E), blurRadius: 14),
@@ -703,87 +735,69 @@ class _SeatView extends StatelessWidget {
         ),
         if (acting)
           SizedBox(
-            width: 58,
-            height: 58,
+            width: a + 8,
+            height: a + 8,
             child: CircularProgressIndicator(
               value: timeLeft,
-              strokeWidth: 4,
+              strokeWidth: 3.5,
               color: timeLeft! < 0.3 ? accent : winGreen,
               backgroundColor: Colors.black38,
             ),
           ),
-      ],
+      ]),
     );
 
     final plate = Container(
-      width: double.infinity,
-      clipBehavior: Clip.antiAlias,
+      constraints: BoxConstraints(minWidth: isMe ? 84 : 74),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0xF2101217),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: acting ? winGreen : (won != null ? gold : Colors.white12), width: acting || won != null ? 1.5 : 1),
+        color: const Color(0xE6101214),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: acting ? winGreen : Colors.white12),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (strip != null)
-            Container(
-              width: double.infinity,
-              color: strip.color,
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text(
-                strip.label,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w900,
-                  color: won != null ? Colors.black : Colors.white,
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 2, 6, 3),
-            child: Column(children: [
-              Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white70)),
-              Text(
-                seat['allIn'] == true ? 'ALL-IN' : money(seat['stack']),
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: seat['allIn'] == true ? accent : Colors.white),
-              ),
-            ]),
-          ),
-        ],
-      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+        Text(
+          seat['allIn'] == true ? 'ALL-IN' : money(seat['stack']),
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: seat['allIn'] == true ? accent : const Color(0xFF6FD3FF)),
+        ),
+      ]),
     );
 
     return Opacity(
-      opacity: (folded && cards == null) || away ? 0.55 : 1,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(height: isMe ? 66 : 32, child: cardsRow == null ? null : Center(child: cardsRow)),
-          avatar,
-          Transform.translate(offset: const Offset(0, -6), child: plate),
-          if (handName != null)
-            Transform.translate(
-              offset: const Offset(0, -3),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(10)),
-                child: Text(handName!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: gold)),
+      opacity: (folded && !isMe) || away ? 0.5 : 1,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Avatar i karte preko njega
+        SizedBox(
+          width: 86,
+          height: a + 8,
+          child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+            avatar,
+            if (cardsWidget != null) Positioned(top: isMe ? -14 : -6, child: cardsWidget),
+          ]),
+        ),
+        Transform.translate(offset: const Offset(0, -6), child: plate),
+        if (tag != null)
+          Transform.translate(
+            offset: const Offset(0, -4),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 110),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+              decoration: BoxDecoration(color: tag.color, borderRadius: BorderRadius.circular(8)),
+              child: Text(
+                tag.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: won != null ? Colors.black : Colors.white),
               ),
             ),
-        ],
-      ),
+          ),
+      ]),
     );
   }
 }
 
-/// Donji deo ekrana: jačina ruke i potezi.
+/// Donji deo: kompaktni potezi, da sto ostane pregledan.
 class _MyPanel extends StatelessWidget {
   final Json st;
   final AppState app;
@@ -808,7 +822,7 @@ class _MyPanel extends StatelessWidget {
     final myHand = st['myHand'] as String?;
     final inHand = me['inHand'] == true && me['folded'] != true && st['inProgress'] == true;
 
-    Widget bottom;
+    Widget? bottom;
     if (legal != null) {
       bottom = ActionBar(
         legal: legal,
@@ -823,68 +837,47 @@ class _MyPanel extends StatelessWidget {
       );
     } else if (me['sittingOut'] == true) {
       bottom = FilledButton.icon(
-        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-        icon: const Icon(Icons.play_arrow),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+        icon: const Icon(Icons.play_arrow, size: 20),
         label: const Text('Vrati se u igru'),
         onPressed: () => app.run('table:sitout', {'tableId': tableId, 'value': false}),
       );
     } else if (me['stack'] == 0 && me['inHand'] != true) {
       bottom = FilledButton.icon(
-        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-        icon: const Icon(Icons.add_circle),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+        icon: const Icon(Icons.add_circle, size: 20),
         label: const Text('Dopuni'),
         onPressed: onTopUp,
       );
     } else if (inHand && me['allIn'] != true) {
       // Potez unapred, kao u velikim poker aplikacijama.
-      bottom = Row(
-        children: [
-          Expanded(child: _PreButton(label: 'Check / Fold', selected: pre == PreAction.checkFold, onTap: () => onPre(PreAction.checkFold))),
-          const SizedBox(width: 8),
-          Expanded(child: _PreButton(label: 'Call bilo šta', selected: pre == PreAction.callAny, onTap: () => onPre(PreAction.callAny))),
-        ],
-      );
-    } else {
-      bottom = SizedBox(
-        height: 48,
-        child: Center(
-          child: Text(
-            inHand
-                ? 'Čeka se potez drugih igrača…'
-                : st['inProgress'] == true
-                    ? 'Igrate od sledeće ruke.'
-                    : 'Sledeća ruka uskoro počinje…',
-            style: const TextStyle(color: Colors.white54),
-          ),
-        ),
-      );
+      bottom = Row(children: [
+        Expanded(child: _PreButton(label: 'Check / Fold', selected: pre == PreAction.checkFold, onTap: () => onPre(PreAction.checkFold))),
+        const SizedBox(width: 8),
+        Expanded(child: _PreButton(label: 'Call any', selected: pre == PreAction.callAny, onTap: () => onPre(PreAction.callAny))),
+      ]);
     }
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF101217),
-        border: Border(top: BorderSide(color: Colors.white10)),
-      ),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              if (myHand != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(10)),
-                  child: Text(myHand, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 15)),
-                ),
-              const Spacer(),
-              Text('Nalog: ${rsd(app.balance)}', style: const TextStyle(color: Colors.white38, fontSize: 12)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          bottom,
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          if (myHand != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: panelLight, borderRadius: BorderRadius.circular(8)),
+              child: Text(myHand, style: const TextStyle(color: gold, fontWeight: FontWeight.w800, fontSize: 12.5)),
+            )
+          else if (bottom == null)
+            Text(
+              st['inProgress'] == true ? (inHand ? 'Čeka se potez…' : 'Igrate od sledeće ruke.') : 'Sledeća ruka uskoro počinje…',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          const Spacer(),
+          Text('Nalog: ${rsd(app.balance)}', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+        ]),
+        if (bottom != null) ...[const SizedBox(height: 6), bottom],
+      ]),
     );
   }
 }
@@ -899,13 +892,14 @@ class _PreButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(48),
+        minimumSize: const Size.fromHeight(38),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         backgroundColor: selected ? const Color(0xFF1B3A2E) : Colors.transparent,
         side: BorderSide(color: selected ? winGreen : Colors.white24, width: selected ? 2 : 1),
       ),
       onPressed: onTap,
-      icon: Icon(selected ? Icons.check_box : Icons.check_box_outline_blank, size: 20, color: selected ? winGreen : Colors.white54),
-      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+      icon: Icon(selected ? Icons.check_box : Icons.check_box_outline_blank, size: 18, color: selected ? winGreen : Colors.white54),
+      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
     );
   }
 }

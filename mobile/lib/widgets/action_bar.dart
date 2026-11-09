@@ -101,7 +101,7 @@ class _ActionBarState extends State<ActionBar> {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         padding: EdgeInsets.zero,
-                        minimumSize: const Size.fromHeight(36),
+                        minimumSize: const Size.fromHeight(30),
                         backgroundColor: _amount == e.value ? accent : Colors.transparent,
                         side: BorderSide(color: _amount == e.value ? accent : Colors.white24),
                       ),
@@ -138,7 +138,7 @@ class _ActionBarState extends State<ActionBar> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
                   onPressed: () => setState(() => _raising = false),
                   child: const Text('Nazad'),
                 ),
@@ -147,7 +147,7 @@ class _ActionBarState extends State<ActionBar> {
               Expanded(
                 flex: 2,
                 child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: accent, minimumSize: const Size.fromHeight(52)),
+                  style: FilledButton.styleFrom(backgroundColor: accent, minimumSize: const Size.fromHeight(44)),
                   onPressed: _busy ? null : () => _send('raise', _amount),
                   child: FittedBox(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -217,7 +217,7 @@ class _ActionButton extends StatelessWidget {
     return FilledButton(
       style: FilledButton.styleFrom(
         backgroundColor: color,
-        minimumSize: const Size.fromHeight(56),
+        minimumSize: const Size.fromHeight(46),
         padding: const EdgeInsets.symmetric(horizontal: 4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
@@ -225,9 +225,9 @@ class _ActionButton extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(title, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900)),
           if (subtitle != null)
-            FittedBox(child: Text(subtitle!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+            FittedBox(child: Text(subtitle!, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600))),
         ],
       ),
     );
@@ -242,7 +242,7 @@ class _RoundButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton.filled(
-      style: IconButton.styleFrom(backgroundColor: panelLight, disabledBackgroundColor: panel, minimumSize: const Size(44, 44)),
+      style: IconButton.styleFrom(backgroundColor: panelLight, disabledBackgroundColor: panel, minimumSize: const Size(36, 36)),
       onPressed: onTap,
       icon: Icon(icon),
     );

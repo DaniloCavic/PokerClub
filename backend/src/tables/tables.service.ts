@@ -27,7 +27,20 @@ interface Runtime {
   sitOutSince: Map<string, number>;
   /** Sto se zatvara posle ruke koja je u toku. */
   closing: boolean;
+  /** Poslednje poruke u chatu stola (samo u memoriji). */
+  chat: ChatMessage[];
 }
+
+export interface ChatMessage {
+  id: number;
+  userId: string;
+  name: string;
+  text: string;
+  at: number;
+}
+
+const CHAT_KEEP = 50;
+let chatSeq = 0;
 
 export const rakePercent = (t: Pick<PokerTable, 'rakeBps'>) => t.rakeBps / 100;
 
@@ -79,6 +92,7 @@ export class TablesService implements OnModuleInit {
       lastResult: null,
       sitOutSince: new Map(),
       closing: false,
+      chat: [],
     };
     this.runtimes.set(table.id, rt);
     return rt;
@@ -249,6 +263,29 @@ export class TablesService implements OnModuleInit {
   private async balanceChanged(userId: string) {
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { balance: true } });
     if (u) this.server?.to(`user:${userId}`).emit('balance', { balance: u.balance });
+  }
+
+  /** Poruke u chatu stola (za igrača koji tek otvara sto). */
+  chatHistory(tableId: string) {
+    return this.rt(tableId).chat;
+  }
+
+  /** Nova poruka u chatu stola; šalje se svima koji gledaju sto. */
+  private readonly lastChat = new Map<string, number>();
+  async chat(userId: string, tableId: string, raw: string) {
+    const rt = this.rt(tableId);
+    const text = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!text) throw new GameError('Poruka je prazna.');
+    const now = Date.now();
+    if (now - (this.lastChat.get(userId) ?? 0) < 1000) throw new GameError('Sačekajte trenutak pre sledeće poruke.');
+    this.lastChat.set(userId, now);
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { displayName: true, role: true } });
+    if (user.role !== 'PLAYER') throw new GameError('Samo igrači mogu da pišu u chat.');
+    const msg: ChatMessage = { id: ++chatSeq, userId, name: user.displayName, text, at: now };
+    rt.chat.push(msg);
+    if (rt.chat.length > CHAT_KEEP) rt.chat.splice(0, rt.chat.length - CHAT_KEEP);
+    this.server?.to(`table:${tableId}`).emit('table:chat', { tableId, message: msg });
+    return {};
   }
 
   /** Igrač je promenio sliku: osveži stolove za kojima sedi. */

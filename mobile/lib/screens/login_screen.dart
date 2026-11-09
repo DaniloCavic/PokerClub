@@ -51,8 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 8),
                     const Text.rich(
                       TextSpan(children: [
-                        TextSpan(text: 'POKER ', style: TextStyle(color: Colors.white)),
-                        TextSpan(text: 'KLUB', style: TextStyle(color: accent)),
+                        TextSpan(text: 'THE ', style: TextStyle(color: Colors.white)),
+                        TextSpan(text: 'VAULT', style: TextStyle(color: accent)),
                       ]),
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: 2),

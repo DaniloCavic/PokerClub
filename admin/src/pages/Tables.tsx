@@ -22,7 +22,7 @@ const EMPTY: TableForm = {
   bigBlind: 10,
   minBuyIn: 400,
   maxBuyIn: 2000,
-  maxSeats: 6,
+  maxSeats: 9,
   rakePercent: 5,
   rakeCap: 50,
   actionSeconds: 20,

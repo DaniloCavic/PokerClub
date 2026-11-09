@@ -53,7 +53,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
         ),
         title: const Text.rich(
-          TextSpan(children: [TextSpan(text: 'POKER '), TextSpan(text: 'KLUB', style: TextStyle(color: accent))]),
+          TextSpan(children: [TextSpan(text: 'THE '), TextSpan(text: 'VAULT', style: TextStyle(color: accent))]),
           style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
         actions: [

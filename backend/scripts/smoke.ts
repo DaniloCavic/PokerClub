@@ -116,6 +116,16 @@ async function main() {
   }
   const bad = await emit(bots[3].socket, 'table:sit', { tableId: omaha.id, seat: 0, buyIn: 800 });
   assert(!bad.ok && /zauzeto/.test(bad.error), 'zauzeto mesto se odbija');
+  console.log('Chat');
+  const heard = new Promise<any>((r) => bots[1].socket.once('table:chat', r));
+  const sent = await emit(bots[0].socket, 'table:chat', { tableId: holdem.id, text: '  Srećno   svima! ' });
+  const heardMsg = await heard;
+  assert(sent.ok && heardMsg.message.text === 'Srećno svima!', 'poruka u chatu stiže drugim igračima za stolom');
+  const tooFast = await emit(bots[0].socket, 'table:chat', { tableId: holdem.id, text: 'opet' });
+  assert(!tooFast.ok, 'prebrze poruke se odbijaju');
+  const rewatch = await emit(bots[2].socket, 'table:watch', { tableId: holdem.id });
+  assert(rewatch.chat.some((m: any) => m.text === 'Srećno svima!'), 'ko otvori sto vidi skorašnje poruke');
+
   const peek = bots[0].state[holdem.id];
   if (peek?.inProgress) {
     const others = peek.seats.filter((s: any) => s && s.index !== peek.mySeat);
