@@ -11,6 +11,7 @@ import '../widgets/hand_history.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/table_chat.dart';
 import '../widgets/brand.dart';
+import '../widgets/chips.dart';
 import 'home_shell.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -673,7 +674,8 @@ class _Flight {
   final Offset to;
   final String label;
   final int delayMs;
-  _Flight(this.from, this.to, this.label, {this.delayMs = 0}) : key = UniqueKey();
+  final int amount;
+  _Flight(this.from, this.to, this.label, this.amount, {this.delayMs = 0}) : key = UniqueKey();
 }
 
 /// Veliki ovalni sto preko celog ekrana. Igrač je uvek dole u sredini.
@@ -728,7 +730,7 @@ class _TableViewState extends State<_TableView> {
       // Kraj runde: ulozi svih igrača klize na sredinu stola.
       for (var i = 0; i < oldSeats.length; i++) {
         final bet = (oldSeats[i]?['bet'] as int?) ?? 0;
-        if (bet > 0) added.add(_Flight(lay.bet(i), lay.pile, widget.money(bet)));
+        if (bet > 0) added.add(_Flight(lay.bet(i), lay.pile, widget.money(bet), bet));
       }
       if (added.isNotEmpty) delay = _flyMs + 100;
     }
@@ -743,7 +745,7 @@ class _TableViewState extends State<_TableView> {
       }
       won.forEach((seat, amount) {
         if (seat < newSeats.length && newSeats[seat] != null) {
-          added.add(_Flight(lay.pile, lay.seat(seat), widget.money(amount), delayMs: delay));
+          added.add(_Flight(lay.pile, lay.seat(seat), widget.money(amount), amount, delayMs: delay));
         }
       });
     }
@@ -884,10 +886,10 @@ class _TableViewState extends State<_TableView> {
       // Sakupljeni pot: gomila žetona i iznos ispod karata
       if (collected > 0 && !flyingIn)
         Positioned(
-          left: lay.pile.dx - 50,
+          left: lay.pile.dx - 60,
           top: lay.pile.dy - 14,
-          width: 100,
-          child: _ChipPile(text: money(collected), big: true),
+          width: 120,
+          child: _ChipPile(text: money(collected), amount: collected, bigBlind: st['bigBlind'] as int, big: true),
         ),
       if (result != null || st['closing'] == true)
         Positioned(
@@ -941,8 +943,8 @@ class _TableViewState extends State<_TableView> {
           tween: Tween(begin: p, end: target),
           duration: const Duration(milliseconds: 350),
           curve: Curves.easeOut,
-          builder: (_, o, child) => Positioned(left: o.dx - 45, top: o.dy - 16, width: 90, child: child!),
-          child: _ChipPile(text: money(bet)),
+          builder: (_, o, child) => Positioned(left: o.dx - 50, top: o.dy - 22, width: 100, child: child!),
+          child: _ChipPile(text: money(bet), amount: bet, bigBlind: st['bigBlind'] as int, big: widget.wide),
         ));
       }
       // Poslednja poruka igrača iz chata (do 6 sekundi) iznad njegovog avatara.
@@ -1043,9 +1045,9 @@ class _TableViewState extends State<_TableView> {
           final u = Curves.easeInOut.transform(((t - delayFrac) / (1 - delayFrac)).clamp(0.0, 1.0));
           final o = Offset.lerp(f.from, f.to, u)!;
           return Positioned(
-              left: o.dx - 45, top: o.dy - 16, width: 90, child: Opacity(opacity: t < delayFrac ? 0 : 1, child: child));
+              left: o.dx - 50, top: o.dy - 22, width: 100, child: Opacity(opacity: t < delayFrac ? 0 : 1, child: child));
         },
-        child: _ChipPile(text: f.label),
+        child: _ChipPile(text: f.label, amount: f.amount, bigBlind: st['bigBlind'] as int, big: widget.wide),
       ));
     }
 
@@ -1053,44 +1055,27 @@ class _TableViewState extends State<_TableView> {
   }
 }
 
-/// Gomila žetona sa iznosom (ulog igrača ili pot na sredini).
+/// Gomila pravih žetona sa iznosom ispod (ulog igrača ili pot na sredini).
 class _ChipPile extends StatelessWidget {
   final String text;
+  final int amount;
+  final int bigBlind;
   final bool big;
-  const _ChipPile({required this.text, this.big = false});
+  const _ChipPile({required this.text, required this.amount, required this.bigBlind, this.big = false});
 
   @override
   Widget build(BuildContext context) {
-    const colors = [Color(0xFFD7263D), Color(0xFF2F80ED), Color(0xFF27AE60), Color(0xFFF2C14E)];
-    final size = big ? 15.0 : 13.0;
-    final count = big ? 4 : 3;
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      SizedBox(
-        width: size + (count - 1) * (size * 0.65),
-        height: size + 4,
-        child: Stack(children: [
-          for (var k = 0; k < count; k++)
-            Positioned(
-              left: k * size * 0.65,
-              top: (k % 2) * 2.0,
-              child: Container(
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: colors[k % colors.length],
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 2)],
-                ),
-              ),
-            ),
-        ]),
-      ),
-      const SizedBox(height: 1),
+      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 30 : 22),
+      const SizedBox(height: 2),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        decoration: BoxDecoration(color: Colors.black.withOpacity(0.55), borderRadius: BorderRadius.circular(8)),
-        child: Text(text, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: big ? 12.5 : 11.5)),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: gold.withOpacity(0.35), width: 0.8),
+        ),
+        child: Text(text, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: big ? 13 : 11.5)),
       ),
     ]);
   }
