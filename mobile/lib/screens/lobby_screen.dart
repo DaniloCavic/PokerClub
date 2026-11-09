@@ -134,7 +134,6 @@ class _TableTile extends StatelessWidget {
     final t = table;
     final players = t['players'] as int;
     final max = t['maxSeats'] as int;
-    final rake = (t['rakePercent'] as num);
     final omaha = t['variant'] == 'OMAHA';
     final color = omaha ? const Color(0xFF7B3FC4) : accent;
     void open() => Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id'])));
@@ -198,12 +197,6 @@ class _TableTile extends StatelessWidget {
                         style: const TextStyle(color: Colors.white60, fontSize: 12.5)),
                     const SizedBox(height: 6),
                     Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}', style: const TextStyle(fontSize: 12.5)),
-                    // Rake je tu za informaciju, ali neupadljivo.
-                    if (rake > 0)
-                      Text(
-                        'rake $rake%${(t['rakeCap'] as int? ?? 0) > 0 ? ', najviše ${rsd(t['rakeCap'])}' : ''}',
-                        style: const TextStyle(fontSize: 10.5, color: Colors.white30),
-                      ),
                     const SizedBox(height: 6),
                     // Popunjenost stola: tačkice za zauzeta i slobodna mesta
                     Row(children: [

@@ -137,8 +137,7 @@ export class TablesService implements OnModuleInit {
       minBuyIn: t.minBuyIn,
       maxBuyIn: t.maxBuyIn,
       maxSeats: t.maxSeats,
-      rakePercent: rakePercent(t),
-      rakeCap: t.rakeCap,
+      // Rake se igračima ne prikazuje (vidi ga samo agent u admin panelu).
       actionSeconds: t.actionSeconds,
       players: rt.game.seats.filter(Boolean).length,
     };
@@ -231,7 +230,6 @@ export class TablesService implements OnModuleInit {
     const name = (seat: number) => rt.game.seats[seat]?.name ?? '?';
     return {
       handNo: r.handNo,
-      rake: r.rake,
       pots: r.pots.map((p) => ({
         amount: p.amount,
         handName: p.handName,
