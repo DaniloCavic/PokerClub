@@ -658,42 +658,53 @@ class _Layout {
     final half = wide ? 64.0 : 52.0;
     return [
       Rect.fromLTRB(p.dx - a / 2 - 6, p.dy - a / 2 - 16, p.dx + (a + 50) / 2 + 2, p.dy + a / 2),
-      Rect.fromLTRB(p.dx - half, p.dy + a / 2 - 6, p.dx + half, p.dy + a / 2 + (wide ? 64 : 46)),
+      Rect.fromLTRB(p.dx - half, p.dy + a / 2 - 6, p.dx + half, p.dy + a / 2 + (wide ? 70 : 53)),
     ];
   }
 
   /// Prostor koji zauzima gomila uloga (žetoni i iznos) postavljena u tački b.
-  Rect betBox(Offset b) => Rect.fromLTRB(b.dx - 34, b.dy - 24, b.dx + 34, b.dy + (wide ? 22 : 18));
+  Rect betBox(Offset b) => Rect.fromLTRB(b.dx - 31, b.dy - 24, b.dx + 31, b.dy + (wide ? 22 : 18));
 
   /// Sredina stola: žetoni pota, natpis POT i zajedničke karte.
-  Rect get middleBox {
+  List<Rect> get middleRects {
     final boardW = 5 * (cardW + 4);
-    return Rect.fromLTRB(min(center.dx - boardW / 2, center.dx - 78) - 4, potTop - 40,
-        max(center.dx + boardW / 2, center.dx + 78) + 4, boardTop + cardW * 1.4 + 4);
+    final pileHalf = wide ? 36.0 : 28.0;
+    return [
+      Rect.fromLTRB(center.dx - pileHalf, potTop - (wide ? 40 : 34), center.dx + pileHalf, potTop),
+      Rect.fromLTRB(center.dx - 74, potTop - 2, center.dx + 74, boardTop),
+      Rect.fromLTRB(center.dx - boardW / 2 - 4, boardTop, center.dx + boardW / 2 + 4, boardTop + cardW * 1.4 + 4),
+    ];
   }
 
-  /// Gde stoji ulog igrača u tekućoj rundi: ispred igrača, odvojeno od svih
-  /// avatara i pločica, i ne preko pota i zajedničkih karata.
+  /// Gde stoji ulog igrača u tekućoj rundi (odvojeno od svih avatara, pločica,
+  /// pota i karata): gornjim igračima pravo ispod oznake, igračima sa strane
+  /// pored pločice u visini steka, donjim igračima i meni iznad karata.
   Offset bet(int i) {
     final p = seat(i);
-    if (i == mySeat) return Offset(p.dx + (wide ? 82 : 66), min(p.dy, h - 104) - 24);
+    if (i == mySeat) {
+      final a = wide ? 76.0 : 58.0;
+      final top = min(p.dy - a / 2, h - a - 56);
+      return Offset(p.dx, top - (wide ? 26 : 22));
+    }
     final d = dir(i);
-    final blocked = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)), middleBox];
+    final a = wide ? 64.0 : 48.0;
+    final blocked = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)), ...middleRects];
     bool free(Offset b) {
       final r = betBox(b);
       return r.left > 4 && r.right < w - 4 && !blocked.any(r.overlaps);
     }
 
-    // Prvo pravo ka sredini, pa vodoravno (igrači sa strane), pa uspravno.
-    final dirs = [d, Offset(d.dx.sign, 0), Offset(0, d.dy.sign)];
-    for (final v in dirs) {
-      if (v.distance == 0) continue;
-      for (var dist = 20.0; dist < 200; dist += 3) {
-        final b = p + v * dist;
+    final vertical = d.dy.abs() > 0.75;
+    final start = vertical ? p : Offset(p.dx, p.dy + a / 2 + (wide ? 20 : 14));
+    final v = vertical ? Offset(0, d.dy.sign) : Offset(d.dx.sign, 0);
+    // Ako ne staje u visini steka, probaj malo više (ka avataru).
+    for (var lift = 0.0; lift <= (vertical ? 0 : 40); lift += 8) {
+      for (var dist = 0.0; dist < 220; dist += 2) {
+        final b = start + v * dist - Offset(0, lift);
         if (free(b)) return b;
       }
     }
-    // Rezerva: samo da ne bude preko svoje pločice.
+    // Rezerva: pravo ka sredini, samo da ne bude preko svoje pločice.
     final own = seatRects(i).map((r) => r.inflate(3)).toList();
     for (var dist = 20.0; dist < 260; dist += 3) {
       final b = p + d * dist;
