@@ -183,6 +183,9 @@ class AppState extends ChangeNotifier {
           .setPath('/socket.io')
           .setAuth({'token': api.token})
           .disableAutoConnect()
+          // Nova veza za svaku prijavu: inače biblioteka ponovo koristi staru vezu
+          // (sa tokenom prethodnog naloga) i server misli da je to prethodni igrač.
+          .enableForceNew()
           .enableReconnection()
           .setReconnectionDelay(1000)
           .setReconnectionDelayMax(5000)

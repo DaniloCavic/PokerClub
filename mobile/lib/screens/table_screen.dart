@@ -684,7 +684,7 @@ class _Layout {
     if (i == mySeat) {
       final a = wide ? 76.0 : 58.0;
       final top = min(p.dy - a / 2, h - a - 56);
-      return Offset(p.dx, top - (wide ? 26 : 22));
+      return Offset(p.dx, top - (wide ? 32 : 26));
     }
     final d = dir(i);
     final a = wide ? 64.0 : 48.0;
@@ -998,7 +998,16 @@ class _TableViewState extends State<_TableView> {
           tween: Tween(begin: p, end: target),
           duration: const Duration(milliseconds: 350),
           curve: Curves.easeOut,
-          builder: (_, o, child) => Positioned(left: o.dx - 50, top: o.dy - 22, width: 100, child: child!),
+          builder: (_, o, child) => isMe
+              // Svoj ulog raste naviše od natpisa, da visoka gomila ne pređe preko karata.
+              ? Positioned(
+                  left: o.dx - 50,
+                  top: o.dy + 20 - 110,
+                  width: 100,
+                  height: 110,
+                  child: Align(alignment: Alignment.bottomCenter, child: child),
+                )
+              : Positioned(left: o.dx - 50, top: o.dy - 22, width: 100, child: child!),
           child: _ChipPile(text: money(bet), amount: bet, bigBlind: st['bigBlind'] as int, big: widget.wide),
         ));
       }
@@ -1421,7 +1430,7 @@ class _Pop extends StatelessWidget {
   }
 }
 
-/// Donji deo: potezi (kao u dizajnu). Na računaru i podešavanja "Sakrij karte" i "Automatski re-buy".
+/// Donji deo: potezi (kao u dizajnu).
 class _MyPanel extends StatelessWidget {
   final Json st;
   final AppState app;
@@ -1516,17 +1525,6 @@ class _MyPanel extends StatelessWidget {
     }
 
     // Računar: traka preko cele širine dole
-    Widget check(String label, bool v, String key) => InkWell(
-          onTap: () => app.setSetting(key, !v),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(width: 26, height: 26, child: Checkbox(value: v, onChanged: (x) => app.setSetting(key, x ?? false))),
-              const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontSize: 13)),
-            ]),
-          ),
-        );
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
       decoration: BoxDecoration(
@@ -1534,26 +1532,10 @@ class _MyPanel extends StatelessWidget {
             colors: [Color(0xFF14100C), Color(0xFF080605)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
         border: Border(top: BorderSide(color: gold.withOpacity(0.35))),
       ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        SizedBox(
-          width: 230,
-          child: LuxPanel(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            radius: 12,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              check('Sakrij karte', app.hideCards, 'hideCards'),
-              check('Automatski re-buy', app.autoRebuy, 'autoRebuy'),
-            ]),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            status,
-            const SizedBox(height: 6),
-            bottom ?? SizedBox(height: h),
-          ]),
-        ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        status,
+        const SizedBox(height: 6),
+        bottom ?? SizedBox(height: h),
       ]),
     );
   }
