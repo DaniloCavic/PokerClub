@@ -279,6 +279,7 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
   return (
     <Drawer onClose={onClose}>
       <h2>{t.name}</h2>
+      {isSuper && t.isOpen && <LiveGame id={id} />}
       <div className="card">
         <div className="kv">
           <span>Igra</span>
@@ -416,6 +417,97 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
       </div>
       {handId && <HandView id={handId} onClose={() => setHandId(null)} />}
     </Drawer>
+  );
+}
+
+const STREETS: Record<string, string> = { preflop: 'Pre flopa', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Otvaranje karata' };
+
+/** Super agent: igra uživo sa kartama svih igrača (osvežava se svake sekunde). */
+function LiveGame({ id }: { id: string }) {
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api('GET', `/admin/tables/${id}/live`)
+        .then((d) => alive && (setData(d), setError('')))
+        .catch((e) => alive && setError(e.message));
+    void load();
+    const timer = setInterval(load, 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [id]);
+
+  const st = data?.state;
+  return (
+    <>
+      <h3>
+        Live igra {st && `· ruka #${st.handNo}`} {st?.inProgress && <span className="badge green">u toku</span>}
+      </h3>
+      <div className="card live">
+        {error && <div className="error">{error}</div>}
+        {!data ? (
+          <div className="muted">Učitavanje…</div>
+        ) : !data.live || !st ? (
+          <div className="muted">Sto trenutno ne radi.</div>
+        ) : (
+          <>
+            <div className="live-top">
+              <span className="muted">{st.inProgress ? STREETS[st.street] ?? st.street : 'Između ruku'}</span>
+              <span>
+                Sto: {st.board.length ? <Cards cards={st.board.join(' ')} /> : <span className="muted">—</span>}
+              </span>
+              <span>
+                Pot: <b>{fmt(st.pot)}</b>
+              </span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Mesto</th>
+                  <th>Igrač</th>
+                  <th>Karte</th>
+                  <th>Ruka</th>
+                  <th>Žetoni</th>
+                  <th>Ulog</th>
+                  <th>Stanje</th>
+                </tr>
+              </thead>
+              <tbody>
+                {st.seats.map((s: any, i: number) =>
+                  s ? (
+                    <tr key={i} className={st.toAct === i ? 'acting' : s.folded ? 'folded' : ''}>
+                      <td data-label="Mesto">
+                        {i + 1}
+                        {st.button === i && <span className="badge"> D</span>}
+                      </td>
+                      <td data-label="Igrač">{s.name}</td>
+                      <td data-label="Karte">{s.cards ? <Cards cards={s.cards.join(' ')} /> : <span className="muted">—</span>}</td>
+                      <td data-label="Ruka">{s.hand ?? <span className="muted">—</span>}</td>
+                      <td data-label="Žetoni">{s.allIn ? <b>ALL-IN</b> : fmt(s.stack)}</td>
+                      <td data-label="Ulog">{s.bet ? fmt(s.bet) : '—'}</td>
+                      <td data-label="Stanje">
+                        {st.toAct === i
+                          ? 'Na potezu'
+                          : s.folded
+                            ? 'Fold'
+                            : s.sittingOut && !s.inHand
+                              ? 'Pauza'
+                              : !s.inHand
+                                ? 'Čeka ruku'
+                                : (s.lastAction ?? 'U ruci')}
+                      </td>
+                    </tr>
+                  ) : null,
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

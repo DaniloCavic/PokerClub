@@ -145,6 +145,30 @@ async function main() {
     assert(others.every((s: any) => s.cards === null), 'tuđe karte se ne vide');
   }
 
+  console.log('Live igra (super agent)');
+  await call('GET', `/admin/tables/${holdem.id}/live`, agent).then(
+    () => assert(false, 'agent ne sme da vidi karte uživo'),
+    (e) => assert(/403/.test(e.message), 'samo super agent vidi karte uživo'),
+  );
+  let liveOk = false;
+  // Botovi igraju trenutno, pa ruku hvatamo čestim proveravanjem.
+  for (let k = 0; k < 800 && !liveOk; k++) {
+    const live = await call('GET', `/admin/tables/${holdem.id}/live`, admin);
+    const inHand = (live.state?.seats ?? []).filter((s: any) => s && s.inHand);
+    if (live.live && live.state.inProgress && inHand.length >= 2) {
+      assert(inHand.every((s: any) => s.cards?.length === 2), `super agent vidi karte svih ${inHand.length} igrača u ruci`);
+      liveOk = true;
+    } else await sleep(20); // botovi u testu odigraju ruku za delić sekunde
+  }
+  assert(liveOk, 'karte uživo su dostupne tokom ruke');
+  const mine = bots[0].state[holdem.id];
+  assert(
+    !mine || mine.seats.filter((s: any) => s && s.index !== mine.mySeat && mine.inProgress).every((s: any) => s.cards === null),
+    'igrači i dalje ne vide tuđe karte',
+  );
+  const liveLog = await call('GET', '/admin/live-log', admin);
+  assert(liveLog.length > 0, 'otvaranje karata uživo je zabeleženo (samo za super agenta)');
+
   await sleep(Number(process.env.PLAY_MS || 25000));
   const hands = (await call('GET', `/admin/tables/${holdem.id}`, agent)).hands.total;
   const omahaHands = (await call('GET', `/admin/tables/${omaha.id}`, agent)).hands.total;

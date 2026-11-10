@@ -193,6 +193,31 @@ export class TablesService implements OnModuleInit {
     return this.viewOf(this.rt(tableId), userId);
   }
 
+  /**
+   * Super agent: stanje stola uživo sa kartama svih igrača u ruci i trenutnom jačinom ruke.
+   * Šalje se samo u admin panel (nikad preko socketa igračima), pa igrači ništa ne vide.
+   */
+  liveView(tableId: string) {
+    const rt = this.runtimes.get(tableId);
+    if (!rt) return null;
+    const base = this.viewOf(rt);
+    const g = rt.game;
+    const fn = rt.table.variant === 'OMAHA' ? bestOmaha : bestHoldem;
+    return {
+      ...base,
+      seats: base.seats.map((v, i) => {
+        const s = g.seats[i];
+        if (!v || !s) return v;
+        const has = g.inProgress && s.inHand && s.hole.length > 0;
+        return {
+          ...v,
+          cards: has ? s.hole.map(cardToString) : v.cards,
+          hand: has && !s.folded && g.board.length >= 3 ? fn(s.hole, g.board).name : null,
+        };
+      }),
+    };
+  }
+
   private viewOf(rt: Runtime, userId?: string) {
     const g = rt.game;
     const mySeat = userId ? g.seatOf(userId) : -1;

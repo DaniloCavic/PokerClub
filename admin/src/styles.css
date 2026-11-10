@@ -107,3 +107,8 @@ tr.clickable:hover { background: #eef4f0; cursor: pointer; }
   td.row { justify-content: flex-end; }
   td[colspan] { justify-content: center; }
 }
+
+/* Live igra (super agent) */
+.live-top { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin-bottom: 10px; font-size: 14px; }
+.live tr.acting td { background: #fff6d6; }
+.live tr.folded td { opacity: 0.5; }

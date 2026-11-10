@@ -56,6 +56,7 @@ model User {
   seats        TableSeat[]
   rakePaid     RakeShare[] @relation("RakePlayer")
   rakeEarned   RakeShare[] @relation("RakeAgent")
+  liveViews    LiveViewLog[]
 
   @@index([role, agentId])
 }
@@ -163,4 +164,17 @@ model RakeShare {
   @@index([agentId, createdAt])
   @@index([createdAt])
   @@index([userId])
+}
+
+/// Zapis svakog otvaranja "karte uživo" (super agent gleda karte svih igrača tokom ruke).
+model LiveViewLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+  tableId   String
+  tableName String
+  handNo    Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

@@ -532,6 +532,40 @@ export class AdminController {
     };
   }
 
+  /**
+   * "Karte uživo": super agent vidi karte svih igrača u ruci koja je u toku.
+   * Igrači ne dobijaju nikakvo obaveštenje; otvaranje se samo beleži (jednom po ruci).
+   */
+  @Roles('ADMIN')
+  @Get('tables/:id/live')
+  async live(@CurrentUser() actor: User, @Param('id') id: string) {
+    await this.table(actor, id);
+    const t = await this.prisma.pokerTable.findUniqueOrThrow({ where: { id }, include: { createdBy: { select: { displayName: true } } } });
+    const view = this.tables.liveView(id);
+    if (!view) return { live: false, table: this.tableView(t) };
+    const key = `${actor.id}:${id}`;
+    if (view.inProgress && this.liveLogged.get(key) !== view.handNo) {
+      this.liveLogged.set(key, view.handNo);
+      await this.prisma.liveViewLog.create({ data: { actorId: actor.id, tableId: id, tableName: t.name, handNo: view.handNo } });
+    }
+    return { live: true, table: this.tableView(t), state: view };
+  }
+
+  /** Spisak otvaranja "karata uživo" (samo super agent). */
+  @Roles('ADMIN')
+  @Get('live-log')
+  async liveLog() {
+    const items = await this.prisma.liveViewLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { actor: { select: { displayName: true } } },
+    });
+    return items.map((l) => ({ id: l.id, actor: l.actor.displayName, tableName: l.tableName, handNo: l.handNo, createdAt: l.createdAt }));
+  }
+
+  /** Poslednja ruka po (super agent, sto) koja je već zabeležena. */
+  private readonly liveLogged = new Map<string, number>();
+
   @Get('hands/:id')
   async hand(@CurrentUser() actor: User, @Param('id') id: string) {
     const h = await this.prisma.hand.findUnique({ where: { id }, include: { table: { select: { name: true, createdById: true, variant: true } } } });
