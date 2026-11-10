@@ -626,7 +626,8 @@ class _Layout {
   final int n;
   final int base;
   final int mySeat;
-  _Layout(this.size, this.n, this.base, this.mySeat);
+  final bool wide;
+  _Layout(this.size, this.n, this.base, this.mySeat, {this.wide = false});
 
   double get w => size.width;
   double get h => size.height;
@@ -650,18 +651,55 @@ class _Layout {
     return d / max(1.0, d.distance);
   }
 
-  /// Gde stoji ulog igrača u tekućoj rundi.
+  /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
+  List<Rect> seatRects(int i) {
+    final p = seat(i);
+    final a = wide ? 64.0 : 48.0;
+    final half = wide ? 64.0 : 52.0;
+    return [
+      Rect.fromLTRB(p.dx - a / 2 - 6, p.dy - a / 2 - 16, p.dx + (a + 50) / 2 + 2, p.dy + a / 2),
+      Rect.fromLTRB(p.dx - half, p.dy + a / 2 - 6, p.dx + half, p.dy + a / 2 + (wide ? 64 : 46)),
+    ];
+  }
+
+  /// Prostor koji zauzima gomila uloga (žetoni i iznos) postavljena u tački b.
+  Rect betBox(Offset b) => Rect.fromLTRB(b.dx - 34, b.dy - 24, b.dx + 34, b.dy + (wide ? 22 : 18));
+
+  /// Sredina stola: žetoni pota, natpis POT i zajedničke karte.
+  Rect get middleBox {
+    final boardW = 5 * (cardW + 4);
+    return Rect.fromLTRB(min(center.dx - boardW / 2, center.dx - 78) - 4, potTop - 40,
+        max(center.dx + boardW / 2, center.dx + 78) + 4, boardTop + cardW * 1.4 + 4);
+  }
+
+  /// Gde stoji ulog igrača u tekućoj rundi: ispred igrača, odvojeno od svih
+  /// avatara i pločica, i ne preko pota i zajedničkih karata.
   Offset bet(int i) {
     final p = seat(i);
-    if (i == mySeat) return Offset(p.dx + 64, min(p.dy, h - 104) - 24);
+    if (i == mySeat) return Offset(p.dx + (wide ? 82 : 66), min(p.dy, h - 104) - 24);
     final d = dir(i);
-    // Blizu igrača: sa strane i ispod donjih igrača tik uz avatar; ispod gornjih igrača preskoči njihovu pločicu.
-    var b = p + d * (54.0 + (d.dy > 0 ? 50 * d.dy : 0));
-    // Ne preko žetona glavnog pota i natpisa POT
-    if (b.dy > potTop - 40 && b.dy < potTop + 34 && (b.dx - center.dx).abs() < 80) {
-      b = Offset(b.dx + (b.dx < center.dx ? -40 : 40), b.dy);
+    final blocked = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)), middleBox];
+    bool free(Offset b) {
+      final r = betBox(b);
+      return r.left > 4 && r.right < w - 4 && !blocked.any(r.overlaps);
     }
-    return b;
+
+    // Prvo pravo ka sredini, pa vodoravno (igrači sa strane), pa uspravno.
+    final dirs = [d, Offset(d.dx.sign, 0), Offset(0, d.dy.sign)];
+    for (final v in dirs) {
+      if (v.distance == 0) continue;
+      for (var dist = 20.0; dist < 200; dist += 3) {
+        final b = p + v * dist;
+        if (free(b)) return b;
+      }
+    }
+    // Rezerva: samo da ne bude preko svoje pločice.
+    final own = seatRects(i).map((r) => r.inflate(3)).toList();
+    for (var dist = 20.0; dist < 260; dist += 3) {
+      final b = p + d * dist;
+      if (!own.any(betBox(b).overlaps)) return b;
+    }
+    return p + d * 60;
   }
 
   Offset dealer(int i) {
@@ -717,7 +755,7 @@ class _TableViewState extends State<_TableView> {
   _Layout _layoutFor(Json st) {
     final n = (st['seats'] as List).length;
     final my = st['mySeat'] as int;
-    return _Layout(widget.size, n, my >= 0 ? my : 0, my);
+    return _Layout(widget.size, n, my >= 0 ? my : 0, my, wide: widget.wide);
   }
 
   @override
@@ -1323,7 +1361,7 @@ class _SeatView extends StatelessWidget {
               avatar,
               // Svoje karte iznad avatara; tuđe (poleđine) gore desno, kao u dizajnu
               if (cardsWidget != null)
-                isMe ? Positioned(top: -a * 0.32, child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
+                isMe ? Positioned(top: -a * 0.02, child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
             ]),
           ),
         ),
