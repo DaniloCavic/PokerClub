@@ -41,6 +41,8 @@ export function Players({ me }: { me: Me }) {
               <th>Na nalogu</th>
               <th>Na stolovima</th>
               {me.role === 'ADMIN' && <th>Agent</th>}
+              <th>Ruku</th>
+              {me.role === 'ADMIN' ? <th>Rake od igrača</th> : <th>Vaša zarada</th>}
               <th>Poslednji put</th>
               <th>Stanje</th>
             </tr>
@@ -55,13 +57,15 @@ export function Players({ me }: { me: Me }) {
                 <td>{fmt(u.balance)}</td>
                 <td>{u.onTables ? fmt(u.onTables) : '—'}</td>
                 {me.role === 'ADMIN' && <td>{u.agentName ?? '—'}</td>}
+                <td>{fmt(u.hands ?? 0)}</td>
+                <td>{fmt((me.role === 'ADMIN' ? u.rakePaid : u.myEarning) ?? 0)}</td>
                 <td>{fmtDate(u.lastSeenAt)}</td>
                 <td>{u.isBlocked ? <span className="badge red">Blokiran</span> : <span className="badge green">Aktivan</span>}</td>
               </tr>
             ))}
             {data?.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={9} className="muted">
                   Nema igrača.
                 </td>
               </tr>
@@ -241,6 +245,32 @@ function PlayerDetails({ me, id, onClose }: { me: Me; id: string; onClose: () =>
           <span className="muted">Na stolovima</span>
           <b>{fmt(data.seats.reduce((s: number, x: any) => s + x.stack, 0))}</b>
         </div>
+        <div className="stat">
+          <span className="muted">Odigrano ruku</span>
+          <b>{fmt(u.hands ?? 0)}</b>
+        </div>
+        {u.myEarning !== undefined && (
+          <div className="stat gold">
+            <span className="muted">Vaša zarada od igrača</span>
+            <b>{fmt(u.myEarning)}</b>
+          </div>
+        )}
+        {u.rakePaid !== undefined && (
+          <>
+            <div className="stat">
+              <span className="muted">Rake od igrača</span>
+              <b>{fmt(u.rakePaid)}</b>
+            </div>
+            <div className="stat">
+              <span className="muted">Deo agenta</span>
+              <b>{fmt(u.agentCut)}</b>
+            </div>
+            <div className="stat gold">
+              <span className="muted">Vaš deo</span>
+              <b>{fmt(u.superShare)}</b>
+            </div>
+          </>
+        )}
       </div>
 
       <h3>Uplata / isplata</h3>

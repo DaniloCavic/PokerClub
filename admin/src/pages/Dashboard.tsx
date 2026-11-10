@@ -23,7 +23,7 @@ export function Dashboard({ me }: { me: Me }) {
     ['Isplate danas', data.withdrawalsToday],
     ['Ruku danas', data.handsToday],
   ];
-  // Rake: super agent vidi ukupno i podelu; agent vidi rake svojih igrača i svoj deo.
+  // Rake: super agent vidi ukupno i podelu; agent vidi samo svoju zaradu (bez procenta).
   const rake: [string, number, string?][] = isSuper
     ? [
         ['Rake danas', data.rakeToday],
@@ -34,15 +34,13 @@ export function Dashboard({ me }: { me: Me }) {
         ['Vaš deo ukupno', data.superShareTotal, 'gold'],
       ]
     : [
-        ['Rake vaših igrača danas', data.playersRakeToday],
-        [`Vaša zarada danas (${data.rakeSharePercent}%)`, data.myCutToday, 'gold'],
-        ['Rake vaših igrača ukupno', data.playersRakeTotal],
-        [`Vaša zarada ukupno (${data.rakeSharePercent}%)`, data.myCutTotal, 'gold'],
+        ['Vaša zarada danas', data.myCutToday, 'gold'],
+        ['Vaša zarada ukupno', data.myCutTotal, 'gold'],
       ];
   return (
     <>
       <h2>Pregled</h2>
-      <h3>Rake</h3>
+      <h3>{isSuper ? 'Rake' : 'Zarada'}</h3>
       <div className="stats">
         {rake.map(([label, value, cls]) => (
           <div key={label} className={`stat ${cls ?? ''}`}>

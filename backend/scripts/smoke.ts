@@ -179,7 +179,20 @@ async function main() {
   assert(stats.chipsOnTables === 0, 'posle zatvaranja nema žetona na stolovima');
   const ourTables = (await call('GET', '/admin/tables', admin)).filter((t: any) => [holdem.id, omaha.id].includes(t.id));
   const totalRake = ourTables.reduce((s: number, t: any) => s + t.rakeTotal, 0);
-  assert(stats.playersRakeTotal === totalRake && totalRake > 0, `rake igrača ovog agenta: ${totalRake}`);
+  assert(totalRake > 0, `odigrano je ruku sa rake-om: ${totalRake}`);
+  assert(
+    stats.rakeSharePercent === undefined && stats.playersRakeTotal === undefined && stats.rakeTotal === undefined,
+    'agent ne vidi svoj procenat ni ukupan rake',
+  );
+  const agentPlayers = (await call('GET', '/admin/players', agent)).items;
+  assert(
+    agentPlayers.every((p: any) => p.rakePaid === undefined && typeof p.myEarning === 'number'),
+    'agent po igraču vidi samo svoju zaradu',
+  );
+  assert(
+    agentPlayers.reduce((s: number, p: any) => s + p.myEarning, 0) === stats.myCutTotal,
+    'zbir zarade po igračima = ukupna zarada agenta',
+  );
   // Deo agenta se zaokružuje na ceo dinar po igraču i ruci, pa zbir može malo da odstupa od tačnih 30 %.
   assert(
     Math.abs(stats.myCutTotal - totalRake * 0.3) <= Math.max(3, totalRake * 0.08),
@@ -188,6 +201,7 @@ async function main() {
   const agentsList = await call('GET', '/admin/agents', admin);
   const me = agentsList.find((a: any) => a.username === agentName);
   assert(me.agentCut + me.superShare === me.playersRake, `super agentu ostaje ostatak: ${me.superShare}`);
+  assert(me.playersRake === totalRake && me.agentCut === stats.myCutTotal, 'super agent vidi rake i deo agenta');
   assert(
     stats.balanceOnAccounts + totalRake === deposited,
     `žetoni očuvani: na nalozima ${stats.balanceOnAccounts} + rake ${totalRake} = uplaćeno ${deposited}`,

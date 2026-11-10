@@ -112,7 +112,7 @@ export class AdminController {
         where: { type, createdAt: { gte: today }, user: players },
         _sum: { amount: true },
       });
-    // Rake: super agent vidi ukupan rake i podelu sa agentima; agent vidi rake svojih igrača i svoj deo.
+    // Rake: super agent vidi ukupan rake i podelu sa agentima; agent vidi samo svoj deo.
     const shareWhere = (since?: Date): Prisma.RakeShareWhereInput => ({
       ...(this.isSuper(actor) ? {} : { agentId: actor.id }),
       ...(since ? { createdAt: { gte: since } } : {}),
@@ -151,11 +151,9 @@ export class AdminController {
             superShareTotal: (rakeTotal._sum.rake ?? 0) - (sharesTotal._sum.agentCut ?? 0),
           }
         : {
-            playersRakeToday: sharesToday._sum.amount ?? 0,
-            playersRakeTotal: sharesTotal._sum.amount ?? 0,
+            // Agent vidi samo svoju zaradu: ni procenat ni ukupan rake (iz kog bi se procenat izračunao).
             myCutToday: sharesToday._sum.agentCut ?? 0,
             myCutTotal: sharesTotal._sum.agentCut ?? 0,
-            rakeSharePercent: actor.rakeShareBps / 100,
           }),
       openTables,
       handsToday,
@@ -188,16 +186,50 @@ export class AdminController {
       }),
       this.prisma.user.count({ where }),
     ]);
+    const earned = await this.earningsByPlayer(actor, items.map((u) => u.id));
     return {
       items: items.map((u) => ({
         ...publicUser(u),
         agentName: u.agent?.displayName ?? null,
         onTables: u.seats.reduce((s, x) => s + x.stack, 0),
+        ...earned.get(u.id),
       })),
       total,
       page: pg,
       pageSize: PAGE,
     };
+  }
+
+  /**
+   * Zarada od igrača (rake koji je on platio): agent vidi samo svoj deo i broj ruku,
+   * super agent vidi ceo rake igrača, deo agenta i svoj deo.
+   */
+  private async earningsByPlayer(actor: User, ids: string[]) {
+    const out = new Map<string, Record<string, number>>();
+    if (!ids.length) return out;
+    const sup = this.isSuper(actor);
+    const [shares, hands] = await Promise.all([
+      this.prisma.rakeShare.groupBy({
+        by: ['userId'],
+        // Agent: samo ruke u kojima je igrač bio njegov (ako je igrač premeštan između agenata).
+        where: { userId: { in: ids }, ...(sup ? {} : { agentId: actor.id }) },
+        _sum: { amount: true, agentCut: true },
+      }),
+      Promise.all(ids.map((id) => this.prisma.hand.count({ where: { playerIds: { has: id } } }).then((n) => [id, n] as const))),
+    ]);
+    const handCount = new Map(hands);
+    for (const id of ids) {
+      const r = shares.find((x) => x.userId === id)?._sum;
+      const amount = r?.amount ?? 0;
+      const cut = r?.agentCut ?? 0;
+      out.set(
+        id,
+        sup
+          ? { hands: handCount.get(id) ?? 0, rakePaid: amount, agentCut: cut, superShare: amount - cut }
+          : { hands: handCount.get(id) ?? 0, myEarning: cut },
+      );
+    }
+    return out;
   }
 
   @Post('players')
@@ -222,8 +254,9 @@ export class AdminController {
       this.prisma.tableSeat.findMany({ where: { userId: id }, include: { table: { select: { name: true } } } }),
       u.agentId ? this.prisma.user.findUnique({ where: { id: u.agentId }, select: { displayName: true } }) : null,
     ]);
+    const earned = (await this.earningsByPlayer(actor, [id])).get(id);
     return {
-      user: { ...publicUser(u), agentName: agent?.displayName ?? null },
+      user: { ...publicUser(u), agentName: agent?.displayName ?? null, ...earned },
       seats: seats.map((s) => ({ tableId: s.tableId, tableName: s.table.name, seat: s.seat, stack: s.stack })),
       transactions: {
         items: transactions.map((t) => ({
