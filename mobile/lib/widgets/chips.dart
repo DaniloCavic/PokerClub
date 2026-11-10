@@ -52,6 +52,15 @@ List<List<_Denom>> _stacks(int amount, int bigBlind) {
   return out;
 }
 
+/// Veličina koju zauzimaju gomile žetona za dati iznos (isto kao ChipStacks).
+Size chipStacksSize(int amount, int bigBlind, double chipSize) {
+  final stacks = _stacks(amount, bigBlind);
+  final d = chipSize;
+  final maxH = stacks.fold<int>(0, (m, s) => max(m, s.length));
+  final w = stacks.isEmpty ? d : d + (stacks.length - 1) * d * 0.78;
+  return Size(w, d * 0.62 + maxH * d * 0.2 + 3);
+}
+
 /// Gomile pravih kazino žetona (pogled iskosa).
 class ChipStacks extends StatelessWidget {
   final int amount;

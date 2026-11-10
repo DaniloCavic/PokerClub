@@ -651,9 +651,22 @@ class _Layout {
     return d / max(1.0, d.distance);
   }
 
+  /// Dugme dilera (zauzima malo mesta, ulog ne sme preko njega).
+  int button = -1;
+
+  /// Veličina gomile uloga za svakog igrača koji ima ulog (žetoni + iznos).
+  Map<int, Size> betSizes = {};
+
+  double get myAvatar => wide ? 76.0 : 58.0;
+  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - 56);
+
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
   List<Rect> seatRects(int i) {
     final p = seat(i);
+    if (i == mySeat) {
+      final a = myAvatar, top = myTop(p);
+      return [Rect.fromLTRB(p.dx - (a + 50) / 2, top - 8, p.dx + (a + 50) / 2, top + a + 8 + (wide ? 66 : 54))];
+    }
     final a = wide ? 64.0 : 48.0;
     final half = wide ? 64.0 : 52.0;
     return [
@@ -661,9 +674,6 @@ class _Layout {
       Rect.fromLTRB(p.dx - half, p.dy + a / 2 - 6, p.dx + half, p.dy + a / 2 + (wide ? 70 : 53)),
     ];
   }
-
-  /// Prostor koji zauzima gomila uloga (žetoni i iznos) postavljena u tački b.
-  Rect betBox(Offset b) => Rect.fromLTRB(b.dx - 31, b.dy - 24, b.dx + 31, b.dy + (wide ? 22 : 18));
 
   /// Sredina stola: žetoni pota, natpis POT i zajedničke karte.
   List<Rect> get middleRects {
@@ -676,42 +686,66 @@ class _Layout {
     ];
   }
 
-  /// Gde stoji ulog igrača u tekućoj rundi (odvojeno od svih avatara, pločica,
-  /// pota i karata): gornjim igračima pravo ispod oznake, igračima sa strane
-  /// pored pločice u visini steka, donjim igračima i meni iznad karata.
-  Offset bet(int i) {
-    final p = seat(i);
-    if (i == mySeat) {
-      final a = wide ? 76.0 : 58.0;
-      final top = min(p.dy - a / 2, h - a - 56);
-      return Offset(p.dx, top - (wide ? 32 : 26));
-    }
-    final d = dir(i);
-    final a = wide ? 64.0 : 48.0;
-    final blocked = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)), ...middleRects];
-    bool free(Offset b) {
-      final r = betBox(b);
-      return r.left > 4 && r.right < w - 4 && !blocked.any(r.overlaps);
-    }
+  static const _defaultBet = Size(64, 44);
 
-    final vertical = d.dy.abs() > 0.75;
-    final start = vertical ? p : Offset(p.dx, p.dy + a / 2 + (wide ? 20 : 14));
-    final v = vertical ? Offset(0, d.dy.sign) : Offset(d.dx.sign, 0);
-    // Ako ne staje u visini steka, probaj malo više (ka avataru).
-    for (var lift = 0.0; lift <= (vertical ? 0 : 40); lift += 8) {
-      for (var dist = 0.0; dist < 220; dist += 2) {
-        final b = start + v * dist - Offset(0, lift);
-        if (free(b)) return b;
+  /// Pravac od igrača ka sredini stola (za mene pravo gore, iznad mojih karata).
+  Offset betDir(int i) => i == mySeat ? const Offset(0, -1) : dir(i);
+
+  /// Centri gomila uloga: svaka na liniji od igrača ka sredini stola, odmah ispred
+  /// njega, tako da ne dodiruje nijedno sedište, karte na stolu, pot, dugme dilera
+  /// ni tuđi ulog. Veličina gomile se računa iz iznosa, pa ni veliki ulog ne seče ništa.
+  late final Map<int, Offset> _bets = () {
+    final out = <int, Offset>{};
+    final blocked = <Rect>[
+      for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)),
+      ...middleRects,
+      if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
+    ];
+    // Prvo ja, pa ostali redom.
+    final order = [if (mySeat >= 0) mySeat, for (var k = 0; k < n; k++) if (k != mySeat) k];
+    for (final i in order) {
+      final sz = betSizes[i] ?? _defaultBet;
+      final p = seat(i);
+      final d = betDir(i);
+      final from = i == mySeat ? Offset(p.dx, myTop(p)) : p;
+      Rect box(Offset c) => Rect.fromCenter(center: c, width: sz.width + 6, height: sz.height + 4);
+      bool inside(Rect r) => r.left > 2 && r.right < w - 2 && r.top > 2 && r.bottom < h - 2;
+      // Najbolje slobodno mesto: što bliže igraču i što bliže liniji ka sredini.
+      // Ako na samoj liniji nema mesta (npr. karte na stolu), skreni malo levo ili desno.
+      Offset? found;
+      var best = double.infinity;
+      for (final deg in const [0, 12, -12, 24, -24, 36, -36, 50, -50, 65, -65, 80, -80]) {
+        final rad = deg * pi / 180;
+        final v = Offset(d.dx * cos(rad) - d.dy * sin(rad), d.dx * sin(rad) + d.dy * cos(rad));
+        for (var dist = 0.0; dist < 320; dist += 2) {
+          final score = dist + deg.abs() * 1.2;
+          if (score >= best) break;
+          final c = from + v * dist;
+          final r = box(c);
+          if (inside(r) && !blocked.any(r.overlaps)) {
+            best = score;
+            found = c;
+            break;
+          }
+        }
       }
+      // Rezerva (veoma pun sto): bar van svog sedišta.
+      if (found == null) {
+        final own = seatRects(i).map((r) => r.inflate(3)).toList();
+        for (var dist = 0.0; dist < 320 && found == null; dist += 2) {
+          final c = from + d * dist;
+          if (!own.any(box(c).overlaps)) found = c;
+        }
+      }
+      final c = found ?? from + d * 80;
+      out[i] = c;
+      if (betSizes.containsKey(i)) blocked.add(box(c));
     }
-    // Rezerva: pravo ka sredini, samo da ne bude preko svoje pločice.
-    final own = seatRects(i).map((r) => r.inflate(3)).toList();
-    for (var dist = 20.0; dist < 260; dist += 3) {
-      final b = p + d * dist;
-      if (!own.any(betBox(b).overlaps)) return b;
-    }
-    return p + d * 60;
-  }
+    return out;
+  }();
+
+  /// Centar gomile uloga igrača i.
+  Offset bet(int i) => _bets[i] ?? seat(i);
 
   Offset dealer(int i) {
     final p = seat(i);
@@ -764,9 +798,17 @@ class _TableViewState extends State<_TableView> {
   static const _flyMs = 450;
 
   _Layout _layoutFor(Json st) {
-    final n = (st['seats'] as List).length;
+    final seats = (st['seats'] as List).cast<Json?>();
+    final n = seats.length;
     final my = st['mySeat'] as int;
-    return _Layout(widget.size, n, my >= 0 ? my : 0, my, wide: widget.wide);
+    final bb = st['bigBlind'] as int;
+    return _Layout(widget.size, n, my >= 0 ? my : 0, my, wide: widget.wide)
+      ..button = (st['button'] as int?) ?? -1
+      ..betSizes = {
+        for (var i = 0; i < n; i++)
+          if (((seats[i]?['bet'] as int?) ?? 0) > 0)
+            i: _ChipPile.sizeOf(widget.money(seats[i]!['bet'] as int), seats[i]!['bet'] as int, bb, widget.wide),
+      };
   }
 
   @override
@@ -775,6 +817,7 @@ class _TableViewState extends State<_TableView> {
     final a = old.st, b = widget.st;
     if (a['handNo'] != b['handNo'] && b['inProgress'] == true) return; // nova ruka: ništa ne leti
     final lay = _layoutFor(b);
+    final oldLay = _layoutFor(a);
     final oldSeats = (a['seats'] as List).cast<Json?>();
     final newSeats = (b['seats'] as List).cast<Json?>();
     final streetEnded = a['inProgress'] == true && (a['street'] != b['street'] || b['inProgress'] != true);
@@ -784,7 +827,7 @@ class _TableViewState extends State<_TableView> {
       // Kraj runde: ulozi svih igrača klize na sredinu stola.
       for (var i = 0; i < oldSeats.length; i++) {
         final bet = (oldSeats[i]?['bet'] as int?) ?? 0;
-        if (bet > 0) added.add(_Flight(lay.bet(i), lay.pile, widget.money(bet), bet));
+        if (bet > 0) added.add(_Flight(oldLay.bet(i), lay.pile, widget.money(bet), bet));
       }
       if (added.isNotEmpty) delay = _flyMs + 100;
     }
@@ -998,16 +1041,16 @@ class _TableViewState extends State<_TableView> {
           tween: Tween(begin: p, end: target),
           duration: const Duration(milliseconds: 350),
           curve: Curves.easeOut,
-          builder: (_, o, child) => isMe
-              // Svoj ulog raste naviše od natpisa, da visoka gomila ne pređe preko karata.
-              ? Positioned(
-                  left: o.dx - 50,
-                  top: o.dy + 20 - 110,
-                  width: 100,
-                  height: 110,
-                  child: Align(alignment: Alignment.bottomCenter, child: child),
-                )
-              : Positioned(left: o.dx - 50, top: o.dy - 22, width: 100, child: child!),
+          builder: (_, o, child) {
+            final sz = lay.betSizes[i] ?? _Layout._defaultBet;
+            return Positioned(
+              left: o.dx - sz.width / 2 - 20,
+              top: o.dy - sz.height / 2,
+              width: sz.width + 40,
+              height: sz.height,
+              child: Center(child: child),
+            );
+          },
           child: _ChipPile(text: money(bet), amount: bet, bigBlind: st['bigBlind'] as int, big: widget.wide),
         ));
       }
@@ -1109,7 +1152,11 @@ class _TableViewState extends State<_TableView> {
           final u = Curves.easeInOut.transform(((t - delayFrac) / (1 - delayFrac)).clamp(0.0, 1.0));
           final o = Offset.lerp(f.from, f.to, u)!;
           return Positioned(
-              left: o.dx - 50, top: o.dy - 22, width: 100, child: Opacity(opacity: t < delayFrac ? 0 : 1, child: child));
+              left: o.dx - 70,
+              top: o.dy - 40,
+              width: 140,
+              height: 80,
+              child: Opacity(opacity: t < delayFrac ? 0 : 1, child: Center(child: child)));
         },
         child: _ChipPile(text: f.label, amount: f.amount, bigBlind: st['bigBlind'] as int, big: widget.wide),
       ));
@@ -1126,6 +1173,13 @@ class _ChipPile extends StatelessWidget {
   final int bigBlind;
   final bool big;
   const _ChipPile({required this.text, required this.amount, required this.bigBlind, this.big = false});
+
+  /// Približna veličina gomile sa natpisom (za raspored uloga oko stola).
+  static Size sizeOf(String text, int amount, int bigBlind, bool big) {
+    final chips = chipStacksSize(amount, bigBlind, big ? 22 : 16);
+    final labelW = text.length * (big ? 8.6 : 7.6) + 16;
+    return Size(max(chips.width, labelW), chips.height + 2 + (big ? 21 : 18.5));
+  }
 
   @override
   Widget build(BuildContext context) {
