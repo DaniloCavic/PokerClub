@@ -636,7 +636,8 @@ class _Layout {
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
 
   /// Gomila žetona sakupljenog pota (ispod karata, kao u velikim aplikacijama).
-  Offset get pile => Offset(center.dx, boardTop + cardW * 1.4 + 18);
+  /// Žetoni glavnog pota: iznad karata, odmah iznad natpisa POT.
+  Offset get pile => Offset(center.dx, potTop - 10);
 
   Offset seat(int i) {
     final k = (i - base + n) % n;
@@ -652,10 +653,14 @@ class _Layout {
   /// Gde stoji ulog igrača u tekućoj rundi.
   Offset bet(int i) {
     final p = seat(i);
-    if (i == mySeat) return Offset(p.dx + 74, min(p.dy, h - 104) - 34);
+    if (i == mySeat) return Offset(p.dx + 64, min(p.dy, h - 104) - 24);
     final d = dir(i);
-    var b = p + d * (70.0 + 34 * d.dy.abs());
-    if ((b.dy - (potTop + 16)).abs() < 26 && (b.dx - center.dx).abs() < 70) b = Offset(b.dx, potTop - 18);
+    // Blizu igrača: sa strane i ispod donjih igrača tik uz avatar; ispod gornjih igrača preskoči njihovu pločicu.
+    var b = p + d * (54.0 + (d.dy > 0 ? 50 * d.dy : 0));
+    // Ne preko žetona glavnog pota i natpisa POT
+    if (b.dy > potTop - 40 && b.dy < potTop + 34 && (b.dx - center.dx).abs() < 80) {
+      b = Offset(b.dx + (b.dx < center.dx ? -40 : 40), b.dy);
+    }
     return b;
   }
 
@@ -884,12 +889,13 @@ class _TableViewState extends State<_TableView> {
         ),
       ),
       // Sakupljeni pot: gomila žetona i iznos ispod karata
+      // Žetoni glavnog pota iznad natpisa POT (iznos piše na natpisu)
       if (collected > 0 && !flyingIn)
         Positioned(
-          left: lay.pile.dx - 60,
-          top: lay.pile.dy - 14,
-          width: 120,
-          child: _ChipPile(text: money(collected), amount: collected, bigBlind: st['bigBlind'] as int, big: true),
+          left: lay.pile.dx - 50,
+          top: lay.pile.dy - 22,
+          width: 100,
+          child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 25 : 19)),
         ),
       if (result != null || st['closing'] == true)
         Positioned(
@@ -1066,7 +1072,7 @@ class _ChipPile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 30 : 22),
+      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 22 : 16),
       const SizedBox(height: 2),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
