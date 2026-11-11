@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../format.dart';
 import '../theme.dart';
 import 'brand.dart';
@@ -47,10 +48,51 @@ class _ActionBarState extends State<ActionBar> {
   bool get _canRaise => _min != null && _max != null;
   Money get _m => widget.money;
 
+  /// Polje u koje igrač sam upisuje iznos (u dinarima ili u BB, kako je izabrano za stolom).
+  final _field = TextEditingController();
+  final _focus = FocusNode();
+
+  String _fieldText(int a) => _m.inBB ? bbNumber(a / widget.bigBlind) : '$a';
+
+  /// Postavi iznos i (ako igrač trenutno ne kuca) prepiši ga u polje.
+  void _set(int v) {
+    setState(() => _amount = v);
+    if (!_focus.hasFocus) _field.text = _fieldText(v);
+  }
+
+  /// Iznos iz upisanog teksta (null ako nije broj), ograničen na dozvoljeno.
+  int? _parse(String text) {
+    // Dinari: celi broj (tačke i zarezi su razdvajači hiljada); BB: može i decimala (12,5 ili 12.5).
+    final clean = text.replaceAll(' ', '');
+    final v = _m.inBB ? double.tryParse(clean.replaceAll(',', '.')) : double.tryParse(clean.replaceAll(RegExp('[.,]'), ''));
+    if (v == null || !_canRaise) return null;
+    final amount = _m.inBB ? (v * widget.bigBlind).round() : v.round();
+    return amount.clamp(_min!, _max!);
+  }
+
+  /// Kad igrač završi kucanje: iznos se ispravi na dozvoljeni i upiše nazad.
+  void _commitField() {
+    final v = _parse(_field.text);
+    if (v != null) _amount = v;
+    _field.text = _fieldText(_amount);
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     _amount = _min ?? 0;
+    _field.text = _fieldText(_amount);
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _commitField();
+    });
+  }
+
+  @override
+  void dispose() {
+    _field.dispose();
+    _focus.dispose();
+    super.dispose();
   }
 
   @override
@@ -60,6 +102,9 @@ class _ActionBarState extends State<ActionBar> {
       _busy = false;
       _open = false;
       _amount = _min ?? 0;
+      _field.text = _fieldText(_amount);
+    } else if (old.money.inBB != widget.money.inBB) {
+      _field.text = _fieldText(_amount);
     }
   }
 
@@ -76,7 +121,10 @@ class _ActionBarState extends State<ActionBar> {
     return to.clamp(_min!, _max!);
   }
 
-  void _step(int dir) => setState(() => _amount = (_amount + dir * widget.bigBlind).clamp(_min!, _max!));
+  void _step(int dir) {
+    _focus.unfocus();
+    _set((_amount + dir * widget.bigBlind).clamp(_min!, _max!));
+  }
 
   Widget _buttons() {
     final canCheck = widget.legal['check'] == true;
@@ -117,6 +165,7 @@ class _ActionBarState extends State<ActionBar> {
                     if (!widget.wide && !_open) {
                       setState(() => _open = true);
                     } else {
+                      if (_focus.hasFocus) _commitField();
                       _send('raise', _amount);
                     }
                   },
@@ -155,7 +204,38 @@ class _ActionBarState extends State<ActionBar> {
       _round(Icons.remove, _amount > _min! ? () => _step(-1) : null),
       Expanded(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_m(_amount), textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          // Iznos se može i upisati: dodir na broj otvara tastaturu.
+          SizedBox(
+            height: 30,
+            child: TextField(
+              controller: _field,
+              focusNode: _focus,
+              textAlign: TextAlign.center,
+              keyboardType: TextInputType.numberWithOptions(decimal: _m.inBB),
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              cursorColor: gold,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: Colors.black38,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                suffixText: _m.inBB ? 'BB' : 'RSD',
+                suffixStyle: const TextStyle(fontSize: 12, color: Colors.white60, fontWeight: FontWeight.w700),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: gold.withOpacity(0.35))),
+                enabledBorder:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: gold.withOpacity(0.35))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: gold)),
+              ),
+              onTap: () => _field.selection = TextSelection(baseOffset: 0, extentOffset: _field.text.length),
+              onChanged: (t) {
+                final v = _parse(t);
+                if (v != null) setState(() => _amount = v);
+              },
+              onSubmitted: (_) => _focus.unfocus(),
+            ),
+          ),
+          const SizedBox(height: 2),
           Text(_m.inBB ? rsd(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
               style: const TextStyle(fontSize: 10.5, color: Colors.white54)),
         ]),
@@ -176,7 +256,8 @@ class _ActionBarState extends State<ActionBar> {
                 onChanged: (v) {
                   var to = v.round();
                   if (to != _max) to = (to ~/ step) * step;
-                  setState(() => _amount = to.clamp(_min!, _max!));
+                  _focus.unfocus();
+                  _set(to.clamp(_min!, _max!));
                 },
               ),
             ),
@@ -187,7 +268,10 @@ class _ActionBarState extends State<ActionBar> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: InkWell(
-              onTap: () => setState(() => _amount = e.value),
+              onTap: () {
+                _focus.unfocus();
+                _set(e.value);
+              },
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 height: 26,
