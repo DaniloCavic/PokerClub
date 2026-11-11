@@ -258,8 +258,11 @@ async function main() {
   };
   assert((await handTypes(mini.id)).includes('bomb'), 'bomb pot je odigran za malim stolom');
   assert((await handTypes(holdem.id)).includes('straddle'), 'straddle je odigran');
-  const st = await call('GET', '/me/stats', bots[0].token);
-  assert(st.hands > 0 && st.won <= st.hands && st.winRate >= 0 && st.winRate <= 100, `statistika igrača: ${st.hands} ruku, ${st.won} dobijenih`);
+  const st = await call('GET', `/me/table-stats?tableId=${holdem.id}&userId=${players[1].id}`, bots[0].token);
+  assert(
+    st.hands > 0 && st.vpip >= 0 && st.vpip <= 100 && st.pfr <= st.vpip && st.won <= st.hands,
+    `statistika igrača za stolom: ${st.hands} ruku, VPIP ${st.vpip} %, PFR ${st.pfr} %, dobijeno ${st.winRate} %`,
+  );
   const hands = (await call('GET', `/admin/tables/${holdem.id}`, agent)).hands.total;
   const omahaHands = (await call('GET', `/admin/tables/${omaha.id}`, agent)).hands.total;
   assert(hands >= 3, `odigrano ${hands} ruku Hold'ema`);

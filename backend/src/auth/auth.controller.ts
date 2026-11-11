@@ -7,6 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import { blockedMessage, CurrentUser, Public } from '../common/auth.guard';
 import { avatarUrl, publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { playerStats } from '../tables/player-stats';
 import { TablesService } from '../tables/tables.service';
 import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto } from './dto';
 
@@ -159,37 +160,22 @@ export class MeController {
     return this.tables.lobby();
   }
 
-  /** Statistika igrača: odigrane ruke, dobijene ruke, najveći dobijeni pot, ukupan rezultat. */
-  @Get('stats')
-  async stats(@CurrentUser() user: User) {
+  /**
+   * Statistika igrača za jednim stolom (prozor kad se za stolom dodirne igrač):
+   * VPIP, PFR, dobijene ruke, najveći osvojen pot i najbolja pokazana ruka.
+   */
+  @Get('table-stats')
+  async tableStats(@Query('tableId') tableId: string, @Query('userId') userId: string) {
+    if (!tableId || !userId) throw new BadRequestException('Nedostaje sto ili igrač.');
+    const table = await this.prisma.pokerTable.findUnique({ where: { id: tableId }, select: { variant: true } });
+    if (!table) throw new NotFoundException('Sto nije pronađen.');
     const hands = await this.prisma.hand.findMany({
-      where: { playerIds: { has: user.id } },
-      select: { details: true },
+      where: { tableId, playerIds: { has: userId } },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+      select: { board: true, details: true },
     });
-    let won = 0;
-    let biggest = 0;
-    let net = 0;
-    for (const h of hands) {
-      const d = h.details as {
-        players?: { seat: number; userId: string; startStack: number; endStack: number }[];
-        pots?: { winners: { seat: number; amount: number }[] }[];
-      };
-      const me = d.players?.find((p) => p.userId === user.id);
-      if (!me) continue;
-      net += me.endStack - me.startStack;
-      const mine = (d.pots ?? []).flatMap((p) => p.winners).filter((w) => w.seat === me.seat).reduce((s, w) => s + w.amount, 0);
-      if (mine > 0) {
-        won++;
-        biggest = Math.max(biggest, mine);
-      }
-    }
-    return {
-      hands: hands.length,
-      won,
-      winRate: hands.length ? Math.round((won / hands.length) * 1000) / 10 : 0,
-      biggestPot: biggest,
-      net,
-    };
+    return playerStats(userId, hands, table.variant);
   }
 
   /** Beleške o drugim igračima (vidi ih samo onaj ko ih je napisao). */
