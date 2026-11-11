@@ -288,7 +288,7 @@ class _LobbyViewState extends State<LobbyView> {
             final chips = [
               for (final f in const [('ALL', 'Svi'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
                 Padding(
-                  padding: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
                   child: ChoiceChip(
                     label: Text(f.$2),
                     selected: _filter == f.$1,
@@ -308,10 +308,10 @@ class _LobbyViewState extends State<LobbyView> {
             }
             return Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              child: Column(children: [
                 title,
                 const SizedBox(height: 10),
-                Row(children: chips),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: chips),
               ]),
             );
           }),
