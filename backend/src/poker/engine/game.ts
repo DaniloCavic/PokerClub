@@ -18,6 +18,11 @@ export interface GameConfig {
   ante?: number;
   /** Dozvoljen straddle: igrač posle velikog blajnda može unapred da stavi dva velika blajnda. */
   straddle?: boolean;
+  /**
+   * Run it twice: kad su igrači all-in pre kraja stola, ruka staje i svaki igrač u ruci
+   * bira da li se karte dele dva puta. Samo ako svi pristanu.
+   */
+  runItTwice?: boolean;
 }
 
 export interface StartOptions {
@@ -48,8 +53,6 @@ export interface Seat {
   lastAct: SeatAct | null;
   /** Igrač želi straddle kad je prvi posle velikog blajnda. */
   straddle?: boolean;
-  /** Igrač pristaje da se kod all-in-a karte dele dva puta (run it twice). */
-  runTwice?: boolean;
 }
 
 export type ActKind = 'ante' | 'bomb' | 'straddle' | 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
@@ -134,6 +137,10 @@ export class PokerGame {
   straddleSeat = -1;
   /** Iznos bomb pota u ovoj ruci (0 = obična ruka). */
   bombPot = 0;
+  /** Run it twice: ruka čeka odgovore igrača (sedišta koja se pitaju i njihovi odgovori). */
+  ritPending = false;
+  ritAsk: number[] = [];
+  ritYes: number[] = [];
   log: string[] = [];
   /** Potezi u ruci koja je u toku. */
   actions: ActionEntry[] = [];
@@ -153,7 +160,7 @@ export class PokerGame {
       sittingOut: false, leaving: false,
       inHand: false, hole: [], folded: false, allIn: false,
       bet: 0, committed: 0, actedLevel: -1, lastAction: null, lastAct: null,
-      straddle: false, runTwice: false,
+      straddle: false,
     };
   }
 
@@ -219,6 +226,9 @@ export class PokerGame {
     this.actions = [];
     this.straddleSeat = -1;
     this.bombPot = Math.max(0, Math.floor(opts.bombPot ?? 0));
+    this.ritPending = false;
+    this.ritAsk = [];
+    this.ritYes = [];
 
     const inHand = (s: Seat) => s.inHand;
     this.button = this.next(this.button < 0 ? this.seats.length - 1 : this.button, inHand);
@@ -430,10 +440,41 @@ export class PokerGame {
     return this.advanceIfDone();
   }
 
+  /** Odgovor igrača na pitanje za run it twice. "Ne" od bilo koga znači da se deli jednom. */
+  answerRunTwice(index: number, yes: boolean): HandResult | null {
+    if (!this.ritPending || !this.ritAsk.includes(index)) throw new GameError('Nema pitanja za run it twice.');
+    if (this.ritYes.includes(index)) return null;
+    const s = this.seats[index]!;
+    if (!yes) {
+      this.log.push(`${s.name}: ne želi run it twice`);
+      return this.resolveRunTwice();
+    }
+    this.ritYes.push(index);
+    this.log.push(`${s.name}: run it twice — da`);
+    if (this.ritAsk.every((i) => this.ritYes.includes(i))) return this.resolveRunTwice(true);
+    return null;
+  }
+
+  /** Kraj pitanja: deli se dva puta samo ako su svi pristali (inače i kad istekne vreme). */
+  resolveRunTwice(all = false): HandResult | null {
+    if (!this.ritPending) return null;
+    this.ritPending = false;
+    return this.finish(all);
+  }
+
   /** Odustajanje van reda (igrač napušta sto ili je blokiran). */
   forceFold(index: number): HandResult | null {
     const s = this.seats[index];
     if (!this.inProgress || !s?.inHand || s.folded) return null;
+    if (this.ritPending) {
+      // Igrač napušta sto dok se čeka odgovor: odustaje, ostali nastavljaju bez run it twice.
+      s.folded = true;
+      s.lastAction = 'Fold';
+      this.record(index, 'fold', 0);
+      this.log.push(`${s.name}: Fold`);
+      this.ritPending = false;
+      return this.finish();
+    }
     if (index === this.toAct) return this.act(index, 'fold');
     s.folded = true;
     s.lastAction = 'Fold';
@@ -471,7 +512,18 @@ export class PokerGame {
       if (this.street === 'river') return this.finish();
       // Kad niko ili samo jedan igrač može da igra, ostatak stola se deli na kraju ruke
       // (tada je moguć i run it twice).
-      if (this.indices().filter((i) => this.canAct(this.seats[i]!)).length <= 1) return this.finish();
+      if (this.indices().filter((i) => this.canAct(this.seats[i]!)).length <= 1) {
+        // Svi (ili svi osim jednog) su all-in: ako sto dozvoljava, pitaju se za run it twice.
+        if (this.config.runItTwice && this.live().length > 1) {
+          this.ritPending = true;
+          this.ritAsk = this.live();
+          this.ritYes = [];
+          this.toAct = -1;
+          this.log.push('All-in: pitanje za run it twice');
+          return null;
+        }
+        return this.finish();
+      }
       this.dealStreet();
     }
   }
@@ -544,13 +596,13 @@ export class PokerGame {
     return pots;
   }
 
-  private finish(): HandResult {
+  private finish(twice = false): HandResult {
     // Ruka završena odustajanjem može doći usred runde.
     if (this.indices().some((i) => this.seats[i]!.bet > 0)) this.endRound();
     const live = this.live();
     const showdown = live.length > 1;
     // Run it twice: svi igrači u all-in situaciji su pristali, a sto još nije ceo podeljen.
-    const runTwice = showdown && this.board.length < 5 && live.every((i) => this.seats[i]!.runTwice);
+    const runTwice = twice && showdown && this.board.length < 5;
     const base = [...this.board];
     let board2: Card[] | undefined;
     if (showdown) {
@@ -651,6 +703,7 @@ export class PokerGame {
       log: [...this.log],
     };
     this.inProgress = false;
+    this.ritPending = false;
     this.collected = 0;
     this.toAct = -1;
     for (const i of this.indices()) this.seats[i]!.inHand = false;

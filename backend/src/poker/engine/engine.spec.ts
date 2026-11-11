@@ -482,47 +482,97 @@ describe('bomb pot', () => {
 });
 
 describe('run it twice', () => {
-  function allInHeadsUp(runA: boolean, runB: boolean) {
-    const g = new PokerGame(holdem);
+  const rit: GameConfig = { ...holdem, runItTwice: true };
+  function allInHeadsUp() {
+    const g = new PokerGame(rit);
     g.sit(0, 'a', 'Ana', 1000);
     g.sit(1, 'b', 'Bojan', 1000);
-    g.seats[0]!.runTwice = runA;
-    g.seats[1]!.runTwice = runB;
     // Jedan na jedan: dugme (0) je mali blajnd i karte se dele od njega.
     g.startHand(deckRuns(['Ah Ad', 'Kc Kd'], '2s 7h 9c Jd 3s', 'Ks 4h 8c Td 5s'));
     g.act(0, 'raise', 1000);
-    return g.act(1, 'call')!;
+    expect(g.act(1, 'call')).toBeNull();
+    return g;
   }
 
+  it('kad su igrači all-in, ruka staje i pitaju se svi u ruci', () => {
+    const g = allInHeadsUp();
+    expect(g.ritPending).toBe(true);
+    expect(g.ritAsk).toEqual([0, 1]);
+    expect(g.toAct).toBe(-1);
+    expect(g.inProgress).toBe(true);
+    expect(g.board).toEqual([]);
+  });
+
   it('kad oba igrača pristanu, pot se deli na dva stola', () => {
-    const r = allInHeadsUp(true, true);
+    const g = allInHeadsUp();
+    expect(g.answerRunTwice(0, true)).toBeNull();
+    const r = g.answerRunTwice(1, true)!;
     expect(r.board2).toBeDefined();
-    expect(r.board2!.map((c) => c)).toHaveLength(5);
+    expect(r.board2!).toHaveLength(5);
     expect(r.pots.map((p) => [p.run, p.amount, p.winners])).toEqual([
       [1, 1000, [{ seat: 0, amount: 1000 }]],
       [2, 1000, [{ seat: 1, amount: 1000 }]],
     ]);
     expect(r.shown.find((s) => s.seat === 1)!.handName2).toBe('Triling K');
+    expect(g.ritPending).toBe(false);
   });
 
-  it('ako jedan ne pristane, karte se dele jednom', () => {
-    const r = allInHeadsUp(true, false);
+  it('ako jedan kaže ne, karte se dele jednom', () => {
+    const g = allInHeadsUp();
+    g.answerRunTwice(0, true);
+    const r = g.answerRunTwice(1, false)!;
     expect(r.board2).toBeUndefined();
     expect(r.pots).toEqual([{ amount: 2000, winners: [{ seat: 0, amount: 2000 }], handName: expect.any(String) }]);
   });
 
+  it('kad istekne vreme za odluku, karte se dele jednom', () => {
+    const g = allInHeadsUp();
+    g.answerRunTwice(0, true);
+    const r = g.resolveRunTwice()!;
+    expect(r.board2).toBeUndefined();
+    expect(chipsTotal(g)).toBe(2000);
+  });
+
+  it('bez pitanja ako sto ne dozvoljava run it twice', () => {
+    const g = new PokerGame(holdem);
+    g.sit(0, 'a', 'Ana', 1000);
+    g.sit(1, 'b', 'Bojan', 1000);
+    g.startHand();
+    g.act(0, 'raise', 1000);
+    const r = g.act(1, 'call');
+    expect(r).not.toBeNull();
+    expect(g.ritPending).toBe(false);
+  });
+
   it('neparan pot: prvi sto dobija žeton više', () => {
-    const g = new PokerGame({ ...holdem, ante: 1 });
+    const g = new PokerGame({ ...rit, ante: 1 });
     g.sit(0, 'a', 'A', 1000);
     g.sit(1, 'b', 'B', 1000);
     g.sit(2, 'c', 'C', 1000);
-    g.seats.forEach((s) => s && (s.runTwice = true));
     g.startHand();
     g.act(0, 'raise', 999);
     g.act(1, 'fold');
-    const r = g.act(2, 'call')!;
+    g.act(2, 'call');
+    expect(g.ritAsk).toEqual([0, 2]);
+    g.answerRunTwice(2, true);
+    const r = g.answerRunTwice(0, true)!;
     // Pot: ante 3 + mali blajnd 5 + 999 + 999 = 2006 → 1003 + 1003
     expect(r.pots.map((p) => p.amount)).toEqual([1003, 1003]);
+  });
+
+  it('igrač koji napusti sto dok se čeka odluka odustaje, ruka se završava jednom', () => {
+    const g = new PokerGame(rit);
+    g.sit(0, 'a', 'A', 1000);
+    g.sit(1, 'b', 'B', 500);
+    g.sit(2, 'c', 'C', 1000);
+    g.startHand();
+    g.act(0, 'raise', 1000);
+    g.act(1, 'call'); // all-in 500
+    g.act(2, 'call');
+    expect(g.ritPending).toBe(true);
+    const r = g.forceFold(2)!;
+    expect(r.board2).toBeUndefined();
+    expect(chipsTotal(g)).toBe(2500);
   });
 });
 
@@ -531,7 +581,7 @@ describe('nasumične ruke', () => {
     for (let round = 0; round < 300; round++) {
       const variant = round % 2 ? 'HOLDEM' : 'OMAHA';
       const rake = round % 3 === 0 ? { rakeBps: 500, rakeCap: round % 2 ? 0 : 7 } : {};
-      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake, ante: round % 2 ? 2 : 0, straddle: round % 4 < 2 });
+      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake, ante: round % 2 ? 2 : 0, straddle: round % 4 < 2, runItTwice: round % 3 !== 1 });
       const n = 2 + (round % 8);
       let total = 0;
       for (let i = 0; i < n; i++) {
@@ -539,12 +589,23 @@ describe('nasumične ruke', () => {
         total += st;
         g.sit(i, `u${i}`, `Igrač ${i}`, st);
         g.seats[i]!.straddle = Math.random() < 0.5;
-        g.seats[i]!.runTwice = Math.random() < 0.7;
       }
       for (let hand = 0; hand < 20 && g.canStart(); hand++) {
         const results: (HandResult | null)[] = [g.startHand(undefined, { bombPot: hand % 5 === 4 ? 30 : 0 })];
         let guard = 0;
         while (g.inProgress) {
+          if (g.ritPending) {
+            // Run it twice: svako odgovara nasumično, ponekad istekne vreme.
+            const r = Math.random();
+            if (r < 0.1) results.push(g.resolveRunTwice());
+            else if (r < 0.15) results.push(g.forceFold(g.ritAsk[0]));
+            else {
+              const seat = g.ritAsk.find((i) => !g.ritYes.includes(i))!;
+              results.push(g.answerRunTwice(seat, Math.random() < 0.8));
+            }
+            expect(++guard).toBeLessThan(500);
+            continue;
+          }
           const legal = g.legalActions(g.toAct)!;
           expect(legal).not.toBeNull();
           const r = Math.random();

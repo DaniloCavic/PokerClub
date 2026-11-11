@@ -141,13 +141,17 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   @SubscribeMessage('table:prefs')
-  prefs(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { straddle?: boolean; runTwice?: boolean }) {
+  prefs(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { straddle?: boolean }) {
     return this.handle(socket, () =>
       this.tables.setPrefs(socket.data.userId, String(msg?.tableId), {
         straddle: msg?.straddle === undefined ? undefined : !!msg.straddle,
-        runTwice: msg?.runTwice === undefined ? undefined : !!msg.runTwice,
       }),
     );
+  }
+
+  @SubscribeMessage('table:rit')
+  rit(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { yes: boolean }) {
+    return this.handle(socket, () => this.tables.answerRunTwice(socket.data.userId, String(msg?.tableId), !!msg?.yes));
   }
 
   @SubscribeMessage('table:waitlist')

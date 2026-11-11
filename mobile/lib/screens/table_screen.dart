@@ -329,7 +329,6 @@ class _TableScreenState extends State<TableScreen> {
     final sittingOut = me['sittingOut'] == true;
     final prefs = (st['myPrefs'] as Json?) ?? const {};
     var straddle = prefs['straddle'] == true;
-    var runTwice = prefs['runTwice'] == true;
     showModalBottomSheet(
       context: context,
       backgroundColor: panel,
@@ -348,16 +347,6 @@ class _TableScreenState extends State<TableScreen> {
                     await app.run('table:prefs', {'tableId': widget.tableId, 'straddle': v});
                   },
                 ),
-              SwitchListTile(
-                secondary: const Icon(Icons.filter_2),
-                title: const Text('Run it twice'),
-                subtitle: const Text('Kod all-in-a se karte dele dva puta, a pot deli na pola (ako svi pristanu)'),
-                value: runTwice,
-                onChanged: (v) async {
-                  setLocal(() => runTwice = v);
-                  await app.run('table:prefs', {'tableId': widget.tableId, 'runTwice': v});
-                },
-              ),
             ]),
           ),
           const Divider(height: 1, color: Colors.white12),
@@ -1243,8 +1232,32 @@ class _TableViewState extends State<_TableView> {
               ),
           ]),
         ),
+      // Run it twice: posle all-in-a čeka se odluka igrača.
+      if (st['ritPending'] == true)
+        Positioned(
+          left: 0,
+          right: 0,
+          top: boardTop + cardW * 1.4 + 8,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: gold),
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                GoldText('RUN IT TWICE?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: widget.wide ? 15 : 12.5, letterSpacing: 1)),
+                Text(
+                  'Pristalo: ${(st['ritYes'] as List).length} od ${(st['ritAsk'] as List).length}',
+                  style: TextStyle(fontSize: widget.wide ? 12 : 10.5, color: Colors.white70),
+                ),
+              ]),
+            ),
+          ),
+        ),
       // Bomb pot (ruka u toku) ili najava da je sledeća ruka bomb pot.
-      if (result == null && st['closing'] != true && (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1)))
+      if (st['ritPending'] != true && result == null && st['closing'] != true && (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1)))
         Positioned(
           left: 0,
           right: 0,
@@ -1806,7 +1819,41 @@ class _MyPanel extends StatelessWidget {
     final h = wide ? 64.0 : 48.0;
 
     Widget? bottom;
-    if (legal != null) {
+    final mySeatIdx = st['mySeat'] as int;
+    final ritAsk = ((st['ritAsk'] as List?) ?? const []).cast<int>();
+    final ritYes = ((st['ritYes'] as List?) ?? const []).cast<int>();
+    if (st['ritPending'] == true && ritAsk.contains(mySeatIdx) && !ritYes.contains(mySeatIdx)) {
+      // Posle all-in-a: da li da se karte dele dva puta (samo ako svi pristanu).
+      final deadline = st['ritDeadline'] as int?;
+      final leftMs = deadline == null ? 0 : max(0, deadline - app.serverNow);
+      void answer(bool yes) => app.run('table:rit', {'tableId': tableId, 'yes': yes});
+      bottom = Column(mainAxisSize: MainAxisSize.min, children: [
+        const Row(children: [
+          Icon(Icons.filter_2, color: goldLight, size: 20),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text('Run it twice? Karte se dele dva puta, a pot deli na pola (ako svi pristanu).',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        TweenAnimationBuilder<double>(
+          key: ValueKey('rit-${st['handNo']}'),
+          tween: Tween(begin: leftMs / 10000, end: 0),
+          duration: Duration(milliseconds: leftMs),
+          builder: (_, v, __) => ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(value: v.clamp(0, 1), minHeight: 3, color: goldLight, backgroundColor: Colors.white10),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: LuxButton(title: 'NE', height: h, gradient: redGradient, onTap: () => answer(false))),
+          const SizedBox(width: 10),
+          Expanded(child: LuxButton(title: 'DA, dva puta', icon: Icons.filter_2, height: h, onTap: () => answer(true))),
+        ]),
+      ]);
+    } else if (legal != null) {
       bottom = ActionBar(
         legal: legal,
         pot: st['pot'] as int,

@@ -41,7 +41,13 @@ interface Runtime {
   reservation: { userId: string; until: number; timer: NodeJS.Timeout } | null;
   /** Obaveštenje kad se zakazani sto otvori. */
   openTimer?: NodeJS.Timeout;
+  /** Run it twice: rok za odgovore igrača. */
+  ritTimer?: NodeJS.Timeout;
+  ritDeadline: number | null;
 }
+
+/** Koliko igrači imaju vremena da odluče o run it twice. */
+const RIT_MS = Number(process.env.RIT_MS || 10_000);
 
 /** Koliko dugo se mesto čuva za igrača sa liste čekanja. */
 const RESERVE_MS = Number(process.env.WAITLIST_RESERVE_MS || 45_000);
@@ -103,6 +109,7 @@ export class TablesService implements OnModuleInit {
         // Ante je petina velikog blajnda.
         ante: Math.floor(table.bigBlind / 5),
         straddle: table.straddle,
+        runItTwice: true,
       }),
       queue: Promise.resolve(),
       deadline: null,
@@ -114,6 +121,7 @@ export class TablesService implements OnModuleInit {
       chat: [],
       waitlist: [],
       reservation: null,
+      ritDeadline: null,
     };
     this.runtimes.set(table.id, rt);
     this.scheduleOpenNotice(rt);
@@ -308,7 +316,12 @@ export class TablesService implements OnModuleInit {
       straddleSeat: g.inProgress ? g.straddleSeat : -1,
       nextBombIn: this.handsToBomb(rt),
       // Izbor igrača (samo za sopstveno mesto)
-      myPrefs: mySeat >= 0 ? { straddle: !!g.seats[mySeat]!.straddle, runTwice: !!g.seats[mySeat]!.runTwice } : null,
+      myPrefs: mySeat >= 0 ? { straddle: !!g.seats[mySeat]!.straddle } : null,
+      // Run it twice: pitanje posle all-in-a (ko se pita, ko je već rekao da, do kada).
+      ritPending: g.ritPending,
+      ritAsk: g.ritPending ? g.ritAsk : [],
+      ritYes: g.ritPending ? g.ritYes : [],
+      ritDeadline: g.ritPending ? rt.ritDeadline : null,
       // Lista čekanja
       waitlist: rt.waitlist.map((w) => w.name),
       onWaitlist: !!userId && rt.waitlist.some((w) => w.userId === userId),
@@ -552,6 +565,7 @@ export class TablesService implements OnModuleInit {
     clearTimeout(rt.nextHandTimer);
     clearTimeout(rt.turnTimer);
     clearTimeout(rt.openTimer);
+    clearTimeout(rt.ritTimer);
     if (rt.reservation) clearTimeout(rt.reservation.timer);
     rt.reservation = null;
     rt.waitlist = [];
@@ -576,7 +590,30 @@ export class TablesService implements OnModuleInit {
     if (!rt.game.inProgress) this.scheduleNextHand(rt);
   }
 
+  /** Run it twice: ko ne odgovori na vreme, karte se dele jednom. */
+  private armRitTimer(rt: Runtime) {
+    const g = rt.game;
+    if (!g.inProgress || !g.ritPending) {
+      clearTimeout(rt.ritTimer);
+      rt.ritTimer = undefined;
+      rt.ritDeadline = null;
+      return;
+    }
+    if (rt.ritTimer) return;
+    const hand = g.handNo;
+    rt.ritDeadline = Date.now() + RIT_MS;
+    rt.ritTimer = setTimeout(() => {
+      void this.exclusive(rt, async () => {
+        rt.ritTimer = undefined;
+        if (!rt.game.ritPending || rt.game.handNo !== hand) return;
+        const result = rt.game.resolveRunTwice();
+        await this.afterChange(rt, result);
+      }).catch((e) => this.log.error(e));
+    }, RIT_MS);
+  }
+
   private armTurnTimer(rt: Runtime) {
+    this.armRitTimer(rt);
     const g = rt.game;
     if (!g.inProgress || g.toAct < 0) {
       clearTimeout(rt.turnTimer);
@@ -734,8 +771,20 @@ export class TablesService implements OnModuleInit {
 
   // ---------- Izbor igrača i lista čekanja ----------
 
-  /** Straddle i run it twice: važi od sledeće prilike (straddle od sledeće ruke). */
-  async setPrefs(userId: string, tableId: string, prefs: { straddle?: boolean; runTwice?: boolean }) {
+  /** Odgovor na pitanje za run it twice (posle all-in-a). */
+  async answerRunTwice(userId: string, tableId: string, yes: boolean) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      const i = rt.game.seatOf(userId);
+      if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      const result = rt.game.answerRunTwice(i, yes);
+      await this.afterChange(rt, result);
+      return {};
+    });
+  }
+
+  /** Straddle: važi od sledeće ruke. */
+  async setPrefs(userId: string, tableId: string, prefs: { straddle?: boolean }) {
     const rt = this.rt(tableId);
     return this.exclusive(rt, async () => {
       const i = rt.game.seatOf(userId);
@@ -745,7 +794,6 @@ export class TablesService implements OnModuleInit {
         if (prefs.straddle && !rt.table.straddle) throw new GameError('Za ovim stolom nema straddle-a.');
         s.straddle = !!prefs.straddle;
       }
-      if (prefs.runTwice !== undefined) s.runTwice = !!prefs.runTwice;
       await this.broadcast(rt);
       return {};
     });

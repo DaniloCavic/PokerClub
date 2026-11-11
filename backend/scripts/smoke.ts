@@ -34,6 +34,8 @@ interface Bot {
   token: string;
   socket: Socket;
   state: Record<string, any>;
+  /** Stolovi za kojima bot ne igra sam (test ih vodi ručno). */
+  manual: Set<string>;
 }
 
 function emit(s: Socket, ev: string, data?: unknown): Promise<any> {
@@ -42,13 +44,19 @@ function emit(s: Socket, ev: string, data?: unknown): Promise<any> {
 
 async function connect(name: string, id: string, token: string): Promise<Bot> {
   const socket = io(API, { auth: { token }, transports: ['websocket'] });
-  const bot: Bot = { name, id, token, socket, state: {} };
+  const bot: Bot = { name, id, token, socket, state: {}, manual: new Set() };
   await new Promise<void>((resolve, reject) => {
     socket.on('session', () => resolve());
     socket.on('auth:error', (e) => reject(new Error(e.error)));
   });
   socket.on('table:state', (st) => {
     bot.state[st.id] = st;
+    if (bot.manual.has(st.id)) return;
+    // Run it twice: nasumičan odgovor.
+    if (st.ritPending && st.ritAsk.includes(st.mySeat) && !st.ritYes.includes(st.mySeat)) {
+      void emit(socket, 'table:rit', { tableId: st.id, yes: Math.random() < 0.7 });
+      return;
+    }
     const legal = st.legal;
     if (!legal || st.toAct !== st.mySeat) return;
     // Nasumičan, ali ispravan potez.
@@ -177,8 +185,8 @@ async function main() {
 
   console.log('Straddle, run it twice, lista čekanja, beleške');
   for (const b of bots) {
-    const r = await emit(b.socket, 'table:prefs', { tableId: holdem.id, straddle: true, runTwice: true });
-    assert(r.ok, `${b.name} uključuje straddle i run it twice`);
+    const r = await emit(b.socket, 'table:prefs', { tableId: holdem.id, straddle: true });
+    assert(r.ok, `${b.name} uključuje straddle`);
   }
   const noStraddle = await emit(bots[0].socket, 'table:sit', { tableId: mini.id, seat: 0, buyIn: 300 });
   assert(noStraddle.ok, 'sedanje za mali sto');
@@ -208,6 +216,37 @@ async function main() {
   assert(myNotes[players[1].id] === 'Bluffuje mnogo' && Object.keys(otherNotes).length === 0, 'belešku vidi samo onaj ko ju je napisao');
   await call('POST', `/me/notes/${players[1].id}`, bots[0].token, { text: '  ' });
   assert(!(await call('GET', '/me/notes', bots[0].token))[players[1].id], 'prazna beleška se briše');
+
+  // Run it twice: dva igrača idu all-in, oba pristaju → karte se dele dva puta.
+  const ritTable = await call('POST', '/admin/tables', admin, {
+    name: `RIT ${suffix}`, variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
+    maxSeats: 2, rakePercent: 0, rakeCap: 0, actionSeconds: 10,
+  });
+  const [ra, rb] = [bots[2], bots[3]];
+  ra.manual.add(ritTable.id);
+  rb.manual.add(ritTable.id);
+  assert((await emit(ra.socket, 'table:sit', { tableId: ritTable.id, seat: 0, buyIn: 300 })).ok, 'prvi igrač seda za sto za run it twice');
+  assert((await emit(rb.socket, 'table:sit', { tableId: ritTable.id, seat: 1, buyIn: 300 })).ok, 'drugi igrač seda za sto za run it twice');
+  const waitFor = async (pred: () => boolean, ms = 15000) => {
+    for (let t = 0; t < ms && !pred(); t += 100) await sleep(100);
+    return pred();
+  };
+  const rs = () => ra.state[ritTable.id];
+  assert(await waitFor(() => rs()?.inProgress && rs()?.toAct >= 0), 'ruka za run it twice je počela');
+  const first = rs().toAct === rs().mySeat ? ra : rb;
+  const second = first === ra ? rb : ra;
+  const legalFirst = first.state[ritTable.id].legal;
+  assert((await emit(first.socket, 'table:act', { tableId: ritTable.id, action: 'raise', amount: legalFirst.maxRaiseTo })).ok, 'all-in');
+  assert(await waitFor(() => second.state[ritTable.id]?.legal?.call > 0), 'drugi igrač je na potezu');
+  assert((await emit(second.socket, 'table:act', { tableId: ritTable.id, action: 'call' })).ok, 'call all-in');
+  assert(await waitFor(() => rs()?.ritPending === true), 'posle all-in-a ruka staje i pita za run it twice');
+  assert(rs().ritAsk.length === 2 && rs().ritDeadline > Date.now(), 'pitaju se oba igrača, sa rokom za odluku');
+  assert((await emit(ra.socket, 'table:rit', { tableId: ritTable.id, yes: true })).ok, 'prvi igrač pristaje');
+  assert((await emit(rb.socket, 'table:rit', { tableId: ritTable.id, yes: true })).ok, 'drugi igrač pristaje');
+  assert(await waitFor(() => !!rs()?.result), 'ruka je završena');
+  assert(rs().result.board2?.length === 5 && rs().result.pots.some((p: any) => p.run === 2), 'karte su podeljene dva puta, pot na pola');
+  ra.manual.delete(ritTable.id);
+  rb.manual.delete(ritTable.id);
 
   await sleep(Number(process.env.PLAY_MS || 25000));
 
@@ -246,6 +285,7 @@ async function main() {
   await call('POST', `/admin/tables/${omaha.id}/close`, admin);
   await call('POST', `/admin/tables/${scheduled.id}/close`, admin);
   await call('POST', `/admin/tables/${mini.id}/close`, admin);
+  await call('POST', `/admin/tables/${ritTable.id}/close`, admin);
   for (let k = 0; k < 30; k++) {
     const t = await call('GET', '/admin/tables', agent);
     if (t.filter((x: any) => x.live).length === 0) break;
