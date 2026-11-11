@@ -56,17 +56,57 @@ class _HomeShellState extends State<HomeShell> {
         ]),
       );
     }
+    // Telefon: naslov kluba gore, odmah ispod njega meni (ne dole na dnu ekrana).
     return Scaffold(
-      appBar:
-          PreferredSize(preferredSize: const Size.fromHeight(60), child: _PhoneTopBar(onWallet: () => setState(() => _tab = 2))),
-      body: body,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        height: 64,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [for (final n in navItems) NavigationDestination(icon: Icon(n.icon), label: n.label)],
+      body: Column(children: [
+        _PhoneTopBar(onWallet: () => setState(() => _tab = 2)),
+        _PhoneTabs(selected: _tab, onSelect: (i) => setState(() => _tab = i)),
+        Expanded(child: body),
+      ]),
+    );
+  }
+}
+
+/// Meni na telefonu, odmah ispod naslova kluba.
+class _PhoneTabs extends StatelessWidget {
+  final int selected;
+  final ValueChanged<int> onSelect;
+  const _PhoneTabs({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 58,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E0B08),
+        border: Border(bottom: BorderSide(color: gold.withOpacity(0.35))),
       ),
+      child: Row(children: [
+        for (var i = 0; i < navItems.length; i++)
+          Expanded(
+            child: InkWell(
+              onTap: () => onSelect(i),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: i == selected
+                      ? const LinearGradient(
+                          colors: [Color(0xFF8E1426), Color(0xFF4A0911)], begin: Alignment.topCenter, end: Alignment.bottomCenter)
+                      : null,
+                  border: i == selected ? const Border(bottom: BorderSide(color: gold, width: 2)) : null,
+                ),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(navItems[i].icon, size: 20, color: i == selected ? goldLight : gold.withOpacity(0.8)),
+                  const SizedBox(height: 3),
+                  Text(navItems[i].label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11.5, fontWeight: FontWeight.w600, color: i == selected ? Colors.white : Colors.white70)),
+                ]),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 }
@@ -244,14 +284,13 @@ class _LobbyViewState extends State<LobbyView> {
               padding: const EdgeInsets.all(6),
               child: const Text('Povezivanje sa serverom…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(children: [
-              const GoldText('Cash stolovi', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
-              const Spacer(),
+          Builder(builder: (context) {
+            const title =
+                GoldText('Cash stolovi', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
+            final chips = [
               for (final f in const [('ALL', 'Svi'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
                 Padding(
-                  padding: const EdgeInsets.only(left: 6),
+                  padding: const EdgeInsets.only(right: 6),
                   child: ChoiceChip(
                     label: Text(f.$2),
                     selected: _filter == f.$1,
@@ -261,8 +300,23 @@ class _LobbyViewState extends State<LobbyView> {
                     onSelected: (_) => setState(() => _filter = f.$1),
                   ),
                 ),
-            ]),
-          ),
+            ];
+            // Računar: naslov i izbor u istom redu; telefon: naslov, pa izbor u redu ispod.
+            if (isWide(context)) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 10, 8),
+                child: Row(children: [title, const Spacer(), ...chips]),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                title,
+                const SizedBox(height: 10),
+                Row(children: chips),
+              ]),
+            );
+          }),
           Expanded(
             child: RefreshIndicator(
               color: gold,
