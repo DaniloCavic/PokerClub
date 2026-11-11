@@ -128,20 +128,18 @@ class LuxTopBar extends StatelessWidget {
         border: Border(bottom: BorderSide(color: gold.withOpacity(0.35))),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: Row(children: [
-        if (leading != null) leading!,
-        const TrilingLogo(size: 30),
-        const SizedBox(width: 24),
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              for (var i = 0; i < navItems.length; i++)
-                _TopNavButton(item: navItems[i], selected: i == selected, onTap: onSelect == null ? null : () => onSelect!(i)),
-            ]),
-          ),
-        ),
-        const UserChip(),
+      // Meni je na sredini trake; naziv kluba levo, igrač i stanje desno.
+      child: Stack(alignment: Alignment.center, children: [
+        Row(children: [
+          if (leading != null) leading!,
+          const TrilingLogo(size: 30),
+          const Spacer(),
+          const UserChip(),
+        ]),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          for (var i = 0; i < navItems.length; i++)
+            _TopNavButton(item: navItems[i], selected: i == selected, onTap: onSelect == null ? null : () => onSelect!(i)),
+        ]),
       ]),
     );
   }
