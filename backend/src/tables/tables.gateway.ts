@@ -140,6 +140,21 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
     return this.handle(socket, () => this.tables.chat(socket.data.userId, String(msg?.tableId), msg?.text));
   }
 
+  @SubscribeMessage('table:prefs')
+  prefs(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { straddle?: boolean; runTwice?: boolean }) {
+    return this.handle(socket, () =>
+      this.tables.setPrefs(socket.data.userId, String(msg?.tableId), {
+        straddle: msg?.straddle === undefined ? undefined : !!msg.straddle,
+        runTwice: msg?.runTwice === undefined ? undefined : !!msg.runTwice,
+      }),
+    );
+  }
+
+  @SubscribeMessage('table:waitlist')
+  waitlist(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { join: boolean }) {
+    return this.handle(socket, () => this.tables.setWaitlist(socket.data.userId, String(msg?.tableId), !!msg?.join));
+  }
+
   @SubscribeMessage('table:leave')
   leave(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg) {
     return this.handle(socket, () => this.tables.leave(socket.data.userId, String(msg?.tableId)));

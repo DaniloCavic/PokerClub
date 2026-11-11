@@ -57,6 +57,8 @@ model User {
   rakePaid     RakeShare[] @relation("RakePlayer")
   rakeEarned   RakeShare[] @relation("RakeAgent")
   liveViews    LiveViewLog[]
+  notesWritten PlayerNote[] @relation("NoteOwner")
+  notesAbout   PlayerNote[] @relation("NoteTarget")
 
   @@index([role, agentId])
 }
@@ -99,6 +101,12 @@ model PokerTable {
   isOpen        Boolean   @default(true)
   /// Zakazano otvaranje: pre ovog trenutka igrači ne mogu da uđu za sto.
   opensAt       DateTime?
+  /// Dozvoljen straddle (igrač posle velikog blajnda stavlja dva velika blajnda).
+  straddle      Boolean   @default(false)
+  /// Bomb pot svaka N-ta ruka (0 = bez bomb pota).
+  bombPotEvery  Int       @default(0)
+  /// Koliko velikih blajndova svaki igrač stavlja u bomb pot.
+  bombPotBB     Int       @default(2)
   createdById   String
   createdBy     User      @relation(fields: [createdById], references: [id])
   createdAt     DateTime  @default(now())
@@ -177,4 +185,16 @@ model LiveViewLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+/// Beleška igrača o drugom igraču (vidi je samo onaj ko ju je napisao).
+model PlayerNote {
+  ownerId   String
+  owner     User     @relation("NoteOwner", fields: [ownerId], references: [id])
+  targetId  String
+  target    User     @relation("NoteTarget", fields: [targetId], references: [id])
+  text      String
+  updatedAt DateTime @updatedAt
+
+  @@id([ownerId, targetId])
 }

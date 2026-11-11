@@ -112,3 +112,7 @@ tr.clickable:hover { background: #eef4f0; cursor: pointer; }
 .live-top { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin-bottom: 10px; font-size: 14px; }
 .live tr.acting td { background: #fff6d6; }
 .live tr.folded td { opacity: 0.5; }
+
+/* Polje za štikliranje u formi (preko cele širine) */
+.form-grid label.check { flex-direction: row; display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; }
+.form-grid label.check input { width: auto; }

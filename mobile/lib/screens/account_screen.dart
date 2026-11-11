@@ -149,6 +149,8 @@ class _AccountScreenState extends State<AccountScreen> {
             ]),
           ),
           const SizedBox(height: 16),
+          const _StatsCard(),
+          const SizedBox(height: 16),
           _MenuCard(children: [
             _MenuItem(
               icon: Icons.style,
@@ -182,6 +184,67 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     if (widget.embedded) return body;
     return Scaffold(appBar: AppBar(title: const Text('Moj profil')), body: body);
+  }
+}
+
+/// Statistika igrača: odigrane ruke, procenat dobijenih, najveći dobijeni pot, ukupan rezultat.
+class _StatsCard extends StatefulWidget {
+  const _StatsCard();
+
+  @override
+  State<_StatsCard> createState() => _StatsCardState();
+}
+
+class _StatsCardState extends State<_StatsCard> {
+  Map<String, dynamic>? _stats;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final s = await context.read<AppState>().api.get('/me/stats');
+      if (mounted) setState(() => _stats = Map<String, dynamic>.from(s as Map));
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _stats;
+    Widget tile(String label, String value, {Color color = Colors.white}) => Expanded(
+          child: Column(children: [
+            FittedBox(child: Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color))),
+            const SizedBox(height: 2),
+            Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: Colors.white60)),
+          ]),
+        );
+    final net = (s?['net'] as num?)?.toInt() ?? 0;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 14),
+      decoration: BoxDecoration(color: panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
+      child: Column(children: [
+        Row(children: [
+          const Icon(Icons.insights, color: gold, size: 18),
+          const SizedBox(width: 6),
+          const Text('Statistika', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const Spacer(),
+          InkWell(onTap: _load, child: const Icon(Icons.refresh, size: 18, color: Colors.white38)),
+        ]),
+        const SizedBox(height: 12),
+        if (s == null)
+          const Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(color: gold, strokeWidth: 2))
+        else
+          Row(children: [
+            tile('Odigrano ruku', chips(s['hands'] as num)),
+            tile('Dobijeno ruku', '${chips(s['won'] as num)} (${bbNumber((s['winRate'] as num).toDouble())} %)'),
+            tile('Najveći pot', rsd(s['biggestPot'] as num), color: gold),
+            tile('Ukupno', '${net > 0 ? '+' : ''}${rsd(net)}', color: net >= 0 ? const Color(0xFF5FD39A) : const Color(0xFFFF6B6B)),
+          ]),
+      ]),
+    );
   }
 }
 

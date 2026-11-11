@@ -65,3 +65,12 @@ String opensLabel(DateTime d) {
   if (diff == 1) return 'sutra u $time';
   return '${_days[d.weekday - 1]} ${d.day}.${d.month}. u $time';
 }
+
+/// Koliko je ostalo do otvaranja: "za 2 d 4 h", "za 3 h 15 min", "za 5 min", "za manje od minuta".
+String countdown(DateTime d) {
+  final left = d.difference(DateTime.now());
+  if (left.inMinutes < 1) return 'za manje od minuta';
+  if (left.inDays >= 1) return 'za ${left.inDays} d ${left.inHours % 24} h';
+  if (left.inHours >= 1) return 'za ${left.inHours} h ${left.inMinutes % 60} min';
+  return 'za ${left.inMinutes} min';
+}

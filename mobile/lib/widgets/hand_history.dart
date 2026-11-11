@@ -14,6 +14,8 @@ const _streetNames = {'preflop': 'PRE-FLOP', 'flop': 'FLOP', 'turn': 'TURN', 'ri
   final amount = act['amount'] as int? ?? 0;
   return switch (act['type'] as String) {
     'ante' => (label: 'ante ${money(amount)}', color: Colors.white38),
+    'bomb' => (label: 'bomb pot ${money(amount)}', color: const Color(0xFFFF6B6B)),
+    'straddle' => (label: 'straddle ${money(amount)}', color: const Color(0xFFE0B341)),
     'sb' => (label: 'mali blajnd ${money(amount)}', color: Colors.white60),
     'bb' => (label: 'veliki blajnd ${money(amount)}', color: Colors.white60),
     'fold' => (label: 'FOLD', color: Colors.white54),

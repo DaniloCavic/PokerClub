@@ -16,6 +16,13 @@ export interface GameConfig {
   rakeCap: number;
   /** Ante koji pre deljenja plaća svaki igrač koji dobija karte (0 = bez ante-a). */
   ante?: number;
+  /** Dozvoljen straddle: igrač posle velikog blajnda može unapred da stavi dva velika blajnda. */
+  straddle?: boolean;
+}
+
+export interface StartOptions {
+  /** Bomb pot: svaki igrač stavlja ovaj iznos u pot, nema blajndova, odmah se deli flop. 0 = obična ruka. */
+  bombPot?: number;
 }
 
 export interface Seat {
@@ -39,9 +46,13 @@ export interface Seat {
   lastAction: string | null;
   /** Poslednji potez u ovoj rundi za prikaz (iznos = ukupan ulog igrača u rundi posle poteza). */
   lastAct: SeatAct | null;
+  /** Igrač želi straddle kad je prvi posle velikog blajnda. */
+  straddle?: boolean;
+  /** Igrač pristaje da se kod all-in-a karte dele dva puta (run it twice). */
+  runTwice?: boolean;
 }
 
-export type ActKind = 'ante' | 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
+export type ActKind = 'ante' | 'bomb' | 'straddle' | 'sb' | 'bb' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'allin';
 export interface SeatAct {
   type: ActKind;
   amount: number;
@@ -63,17 +74,21 @@ export interface PotResult {
   amount: number;
   winners: { seat: number; amount: number }[];
   handName: string | null;
+  /** Run it twice: kojem deljenju pripada ova polovina pota (1 ili 2). */
+  run?: 1 | 2;
 }
 
 export interface HandResult {
   handNo: number;
   board: Card[];
+  /** Run it twice: drugi sto (karte podeljene drugi put). */
+  board2?: Card[];
   pots: PotResult[];
   rake: number;
   /** Ukupno dobijeno po sedištu (bez vraćenog nepokrivenog uloga). */
   won: Record<number, number>;
   /** Ruke otkrivene na kraju (samo ako je bilo otvaranja karata). */
-  shown: { seat: number; hole: Card[]; handName: string; best: Card[] }[];
+  shown: { seat: number; hole: Card[]; handName: string; best: Card[]; handName2?: string; best2?: Card[] }[];
   log: string[];
 }
 
@@ -115,6 +130,10 @@ export class PokerGame {
   toAct = -1;
   sbSeat = -1;
   bbSeat = -1;
+  /** Igrač koji je stavio straddle u ovoj ruci (-1 = nema). */
+  straddleSeat = -1;
+  /** Iznos bomb pota u ovoj ruci (0 = obična ruka). */
+  bombPot = 0;
   log: string[] = [];
   /** Potezi u ruci koja je u toku. */
   actions: ActionEntry[] = [];
@@ -134,6 +153,7 @@ export class PokerGame {
       sittingOut: false, leaving: false,
       inHand: false, hole: [], folded: false, allIn: false,
       bet: 0, committed: 0, actedLevel: -1, lastAction: null, lastAct: null,
+      straddle: false, runTwice: false,
     };
   }
 
@@ -179,7 +199,7 @@ export class PokerGame {
 
   // ---------- Početak ruke ----------
 
-  startHand(deck: Card[] = shuffledDeck()) {
+  startHand(deck: Card[] = shuffledDeck(), opts: StartOptions = {}) {
     if (!this.canStart()) throw new GameError('Nema dovoljno igrača za ruku.');
     const ready = new Set(this.readySeats());
     for (const i of this.indices()) {
@@ -197,6 +217,8 @@ export class PokerGame {
     this.collected = 0;
     this.log = [];
     this.actions = [];
+    this.straddleSeat = -1;
+    this.bombPot = Math.max(0, Math.floor(opts.bombPot ?? 0));
 
     const inHand = (s: Seat) => s.inHand;
     this.button = this.next(this.button < 0 ? this.seats.length - 1 : this.button, inHand);
@@ -205,7 +227,9 @@ export class PokerGame {
     this.sbSeat = headsUp ? this.button : this.next(this.button, inHand);
     this.bbSeat = this.next(this.sbSeat, inHand);
 
-    this.log.push(`Ruka #${this.handNo} (${this.config.variant === 'HOLDEM' ? "Hold'em" : 'Omaha'}), dugme: ${this.seats[this.button]!.name}`);
+    this.log.push(
+      `Ruka #${this.handNo} (${this.config.variant === 'HOLDEM' ? "Hold'em" : 'Omaha'})${this.bombPot ? ', BOMB POT' : ''}, dugme: ${this.seats[this.button]!.name}`,
+    );
 
     const holeCount = HOLE_CARDS[this.config.variant];
     for (let k = 0; k < holeCount; k++) {
@@ -214,6 +238,29 @@ export class PokerGame {
         this.seats[i]!.hole.push(this.draw());
         i = this.next(i, inHand);
       }
+    }
+
+    // Bomb pot: svi stavljaju isti iznos u pot, nema blajndova ni runde pre flopa.
+    if (this.bombPot > 0) {
+      let i = this.sbSeat;
+      for (let n = 0; n < ready.size; n++) {
+        const s = this.seats[i]!;
+        const paid = Math.min(this.bombPot, s.stack);
+        s.stack -= paid;
+        s.committed += paid;
+        this.collected += paid;
+        if (s.stack === 0) s.allIn = true;
+        this.actions.push({ seat: i, name: s.name, street: 'preflop', type: 'bomb', amount: paid });
+        this.log.push(`${s.name}: bomb pot ${paid}${s.allIn ? ' (all-in)' : ''}`);
+        i = this.next(i, inHand);
+      }
+      this.sbSeat = -1;
+      this.bbSeat = -1;
+      this.currentBet = 0;
+      this.lastRaise = this.config.bigBlind;
+      this.fullBetLevel = 0;
+      this.dealStreet();
+      return this.advanceIfDone();
     }
 
     // Ante: svaki igrač u ruci stavlja ga direktno u pot (ne računa se kao ulog u rundi).
@@ -239,6 +286,20 @@ export class PokerGame {
     this.lastRaise = this.config.bigBlind;
     this.fullBetLevel = this.config.bigBlind;
     this.toAct = this.next(this.bbSeat, (s) => this.canAct(s));
+
+    // Straddle: prvi posle velikog blajnda (samo za stolom sa 3+ igrača) stavlja dva velika blajnda
+    // pre nego što vidi karte i igra poslednji pre flopa.
+    const utg = this.next(this.bbSeat, inHand);
+    const st = this.seats[utg];
+    if (this.config.straddle && ready.size >= 3 && st && st.straddle && this.canAct(st) && st.stack > 2 * this.config.bigBlind) {
+      const amount = 2 * this.config.bigBlind;
+      this.post(utg, amount, 'straddle', 'straddle');
+      this.straddleSeat = utg;
+      this.currentBet = amount;
+      this.lastRaise = amount;
+      this.fullBetLevel = amount;
+      this.toAct = this.next(utg, (s) => this.canAct(s));
+    }
     return this.advanceIfDone();
   }
 
@@ -408,8 +469,10 @@ export class PokerGame {
       }
       this.endRound();
       if (this.street === 'river') return this.finish();
+      // Kad niko ili samo jedan igrač može da igra, ostatak stola se deli na kraju ruke
+      // (tada je moguć i run it twice).
+      if (this.indices().filter((i) => this.canAct(this.seats[i]!)).length <= 1) return this.finish();
       this.dealStreet();
-      // Kad niko ili samo jedan igrač može da igra, karte se otvaraju do kraja.
     }
   }
 
@@ -486,10 +549,19 @@ export class PokerGame {
     if (this.indices().some((i) => this.seats[i]!.bet > 0)) this.endRound();
     const live = this.live();
     const showdown = live.length > 1;
+    // Run it twice: svi igrači u all-in situaciji su pristali, a sto još nije ceo podeljen.
+    const runTwice = showdown && this.board.length < 5 && live.every((i) => this.seats[i]!.runTwice);
+    const base = [...this.board];
+    let board2: Card[] | undefined;
     if (showdown) {
-      while (this.board.length < 5) {
-        this.draw();
-        this.board.push(this.draw());
+      if (this.board.length < 5) {
+        this.runOut(this.board);
+        this.log.push(`Sto: ${this.board.map(cardToString).join(' ')}`);
+      }
+      if (runTwice) {
+        board2 = [...base];
+        this.runOut(board2);
+        this.log.push(`RUN IT TWICE — drugi sto: ${board2.map(cardToString).join(' ')}`);
       }
       this.street = 'showdown';
     }
@@ -509,49 +581,72 @@ export class PokerGame {
       }
     }
 
-    const values = new Map<number, HandValue>();
-    if (showdown) {
-      const evalFn = this.config.variant === 'OMAHA' ? bestOmaha : bestHoldem;
-      for (const i of live) values.set(i, evalFn(this.seats[i]!.hole, this.board));
-    }
+    const evalFn = this.config.variant === 'OMAHA' ? bestOmaha : bestHoldem;
+    const valuesFor = (board: Card[]) => {
+      const m = new Map<number, HandValue>();
+      if (showdown) for (const i of live) m.set(i, evalFn(this.seats[i]!.hole, board));
+      return m;
+    };
+    const values = valuesFor(this.board);
+    const values2 = board2 ? valuesFor(board2) : null;
 
     const won: Record<number, number> = {};
     const potResults: PotResult[] = [];
-    for (const pot of pots) {
+    const award = (pot: Pot, amount: number, vals: Map<number, HandValue>, run?: 1 | 2) => {
+      if (amount <= 0) return;
       let winners = pot.eligible;
       if (showdown && winners.length > 1) {
-        const top = Math.max(...winners.map((i) => values.get(i)!.score));
-        winners = winners.filter((i) => values.get(i)!.score === top);
+        const top = Math.max(...winners.map((i) => vals.get(i)!.score));
+        winners = winners.filter((i) => vals.get(i)!.score === top);
       }
       // Neparni žeton ide prvom dobitniku levo od dugmeta.
       const ordered = [...winners].sort((a, b) => this.distFromButton(a) - this.distFromButton(b));
-      const share = Math.floor(pot.amount / ordered.length);
-      let odd = pot.amount - share * ordered.length;
-      const res: PotResult = { amount: pot.amount, winners: [], handName: showdown ? values.get(ordered[0])!.name : null };
+      const share = Math.floor(amount / ordered.length);
+      let odd = amount - share * ordered.length;
+      const res: PotResult = { amount, winners: [], handName: showdown ? vals.get(ordered[0])!.name : null, ...(run ? { run } : {}) };
       for (const i of ordered) {
-        const amount = share + (odd-- > 0 ? 1 : 0);
-        this.seats[i]!.stack += amount;
-        won[i] = (won[i] ?? 0) + amount;
-        res.winners.push({ seat: i, amount });
+        const a = share + (odd-- > 0 ? 1 : 0);
+        this.seats[i]!.stack += a;
+        won[i] = (won[i] ?? 0) + a;
+        res.winners.push({ seat: i, amount: a });
       }
       potResults.push(res);
+    };
+    for (const pot of pots) {
+      if (values2) {
+        // Svaki pot se deli na pola: prva polovina (sa neparnim žetonom) za prvi sto, druga za drugi.
+        const first = Math.ceil(pot.amount / 2);
+        award(pot, first, values, 1);
+        award(pot, pot.amount - first, values2, 2);
+      } else {
+        award(pot, pot.amount, values);
+      }
     }
 
     if (rake > 0) this.log.push(`Rake: ${rake}`);
     for (const p of potResults) {
       for (const w of p.winners) {
-        this.log.push(`${this.seats[w.seat]!.name} dobija ${w.amount}${p.handName ? ` (${p.handName})` : ''}`);
+        this.log.push(
+          `${this.seats[w.seat]!.name} dobija ${w.amount}${p.handName ? ` (${p.handName})` : ''}${p.run ? ` — ${p.run}. sto` : ''}`,
+        );
       }
     }
 
     const result: HandResult = {
       handNo: this.handNo,
       board: [...this.board],
+      ...(board2 ? { board2 } : {}),
       pots: potResults,
       rake,
       won,
       shown: showdown
-        ? live.map((i) => ({ seat: i, hole: [...this.seats[i]!.hole], handName: values.get(i)!.name, best: values.get(i)!.cards }))
+        ? live.map((i) => ({
+            seat: i,
+            hole: [...this.seats[i]!.hole],
+            handName: values.get(i)!.name,
+            best: values.get(i)!.cards,
+            ...(values2 ? { handName2: values2.get(i)!.name, best2: values2.get(i)!.cards } : {}),
+          }))
         : [],
       log: [...this.log],
     };
@@ -560,6 +655,15 @@ export class PokerGame {
     this.toAct = -1;
     for (const i of this.indices()) this.seats[i]!.inHand = false;
     return result;
+  }
+
+  /** Dodeli ostatak stola po ulicama (spaljena karta pre flopa, turna i rivera). */
+  private runOut(board: Card[]) {
+    while (board.length < 5) {
+      this.draw();
+      const count = board.length === 0 ? 3 : 1;
+      for (let k = 0; k < count; k++) board.push(this.draw());
+    }
   }
 
   private distFromButton(i: number) {

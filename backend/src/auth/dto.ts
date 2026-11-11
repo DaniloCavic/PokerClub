@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
@@ -152,6 +152,27 @@ export class TableDto {
 
   @IsInt() @Min(10, { message: 'Vreme za potez: 10–120 sekundi.' }) @Max(120, { message: 'Vreme za potez: 10–120 sekundi.' })
   actionSeconds: number;
+
+  /** Dozvoljen straddle. */
+  @IsOptional()
+  @IsBoolean()
+  straddle?: boolean;
+
+  /** Bomb pot svaka N-ta ruka (0 = bez). */
+  @IsOptional()
+  @IsInt() @Min(0, { message: 'Bomb pot: 0–100 ruku.' }) @Max(100, { message: 'Bomb pot: 0–100 ruku.' })
+  bombPotEvery?: number;
+
+  /** Koliko velikih blajndova svako stavlja u bomb pot. */
+  @IsOptional()
+  @IsInt() @Min(1, { message: 'Bomb pot: 1–20 velikih blajndova.' }) @Max(20, { message: 'Bomb pot: 1–20 velikih blajndova.' })
+  bombPotBB?: number;
+}
+
+export class NoteDto {
+  @IsString()
+  @MaxLength(500, { message: 'Beleška može imati najviše 500 znakova.' })
+  text: string;
 }
 
 export class AvatarDto {

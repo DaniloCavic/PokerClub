@@ -103,8 +103,14 @@ async function main() {
   });
   const holdem = await call('POST', '/admin/tables', admin, {
     name: `NL ${suffix}`, variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
-    maxSeats: 6, rakePercent: 5, rakeCap: 20, actionSeconds: 10,
+    maxSeats: 6, rakePercent: 5, rakeCap: 20, actionSeconds: 10, straddle: true,
   });
+  // Mali sto za dva igrača: svaka ruka je bomb pot, bez rake-a (za proveru liste čekanja).
+  const mini = await call('POST', '/admin/tables', admin, {
+    name: `Mini ${suffix}`, variant: 'HOLDEM', smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 1000,
+    maxSeats: 2, rakePercent: 0, rakeCap: 0, actionSeconds: 10, bombPotEvery: 1, bombPotBB: 3,
+  });
+  assert(holdem.straddle === true && mini.bombPotEvery === 1 && mini.bombPotBB === 3, 'straddle i bomb pot se čuvaju uz sto');
   const omaha = await call('POST', '/admin/tables', admin, {
     name: `PLO ${suffix}`, variant: 'OMAHA', smallBlind: 10, bigBlind: 20, minBuyIn: 400, maxBuyIn: 2000,
     maxSeats: 9, rakePercent: 2.5, rakeCap: 0, actionSeconds: 10,
@@ -169,7 +175,52 @@ async function main() {
   const liveLog = await call('GET', '/admin/live-log', admin);
   assert(liveLog.length > 0, 'otvaranje karata uživo je zabeleženo (samo za super agenta)');
 
+  console.log('Straddle, run it twice, lista čekanja, beleške');
+  for (const b of bots) {
+    const r = await emit(b.socket, 'table:prefs', { tableId: holdem.id, straddle: true, runTwice: true });
+    assert(r.ok, `${b.name} uključuje straddle i run it twice`);
+  }
+  const noStraddle = await emit(bots[0].socket, 'table:sit', { tableId: mini.id, seat: 0, buyIn: 300 });
+  assert(noStraddle.ok, 'sedanje za mali sto');
+  const refused = await emit(bots[0].socket, 'table:prefs', { tableId: mini.id, straddle: true });
+  assert(!refused.ok, 'straddle se odbija za stolom koji ga ne dozvoljava');
+  assert((await emit(bots[1].socket, 'table:sit', { tableId: mini.id, seat: 1, buyIn: 300 })).ok, 'drugi igrač seda, sto je pun');
+  const joined = await emit(bots[2].socket, 'table:waitlist', { tableId: mini.id, join: true });
+  assert(joined.ok && joined.position === 1, 'igrač je prvi na listi čekanja');
+  const w3 = await emit(bots[3].socket, 'table:waitlist', { tableId: mini.id, join: true });
+  assert(w3.ok && w3.position === 2, 'drugi igrač je drugi na listi čekanja');
+  const lobbyNow = await emit(bots[0].socket, 'lobby:join');
+  assert(lobbyNow.tables.find((t: any) => t.id === mini.id).waiting === 2, 'lobi pokazuje koliko igrača čeka');
+  const offer = new Promise<any>((r) => bots[2].socket.once('waitlist:offer', r));
+  await emit(bots[1].socket, 'table:leave', { tableId: mini.id });
+  const offered = await Promise.race([offer, sleep(15000).then(() => null)]);
+  assert(offered?.tableId === mini.id, 'prvi sa liste dobija ponudu kad se mesto oslobodi');
+  // Igrač 3 je odjavljen sa liste kad sedne igrač 2; pre toga mesto je rezervisano.
+  await emit(bots[3].socket, 'table:waitlist', { tableId: mini.id, join: false });
+  const stolen = await emit(bots[3].socket, 'table:sit', { tableId: mini.id, seat: 1, buyIn: 300 });
+  assert(!stolen.ok && /rezervisano/.test(stolen.error), 'rezervisano mesto ne može da zauzme neko drugi');
+  assert((await emit(bots[2].socket, 'table:sit', { tableId: mini.id, seat: 1, buyIn: 300 })).ok, 'igrač sa liste seda na rezervisano mesto');
+
+  const note = await call('POST', `/me/notes/${players[1].id}`, bots[0].token, { text: 'Bluffuje mnogo' });
+  assert(note.text === 'Bluffuje mnogo', 'beleška o igraču je sačuvana');
+  const myNotes = await call('GET', '/me/notes', bots[0].token);
+  const otherNotes = await call('GET', '/me/notes', bots[1].token);
+  assert(myNotes[players[1].id] === 'Bluffuje mnogo' && Object.keys(otherNotes).length === 0, 'belešku vidi samo onaj ko ju je napisao');
+  await call('POST', `/me/notes/${players[1].id}`, bots[0].token, { text: '  ' });
+  assert(!(await call('GET', '/me/notes', bots[0].token))[players[1].id], 'prazna beleška se briše');
+
   await sleep(Number(process.env.PLAY_MS || 25000));
+
+  const handTypes = async (tableId: string) => {
+    const list = (await call('GET', `/admin/tables/${tableId}`, admin)).hands.items.slice(0, 15);
+    const out: string[] = [];
+    for (const h of list) out.push(...((await call('GET', `/admin/hands/${h.id}`, admin)).details.actions ?? []).map((a: any) => a.type));
+    return out;
+  };
+  assert((await handTypes(mini.id)).includes('bomb'), 'bomb pot je odigran za malim stolom');
+  assert((await handTypes(holdem.id)).includes('straddle'), 'straddle je odigran');
+  const st = await call('GET', '/me/stats', bots[0].token);
+  assert(st.hands > 0 && st.won <= st.hands && st.winRate >= 0 && st.winRate <= 100, `statistika igrača: ${st.hands} ruku, ${st.won} dobijenih`);
   const hands = (await call('GET', `/admin/tables/${holdem.id}`, agent)).hands.total;
   const omahaHands = (await call('GET', `/admin/tables/${omaha.id}`, agent)).hands.total;
   assert(hands >= 3, `odigrano ${hands} ruku Hold'ema`);
@@ -194,6 +245,7 @@ async function main() {
   await call('POST', `/admin/tables/${holdem.id}/close`, admin);
   await call('POST', `/admin/tables/${omaha.id}/close`, admin);
   await call('POST', `/admin/tables/${scheduled.id}/close`, admin);
+  await call('POST', `/admin/tables/${mini.id}/close`, admin);
   for (let k = 0; k < 30; k++) {
     const t = await call('GET', '/admin/tables', agent);
     if (t.filter((x: any) => x.live).length === 0) break;

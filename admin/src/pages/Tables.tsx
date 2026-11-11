@@ -15,6 +15,12 @@ interface TableForm {
   actionSeconds: number;
   /** Zakazano otvaranje, lokalno vreme "YYYY-MM-DDTHH:mm"; prazno = odmah. */
   opensAt: string;
+  /** Dozvoljen straddle. */
+  straddle: boolean;
+  /** Bomb pot svaka N-ta ruka (0 = bez). */
+  bombPotEvery: number;
+  /** Koliko velikih blajndova svako stavlja u bomb pot. */
+  bombPotBB: number;
 }
 
 /** ISO vreme → vrednost za polje datetime-local (lokalno vreme). */
@@ -43,6 +49,9 @@ const EMPTY: TableForm = {
   rakeCap: 50,
   actionSeconds: 15,
   opensAt: '',
+  straddle: false,
+  bombPotEvery: 0,
+  bombPotBB: 2,
 };
 
 export function Tables({ me }: { me: Me }) {
@@ -233,7 +242,25 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
             Najviše rake-a po ruci (0 = bez ograničenja)
             <input type="number" min={0} value={f.rakeCap} onChange={num('rakeCap')} />
           </label>
+          <label>
+            Bomb pot svaka … ruka (0 = bez bomb pota)
+            <input type="number" min={0} max={100} value={f.bombPotEvery} onChange={num('bombPotEvery')} />
+          </label>
+          <label>
+            Bomb pot: koliko velikih blajndova stavlja svaki igrač
+            <input type="number" min={1} max={20} value={f.bombPotBB} disabled={!f.bombPotEvery} onChange={num('bombPotBB')} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={f.straddle} onChange={(e) => setF({ ...f, straddle: e.target.checked })} />
+            Dozvoljen straddle (igrač posle velikog blajnda može unapred da stavi 2 velika blajnda)
+          </label>
         </div>
+        {f.bombPotEvery > 0 && (
+          <p className="muted small">
+            Bomb pot: svaka {f.bombPotEvery}. ruka, svaki igrač stavlja {fmt(f.bombPotBB * f.bigBlind)} ({f.bombPotBB} BB) u pot i odmah se deli
+            flop.
+          </p>
+        )}
         <p className="muted small">
           Rake se uzima samo kad se podeli flop. {f.rakePercent > 0 && `Primer: pot od 1.000 → rake ${Math.min(Math.floor(1000 * f.rakePercent / 100), f.rakeCap || Infinity)}.`}
         </p>
@@ -300,6 +327,10 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
           </b>
           <span>Vreme za potez</span>
           <b>{t.actionSeconds} s</b>
+          <span>Straddle</span>
+          <b>{t.straddle ? 'dozvoljen' : 'ne'}</b>
+          <span>Bomb pot</span>
+          <b>{t.bombPotEvery ? `svaka ${t.bombPotEvery}. ruka, ${t.bombPotBB} BB` : 'ne'}</b>
           {t.opensAt && (
             <>
               <span>Otvaranje</span>

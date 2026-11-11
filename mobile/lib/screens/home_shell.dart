@@ -39,6 +39,19 @@ class _HomeShellState extends State<HomeShell> {
   int _tab = 0;
 
   @override
+  void initState() {
+    super.initState();
+    // Obaveštenja (sto se otvorio, mesto sa liste čekanja) otvaraju sto jednim dodirom.
+    final app = context.read<AppState>();
+    app.openTable = (tableId) {
+      final nav = app.navigatorKey.currentState;
+      if (nav == null) return;
+      nav.popUntil((r) => r.isFirst);
+      nav.push(MaterialPageRoute(builder: (_) => TableScreen(tableId: tableId)));
+    };
+  }
+
+  @override
   Widget build(BuildContext context) {
     final wide = isWide(context);
     final pages = [
@@ -420,6 +433,8 @@ class _TableTile extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}',
                     style: const TextStyle(fontSize: 12.5, color: goldLight)),
+                if (tableExtras(t) != null)
+                  Text(tableExtras(t)!, style: const TextStyle(fontSize: 11.5, color: Colors.white54, fontWeight: FontWeight.w600)),
                 if (locked)
                   Padding(
                     padding: const EdgeInsets.only(top: 3),
@@ -427,7 +442,7 @@ class _TableTile extends StatelessWidget {
                       const Icon(Icons.lock_clock, size: 14, color: gold),
                       const SizedBox(width: 4),
                       Flexible(
-                        child: Text('Otvara se ${opensLabel(opensAt)}',
+                        child: Text('Otvara se ${opensLabel(opensAt)} (${countdown(opensAt)})',
                             style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                       ),
                     ]),
@@ -443,6 +458,8 @@ class _TableTile extends StatelessWidget {
                     ),
                   const SizedBox(width: 4),
                   Text('$players/$max', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  if (((t['waiting'] as int?) ?? 0) > 0)
+                    Text(' · ${t['waiting']} čeka', style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                 ]),
               ]),
             ),

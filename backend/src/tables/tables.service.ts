@@ -35,7 +35,16 @@ interface Runtime {
   closing: boolean;
   /** Poslednje poruke u chatu stola (samo u memoriji). */
   chat: ChatMessage[];
+  /** Lista čekanja kad je sto pun (redom prijave). */
+  waitlist: { userId: string; name: string }[];
+  /** Slobodno mesto čuva se kratko za prvog sa liste čekanja. */
+  reservation: { userId: string; until: number; timer: NodeJS.Timeout } | null;
+  /** Obaveštenje kad se zakazani sto otvori. */
+  openTimer?: NodeJS.Timeout;
 }
+
+/** Koliko dugo se mesto čuva za igrača sa liste čekanja. */
+const RESERVE_MS = Number(process.env.WAITLIST_RESERVE_MS || 45_000);
 
 export interface ChatMessage {
   id: number;
@@ -93,6 +102,7 @@ export class TablesService implements OnModuleInit {
         rakeCap: table.rakeCap,
         // Ante je petina velikog blajnda.
         ante: Math.floor(table.bigBlind / 5),
+        straddle: table.straddle,
       }),
       queue: Promise.resolve(),
       deadline: null,
@@ -102,9 +112,32 @@ export class TablesService implements OnModuleInit {
       sitOutSince: new Map(),
       closing: false,
       chat: [],
+      waitlist: [],
+      reservation: null,
     };
     this.runtimes.set(table.id, rt);
+    this.scheduleOpenNotice(rt);
     return rt;
+  }
+
+  /** Zakazani sto: kad dođe vreme otvaranja, svi prijavljeni igrači dobijaju obaveštenje. */
+  private scheduleOpenNotice(rt: Runtime) {
+    const at = rt.table.opensAt?.getTime();
+    if (!at || at <= Date.now()) return;
+    const ms = at - Date.now();
+    if (ms > 2_000_000_000) return; // setTimeout ne može toliko daleko (više od ~23 dana)
+    rt.openTimer = setTimeout(() => {
+      if (!this.runtimes.has(rt.table.id) || rt.closing) return;
+      const t = rt.table;
+      this.server?.emit('table:opened', {
+        tableId: t.id,
+        name: t.name,
+        variant: t.variant,
+        smallBlind: t.smallBlind,
+        bigBlind: t.bigBlind,
+      });
+      this.lobbyChanged();
+    }, ms + 500);
   }
 
   /** Brojevi ruku se nastavljaju i posle ponovnog pokretanja servera. */
@@ -165,7 +198,11 @@ export class TablesService implements OnModuleInit {
       // Rake se igračima ne prikazuje (vidi ga samo agent u admin panelu).
       actionSeconds: t.actionSeconds,
       opensAt: t.opensAt,
+      straddle: t.straddle,
+      bombPotEvery: t.bombPotEvery,
+      bombPotBB: t.bombPotBB,
       players: rt.game.seats.filter(Boolean).length,
+      waiting: rt.waitlist.length,
     };
   }
 
@@ -266,11 +303,31 @@ export class TablesService implements OnModuleInit {
       }),
       mySeat,
       myHand: this.currentHand(rt, mySeat),
+      // Straddle i bomb pot
+      bombPot: g.inProgress && g.bombPot > 0,
+      straddleSeat: g.inProgress ? g.straddleSeat : -1,
+      nextBombIn: this.handsToBomb(rt),
+      // Izbor igrača (samo za sopstveno mesto)
+      myPrefs: mySeat >= 0 ? { straddle: !!g.seats[mySeat]!.straddle, runTwice: !!g.seats[mySeat]!.runTwice } : null,
+      // Lista čekanja
+      waitlist: rt.waitlist.map((w) => w.name),
+      onWaitlist: !!userId && rt.waitlist.some((w) => w.userId === userId),
+      waitPosition: userId ? rt.waitlist.findIndex((w) => w.userId === userId) + 1 : 0,
+      reservedForMe: rt.reservation && rt.reservation.userId === userId ? rt.reservation.until : null,
       // Svi potezi u ruci koja je u toku (spisak na stolu i istorija ruke).
       actions: g.actions,
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: rt.lastResult,
     };
+  }
+
+  /** Za koliko ruku je sledeći bomb pot (1 = sledeća ruka); null ako sto nema bomb pot. */
+  private handsToBomb(rt: Runtime): number | null {
+    const every = rt.table.bombPotEvery;
+    if (!every) return null;
+    const next = rt.game.handNo + (rt.game.inProgress ? 1 : 1);
+    const left = (every - (next % every)) % every;
+    return left + 1;
   }
 
   /** Trenutna jačina ruke igrača (od flopa), da se prikaže samo njemu. */
@@ -286,9 +343,11 @@ export class TablesService implements OnModuleInit {
     const name = (seat: number) => rt.game.seats[seat]?.name ?? '?';
     return {
       handNo: r.handNo,
+      board2: r.board2 ? r.board2.map(cardToString) : null,
       pots: r.pots.map((p) => ({
         amount: p.amount,
         handName: p.handName,
+        run: p.run ?? null,
         winners: p.winners.map((w) => ({ seat: w.seat, name: name(w.seat), amount: w.amount })),
       })),
       shown: r.shown.map((s) => ({
@@ -296,6 +355,7 @@ export class TablesService implements OnModuleInit {
         cards: s.hole.map(cardToString),
         best: s.best.map(cardToString),
         handName: s.handName,
+        ...(s.handName2 ? { handName2: s.handName2, best2: (s.best2 ?? []).map(cardToString) } : {}),
       })),
     };
   }
@@ -361,6 +421,11 @@ export class TablesService implements OnModuleInit {
       if (rt.game.seatOf(userId) >= 0) throw new GameError('Već sedite za ovim stolom.');
       if (!Number.isInteger(seat) || seat < 0 || seat >= t.maxSeats) throw new GameError('Ne postoji to mesto.');
       if (rt.game.seats[seat]) throw new GameError('Mesto je zauzeto.');
+      const res = rt.reservation;
+      if (res && res.until > Date.now() && res.userId !== userId) {
+        const free = rt.game.seats.filter((x) => !x).length;
+        if (free <= 1) throw new GameError('Mesto je rezervisano za igrača sa liste čekanja.');
+      }
       if (!Number.isInteger(buyIn) || buyIn < t.minBuyIn || buyIn > t.maxBuyIn) {
         throw new GameError(`Ulaz mora biti između ${t.minBuyIn} i ${t.maxBuyIn}.`);
       }
@@ -371,6 +436,11 @@ export class TablesService implements OnModuleInit {
       });
       rt.game.sit(seat, userId, user.displayName, buyIn);
       this.avatars.set(userId, avatarUrl(user));
+      rt.waitlist = rt.waitlist.filter((w) => w.userId !== userId);
+      if (rt.reservation?.userId === userId) {
+        clearTimeout(rt.reservation.timer);
+        rt.reservation = null;
+      }
       await this.balanceChanged(userId);
       await this.afterChange(rt);
       this.lobbyChanged();
@@ -481,6 +551,10 @@ export class TablesService implements OnModuleInit {
   private async shutdown(rt: Runtime) {
     clearTimeout(rt.nextHandTimer);
     clearTimeout(rt.turnTimer);
+    clearTimeout(rt.openTimer);
+    if (rt.reservation) clearTimeout(rt.reservation.timer);
+    rt.reservation = null;
+    rt.waitlist = [];
     for (let i = 0; i < rt.game.seats.length; i++) {
       if (rt.game.seats[i]) {
         this.server?.to(`user:${rt.game.seats[i]!.userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Sto je zatvoren.' });
@@ -551,7 +625,9 @@ export class TablesService implements OnModuleInit {
         rt.game.seats.forEach((s, i) => {
           if (s) rt.startStacks[i] = s.stack;
         });
-        const result = rt.game.startHand();
+        const every = rt.table.bombPotEvery;
+        const bomb = every > 0 && (rt.game.handNo + 1) % every === 0 ? rt.table.bombPotBB * rt.table.bigBlind : 0;
+        const result = rt.game.startHand(undefined, { bombPot: bomb });
         await this.afterChange(rt, result);
       }).catch((e) => this.log.error(e));
     }, rt.lastResult ? BETWEEN_HANDS_MS : 1000);
@@ -604,6 +680,7 @@ export class TablesService implements OnModuleInit {
           pot,
           rake: r.rake,
           details: {
+            board2: rt.lastResult.board2,
             players,
             pots: rt.lastResult.pots,
             shown: rt.lastResult.shown,
@@ -651,7 +728,75 @@ export class TablesService implements OnModuleInit {
     rt.sitOutSince.delete(s.userId);
     await this.cashOutRow(rt.table.id, s.userId, undefined, s.stack);
     await this.balanceChanged(s.userId);
+    if (!rt.closing) this.offerSeat(rt);
     this.lobbyChanged();
+  }
+
+  // ---------- Izbor igrača i lista čekanja ----------
+
+  /** Straddle i run it twice: važi od sledeće prilike (straddle od sledeće ruke). */
+  async setPrefs(userId: string, tableId: string, prefs: { straddle?: boolean; runTwice?: boolean }) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      const i = rt.game.seatOf(userId);
+      if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      const s = rt.game.seats[i]!;
+      if (prefs.straddle !== undefined) {
+        if (prefs.straddle && !rt.table.straddle) throw new GameError('Za ovim stolom nema straddle-a.');
+        s.straddle = !!prefs.straddle;
+      }
+      if (prefs.runTwice !== undefined) s.runTwice = !!prefs.runTwice;
+      await this.broadcast(rt);
+      return {};
+    });
+  }
+
+  /** Prijava na listu čekanja (ili odjava). */
+  async setWaitlist(userId: string, tableId: string, join: boolean) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      rt.waitlist = rt.waitlist.filter((w) => w.userId !== userId);
+      if (join) {
+        this.assertUnlocked(tableId);
+        if (rt.game.seatOf(userId) >= 0) throw new GameError('Već sedite za ovim stolom.');
+        const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+        if (user.role !== 'PLAYER') throw new GameError('Samo igrači mogu da igraju.');
+        rt.waitlist.push({ userId, name: user.displayName });
+        this.offerSeat(rt);
+      } else if (rt.reservation?.userId === userId) {
+        clearTimeout(rt.reservation.timer);
+        rt.reservation = null;
+        this.offerSeat(rt);
+      }
+      await this.broadcast(rt);
+      this.lobbyChanged();
+      return { position: join ? rt.waitlist.findIndex((w) => w.userId === userId) + 1 : 0 };
+    });
+  }
+
+  /** Ako ima slobodnog mesta, prvi sa liste čekanja dobija ga na kratko (ostali ne mogu da ga zauzmu). */
+  private offerSeat(rt: Runtime) {
+    if (rt.reservation && rt.reservation.until > Date.now()) return;
+    rt.reservation = null;
+    if (!rt.game.seats.some((x) => !x)) return;
+    const next = rt.waitlist.shift();
+    if (!next) return;
+    const until = Date.now() + RESERVE_MS;
+    const timer = setTimeout(() => {
+      void this.exclusive(rt, async () => {
+        if (rt.reservation?.userId !== next.userId) return;
+        rt.reservation = null;
+        this.offerSeat(rt);
+        await this.broadcast(rt);
+        this.lobbyChanged();
+      }).catch((e) => this.log.error(e));
+    }, RESERVE_MS);
+    rt.reservation = { userId: next.userId, until, timer };
+    this.server?.to(`user:${next.userId}`).emit('waitlist:offer', {
+      tableId: rt.table.id,
+      name: rt.table.name,
+      seconds: Math.round(RESERVE_MS / 1000),
+    });
   }
 
   /** Briše sedište iz baze i vraća žetone na nalog (iz memorije ako je poznato, inače iz baze). */

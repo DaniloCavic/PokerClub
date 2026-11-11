@@ -386,21 +386,163 @@ describe('Omaha (pot-limit)', () => {
   });
 });
 
+
+/** Špil za all-in pre flopa: karte igrača, pa za svaki sto spaljena + flop, spaljena + turn, spaljena + river. */
+function deckRuns(holeBySeatOrder: string[], ...boards: string[]): Card[] {
+  const hands = holeBySeatOrder.map(parseCards);
+  const deck: Card[] = [];
+  for (let k = 0; k < hands[0].length; k++) for (const h of hands) deck.push(h[k]);
+  const bs = boards.map(parseCards);
+  const used = new Set([...deck, ...bs.flat()]);
+  const filler = Array.from({ length: 52 }, (_, i) => i).filter((c) => !used.has(c));
+  for (const b of bs) deck.push(filler.shift()!, b[0], b[1], b[2], filler.shift()!, b[3], filler.shift()!, b[4]);
+  return [...deck, ...filler];
+}
+
+describe('straddle', () => {
+  const cfg: GameConfig = { ...holdem, straddle: true };
+  function four(config = cfg) {
+    const g = new PokerGame(config);
+    ['a', 'b', 'c', 'd'].forEach((id, i) => g.sit(i, id, id.toUpperCase(), 1000));
+    return g;
+  }
+
+  it('prvi posle velikog blajnda stavlja dva velika blajnda i igra poslednji', () => {
+    const g = four();
+    g.seats[3]!.straddle = true; // dugme 0, SB 1, BB 2, UTG 3
+    g.startHand();
+    expect(g.straddleSeat).toBe(3);
+    expect(g.seats[3]!.bet).toBe(20);
+    expect(g.seats[3]!.lastAct).toEqual({ type: 'straddle', amount: 20 });
+    expect(g.toAct).toBe(0);
+    expect(g.legalActions(0)).toEqual({ fold: true, check: false, call: 20, minRaiseTo: 40, maxRaiseTo: 1000 });
+    g.act(0, 'call');
+    g.act(1, 'call');
+    g.act(2, 'call');
+    // Straddle ima opciju kao veliki blajnd.
+    expect(g.toAct).toBe(3);
+    expect(g.legalActions(3)!.check).toBe(true);
+    g.act(3, 'check');
+    expect(g.street).toBe('flop');
+    expect(g.potTotal()).toBe(80);
+  });
+
+  it('nema straddle-a ako sto ne dozvoljava, ako igrač nije izabrao ili u igri jedan na jedan', () => {
+    const off = four(holdem);
+    off.seats[3]!.straddle = true;
+    off.startHand();
+    expect(off.straddleSeat).toBe(-1);
+    expect(off.currentBet).toBe(10);
+
+    const notChosen = four();
+    notChosen.startHand();
+    expect(notChosen.straddleSeat).toBe(-1);
+
+    const hu = new PokerGame(cfg);
+    hu.sit(0, 'a', 'A', 1000);
+    hu.sit(1, 'b', 'B', 1000);
+    hu.seats[0]!.straddle = true;
+    hu.seats[1]!.straddle = true;
+    hu.startHand();
+    expect(hu.straddleSeat).toBe(-1);
+  });
+});
+
+describe('bomb pot', () => {
+  it('svi stavljaju iznos u pot, nema blajndova, odmah se deli flop', () => {
+    const g = new PokerGame({ ...holdem, ante: 2 });
+    ['a', 'b', 'c'].forEach((id, i) => g.sit(i, id, id.toUpperCase(), 1000));
+    g.startHand(undefined, { bombPot: 20 });
+    expect(g.bombPot).toBe(20);
+    expect(g.street).toBe('flop');
+    expect(g.board).toHaveLength(3);
+    expect(g.potTotal()).toBe(60); // bez ante-a i blajndova
+    expect(g.seats.filter(Boolean).map((s) => s!.stack)).toEqual([980, 980, 980]);
+    expect(g.sbSeat).toBe(-1);
+    expect(g.toAct).toBe(1); // prvi levo od dugmeta
+    expect(g.actions.map((a) => a.type)).toEqual(['bomb', 'bomb', 'bomb']);
+    g.act(1, 'check');
+    g.act(2, 'check');
+    g.act(0, 'check');
+    expect(g.street).toBe('turn');
+  });
+
+  it('kratak igrač je all-in iz bomb pota, žetoni su očuvani', () => {
+    const g = new PokerGame(holdem);
+    g.sit(0, 'a', 'A', 1000);
+    g.sit(1, 'b', 'B', 15);
+    g.sit(2, 'c', 'C', 1000);
+    g.startHand(undefined, { bombPot: 20 });
+    expect(g.seats[1]!.allIn).toBe(true);
+    let r: HandResult | null = null;
+    while (g.inProgress) r = g.act(g.toAct, 'check');
+    expect(r).not.toBeNull();
+    expect(chipsTotal(g)).toBe(2015);
+  });
+});
+
+describe('run it twice', () => {
+  function allInHeadsUp(runA: boolean, runB: boolean) {
+    const g = new PokerGame(holdem);
+    g.sit(0, 'a', 'Ana', 1000);
+    g.sit(1, 'b', 'Bojan', 1000);
+    g.seats[0]!.runTwice = runA;
+    g.seats[1]!.runTwice = runB;
+    // Jedan na jedan: dugme (0) je mali blajnd i karte se dele od njega.
+    g.startHand(deckRuns(['Ah Ad', 'Kc Kd'], '2s 7h 9c Jd 3s', 'Ks 4h 8c Td 5s'));
+    g.act(0, 'raise', 1000);
+    return g.act(1, 'call')!;
+  }
+
+  it('kad oba igrača pristanu, pot se deli na dva stola', () => {
+    const r = allInHeadsUp(true, true);
+    expect(r.board2).toBeDefined();
+    expect(r.board2!.map((c) => c)).toHaveLength(5);
+    expect(r.pots.map((p) => [p.run, p.amount, p.winners])).toEqual([
+      [1, 1000, [{ seat: 0, amount: 1000 }]],
+      [2, 1000, [{ seat: 1, amount: 1000 }]],
+    ]);
+    expect(r.shown.find((s) => s.seat === 1)!.handName2).toBe('Triling K');
+  });
+
+  it('ako jedan ne pristane, karte se dele jednom', () => {
+    const r = allInHeadsUp(true, false);
+    expect(r.board2).toBeUndefined();
+    expect(r.pots).toEqual([{ amount: 2000, winners: [{ seat: 0, amount: 2000 }], handName: expect.any(String) }]);
+  });
+
+  it('neparan pot: prvi sto dobija žeton više', () => {
+    const g = new PokerGame({ ...holdem, ante: 1 });
+    g.sit(0, 'a', 'A', 1000);
+    g.sit(1, 'b', 'B', 1000);
+    g.sit(2, 'c', 'C', 1000);
+    g.seats.forEach((s) => s && (s.runTwice = true));
+    g.startHand();
+    g.act(0, 'raise', 999);
+    g.act(1, 'fold');
+    const r = g.act(2, 'call')!;
+    // Pot: ante 3 + mali blajnd 5 + 999 + 999 = 2006 → 1003 + 1003
+    expect(r.pots.map((p) => p.amount)).toEqual([1003, 1003]);
+  });
+});
+
 describe('nasumične ruke', () => {
   it('broj žetona je uvek očuvan (žetoni + rake) i ruke se uvek završe', () => {
     for (let round = 0; round < 300; round++) {
       const variant = round % 2 ? 'HOLDEM' : 'OMAHA';
       const rake = round % 3 === 0 ? { rakeBps: 500, rakeCap: round % 2 ? 0 : 7 } : {};
-      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake, ante: round % 2 ? 2 : 0 });
+      const g = new PokerGame({ ...holdem, variant, maxSeats: 9, ...rake, ante: round % 2 ? 2 : 0, straddle: round % 4 < 2 });
       const n = 2 + (round % 8);
       let total = 0;
       for (let i = 0; i < n; i++) {
         const st = 20 + Math.floor(Math.random() * 2000);
         total += st;
         g.sit(i, `u${i}`, `Igrač ${i}`, st);
+        g.seats[i]!.straddle = Math.random() < 0.5;
+        g.seats[i]!.runTwice = Math.random() < 0.7;
       }
       for (let hand = 0; hand < 20 && g.canStart(); hand++) {
-        const results: (HandResult | null)[] = [g.startHand()];
+        const results: (HandResult | null)[] = [g.startHand(undefined, { bombPot: hand % 5 === 4 ? 30 : 0 })];
         let guard = 0;
         while (g.inProgress) {
           const legal = g.legalActions(g.toAct)!;

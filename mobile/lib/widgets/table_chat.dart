@@ -39,14 +39,17 @@ class _ChatSheetState extends State<TableChatView> {
   final _text = TextEditingController();
   bool _sending = false;
 
-  Future<void> _send() async {
-    final text = _text.text.trim();
+  Future<void> _send([String? quick]) async {
+    final text = (quick ?? _text.text).trim();
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     final ok = await context.read<AppState>().sendChat(widget.tableId, text);
-    if (ok) _text.clear();
+    if (ok && quick == null) _text.clear();
     if (mounted) setState(() => _sending = false);
   }
+
+  /// Brze reakcije: jedan dodir šalje poruku (pojavi se i iznad igrača za stolom).
+  static const _quick = ['👍', '😂', '😮', '😡', '🔥', '👏', 'nh', 'gg', 'gl', 'ty', 'wp', 'lol'];
 
   @override
   Widget build(BuildContext context) {
@@ -100,10 +103,37 @@ class _ChatSheetState extends State<TableChatView> {
           },
         ),
       ),
+      SizedBox(
+        height: 36,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          children: [
+            for (final q in _quick)
+              Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: _sending ? null : () => _send(q),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.black38,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: gold.withOpacity(0.35)),
+                    ),
+                    child: Text(q, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
       SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
           child: Row(children: [
             Expanded(
               child: TextField(

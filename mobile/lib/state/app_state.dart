@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api.dart';
 import '../config.dart';
+import '../sound.dart';
 import '../widgets/playing_card.dart';
 
 enum AuthStatus { loading, loggedOut, loggedIn }
@@ -54,6 +55,17 @@ class AppState extends ChangeNotifier {
   /// Kad igrač ostane bez novca na stolu, sam se dopuni do najvećeg ulaza.
   bool autoRebuy = false;
 
+  /// Zvukovi za stolom.
+  bool soundOn = true;
+
+  Future<void> setSound(bool v) async {
+    soundOn = v;
+    Sounds.enabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('sound', v);
+  }
+
   Future<void> setSetting(String key, bool v) async {
     switch (key) {
       case 'fourColor':
@@ -90,6 +102,8 @@ class AppState extends ChangeNotifier {
     showBB = prefs.getBool('showBB') ?? false;
     fourColor = prefs.getBool('fourColor') ?? false;
     CardStyle.fourColor = fourColor;
+    soundOn = prefs.getBool('sound') ?? true;
+    Sounds.enabled = soundOn;
     final token = prefs.getString('token');
     if (token == null) {
       status = AuthStatus.loggedOut;
@@ -118,6 +132,44 @@ class AppState extends ChangeNotifier {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// Otvara sto (postavlja glavni okvir aplikacije posle prijave).
+  void Function(String tableId)? openTable;
+
+  /// Važno obaveštenje sa dugmetom (npr. "Sto se otvorio" → IGRAJ).
+  void notify(String msg, {String? action, String? tableId, Duration duration = const Duration(seconds: 10)}) {
+    Sounds.play('turn', volume: 0.5);
+    messengerKey.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w700)),
+        duration: duration,
+        action: action == null || tableId == null
+            ? null
+            : SnackBarAction(label: action, onPressed: () => openTable?.call(tableId)),
+      ));
+  }
+
+  /// Beleške o drugim igračima (id igrača → tekst); vidi ih samo ovaj igrač.
+  Map<String, String> notes = {};
+
+  Future<void> loadNotes() async {
+    try {
+      final res = await api.get('/me/notes');
+      notes = (res as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> saveNote(String targetId, String text) async {
+    await api.post('/me/notes/$targetId', {'text': text});
+    if (text.trim().isEmpty) {
+      notes.remove(targetId);
+    } else {
+      notes[targetId] = text.trim();
+    }
+    notifyListeners();
+  }
+
   Future<void> login(String username, String password) async {
     final res = await api.post('/auth/login', {'username': username, 'password': password});
     if (res['user']['role'] != 'PLAYER') {
@@ -133,6 +185,7 @@ class AppState extends ChangeNotifier {
     user = u;
     balance = (u['balance'] as num?)?.toInt() ?? 0;
     status = AuthStatus.loggedIn;
+    loadNotes();
     notifyListeners();
     _connect();
   }
@@ -231,6 +284,19 @@ class AppState extends ChangeNotifier {
     s.on('kicked', (data) {
       final reason = (data as Map)['reason']?.toString();
       if (reason != null) toast(reason);
+    });
+    // Zakazani sto se upravo otvorio.
+    s.on('table:opened', (data) {
+      final m = data as Map;
+      final blinds = '${m['smallBlind']}/${m['bigBlind']} RSD';
+      notify('Sto „${m['name']}“ (${m['variant'] == 'OMAHA' ? 'PLO' : 'NLH'} $blinds) se otvorio!',
+          action: 'IGRAJ', tableId: m['tableId'] as String);
+    });
+    // Lista čekanja: oslobodilo se mesto za ovog igrača.
+    s.on('waitlist:offer', (data) {
+      final m = data as Map;
+      notify('Mesto za stolom „${m['name']}“ je slobodno! Imate ${m['seconds']} s da sednete.',
+          action: 'SEDI', tableId: m['tableId'] as String, duration: Duration(seconds: (m['seconds'] as num).toInt()));
     });
     s.connect();
   }

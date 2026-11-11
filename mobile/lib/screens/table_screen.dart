@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../format.dart';
+import '../sound.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/action_bar.dart';
@@ -187,6 +188,7 @@ class _TableScreenState extends State<TableScreen> {
               hideMine: app.hideCards && !_peek,
               onTapMine: () => setState(() => _peek = !_peek),
               onSit: (i) => _sit(st, i),
+              onTapPlayer: _noteDialog,
             ),
           ),
         ),
@@ -196,12 +198,7 @@ class _TableScreenState extends State<TableScreen> {
 
   Widget _panel(Json st, Money money, bool wide) {
     final mySeat = st['mySeat'] as int;
-    if (mySeat < 0) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Text('Dodirnite slobodno mesto da sednete za sto.', style: TextStyle(color: Colors.white60, fontSize: 13)),
-      );
-    }
+    if (mySeat < 0) return _WaitPanel(st: st, app: app);
     return _MyPanel(
       st: st,
       app: app,
@@ -239,6 +236,8 @@ class _TableScreenState extends State<TableScreen> {
                   right: 14,
                   top: 12,
                   child: Row(children: [
+                    const _SoundButton(),
+                    const SizedBox(width: 8),
                     _UnitToggle(showBB: money.inBB, onToggle: app.setShowBB),
                     if (mySeat >= 0) ...[
                       const SizedBox(width: 8),
@@ -277,14 +276,91 @@ class _TableScreenState extends State<TableScreen> {
     );
   }
 
+  /// Beleška o drugom igraču (vidi je samo ovaj igrač).
+  Future<void> _noteDialog(Json seat) async {
+    final id = seat['userId'] as String;
+    final ctrl = TextEditingController(text: app.notes[id] ?? '');
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.edit_note, color: gold),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Beleška: ${seat['name']}', overflow: TextOverflow.ellipsis)),
+        ]),
+        content: SizedBox(
+          width: 380,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              maxLines: 4,
+              maxLength: 500,
+              decoration: const InputDecoration(hintText: 'npr. „bluffuje mnogo“, „igra samo jake ruke“'),
+            ),
+            const Text('Belešku vidite samo vi.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          ]),
+        ),
+        actions: [
+          if (app.notes.containsKey(id))
+            TextButton(
+              onPressed: () {
+                ctrl.text = '';
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('Obriši', style: TextStyle(color: accent)),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Otkaži')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sačuvaj')),
+        ],
+      ),
+    );
+    if (save != true) return;
+    try {
+      await app.saveNote(id, ctrl.text);
+      if (mounted) setState(() {});
+    } catch (e) {
+      app.toast('Beleška nije sačuvana.');
+    }
+  }
+
   void _menu(Json st) {
     final me = (st['seats'] as List)[st['mySeat'] as int] as Json;
     final sittingOut = me['sittingOut'] == true;
+    final prefs = (st['myPrefs'] as Json?) ?? const {};
+    var straddle = prefs['straddle'] == true;
+    var runTwice = prefs['runTwice'] == true;
     showModalBottomSheet(
       context: context,
       backgroundColor: panel,
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          StatefulBuilder(
+            builder: (ctx, setLocal) => Column(children: [
+              if (st['straddle'] == true)
+                SwitchListTile(
+                  secondary: const Icon(Icons.keyboard_double_arrow_up),
+                  title: const Text('Straddle'),
+                  subtitle: const Text('Kad ste prvi posle velikog blajnda, unapred stavljate 2 velika blajnda'),
+                  value: straddle,
+                  onChanged: (v) async {
+                    setLocal(() => straddle = v);
+                    await app.run('table:prefs', {'tableId': widget.tableId, 'straddle': v});
+                  },
+                ),
+              SwitchListTile(
+                secondary: const Icon(Icons.filter_2),
+                title: const Text('Run it twice'),
+                subtitle: const Text('Kod all-in-a se karte dele dva puta, a pot deli na pola (ako svi pristanu)'),
+                value: runTwice,
+                onChanged: (v) async {
+                  setLocal(() => runTwice = v);
+                  await app.run('table:prefs', {'tableId': widget.tableId, 'runTwice': v});
+                },
+              ),
+            ]),
+          ),
+          const Divider(height: 1, color: Colors.white12),
           ListTile(
             leading: const Icon(Icons.add_circle),
             title: const Text('Dopuni'),
@@ -351,6 +427,101 @@ class _TableScreenState extends State<TableScreen> {
     );
     if (amount == null) return;
     await app.run('table:topup', {'tableId': widget.tableId, 'amount': amount});
+  }
+}
+
+/// Dole kad igrač ne sedi: poziv da sedne, lista čekanja kad je sto pun,
+/// ili poruka da je mesto sačuvano za njega.
+class _WaitPanel extends StatefulWidget {
+  final Json st;
+  final AppState app;
+  const _WaitPanel({required this.st, required this.app});
+
+  @override
+  State<_WaitPanel> createState() => _WaitPanelState();
+}
+
+class _WaitPanelState extends State<_WaitPanel> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && widget.st['reservedForMe'] != null) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = widget.st;
+    final full = !(st['seats'] as List).contains(null);
+    final waiting = ((st['waitlist'] as List?) ?? const []).length;
+    final reserved = st['reservedForMe'] as int?;
+    const style = TextStyle(color: Colors.white70, fontSize: 13);
+    Widget child;
+    if (reserved != null) {
+      final left = ((reserved - widget.app.serverNow) / 1000).ceil().clamp(0, 999);
+      child = Row(children: [
+        const Icon(Icons.event_seat, color: goldLight),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text('Mesto je sačuvano za vas! Dodirnite slobodno mesto da sednete ($left s).',
+              style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800, fontSize: 13.5)),
+        ),
+      ]);
+    } else if (st['onWaitlist'] == true) {
+      child = Row(children: [
+        const Icon(Icons.hourglass_top, color: gold),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text('Na listi čekanja ste: ${st['waitPosition']}. od $waiting. Javićemo vam kad se mesto oslobodi.', style: style),
+        ),
+        TextButton(
+          onPressed: () => widget.app.run('table:waitlist', {'tableId': st['id'], 'join': false}),
+          child: const Text('Odjavi se'),
+        ),
+      ]);
+    } else if (full) {
+      child = Row(children: [
+        Expanded(
+          child: Text(waiting > 0 ? 'Sto je pun · na listi čekanja: $waiting' : 'Sto je pun.', style: style),
+        ),
+        SizedBox(
+          width: 200,
+          child: LuxButton(
+            title: 'Lista čekanja',
+            icon: Icons.playlist_add,
+            height: 42,
+            onTap: () => widget.app.run('table:waitlist', {'tableId': st['id'], 'join': true}),
+          ),
+        ),
+      ]);
+    } else {
+      child = const Text('Dodirnite slobodno mesto da sednete za sto.', style: style);
+    }
+    return Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 12), child: child);
+  }
+}
+
+/// Zvuk uključen / isključen (pamti se).
+class _SoundButton extends StatelessWidget {
+  const _SoundButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final on = context.select<AppState, bool>((a) => a.soundOn);
+    return _RoundIcon(
+      icon: on ? Icons.volume_up : Icons.volume_off,
+      tip: on ? 'Isključi zvuk' : 'Uključi zvuk',
+      onTap: () => context.read<AppState>().setSound(!on),
+    );
   }
 }
 
@@ -433,10 +604,21 @@ class _TableInfoCard extends StatelessWidget {
           Text('${omaha ? 'PLO' : 'NLH'} ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
           Text(st['name'] as String, style: const TextStyle(color: gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          if (tableExtras(st) != null)
+            Text(tableExtras(st)!, style: const TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w600)),
         ]),
       ]),
     );
   }
+}
+
+/// Posebna pravila stola: straddle i bomb pot (npr. "Straddle · Bomb pot svaka 5. ruka").
+String? tableExtras(Json t) {
+  final parts = <String>[
+    if (t['straddle'] == true) 'Straddle',
+    if (((t['bombPotEvery'] as int?) ?? 0) > 0) 'Bomb pot svaka ${t['bombPotEvery']}. ruka',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
 
 /// Telefon: sitne kontrole na vrhu (nazad, meni, sto, RSD/BB, panel sa igračima i chatom).
@@ -476,6 +658,8 @@ class _TopBar extends StatelessWidget {
                 overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w600)),
           ]),
         ),
+        const _SoundButton(),
+        const SizedBox(width: 6),
         _UnitToggle(showBB: showBB, onToggle: onToggle),
         const SizedBox(width: 6),
         // Panel: igrači, ruke i chat (sa brojem nepročitanih poruka)
@@ -608,6 +792,8 @@ class TableSidePanel extends StatelessWidget {
   final amount = act['amount'] as int? ?? 0;
   return switch (act['type'] as String) {
     'ante' => (label: 'ANTE', color: const Color(0xFF4A4F5C)),
+    'bomb' => (label: 'BOMB', color: const Color(0xFFB3122A)),
+    'straddle' => (label: 'STRADDLE', color: const Color(0xFF8A5A00)),
     'sb' => (label: 'SB', color: const Color(0xFF4A4F5C)),
     'bb' => (label: 'BB', color: const Color(0xFF4A4F5C)),
     'fold' => (label: 'FOLD', color: const Color(0xFF2B2F38)),
@@ -778,6 +964,9 @@ class _TableView extends StatefulWidget {
   final bool hideMine;
   final VoidCallback onTapMine;
   final void Function(int seat) onSit;
+
+  /// Dodir na drugog igrača: beleška o njemu.
+  final void Function(Json seat) onTapPlayer;
   const _TableView({
     required this.st,
     required this.size,
@@ -785,6 +974,7 @@ class _TableView extends StatefulWidget {
     required this.chat,
     required this.onSit,
     required this.onTapMine,
+    required this.onTapPlayer,
     this.wide = false,
     this.hideMine = false,
   });
@@ -811,10 +1001,52 @@ class _TableViewState extends State<_TableView> {
       };
   }
 
+  /// Zvuk za ono što se upravo desilo za stolom.
+  void _playSounds(Json a, Json b) {
+    final sameHand = a['handNo'] == b['handNo'];
+    final mySeat = b['mySeat'] as int;
+    // Nova ruka: deljenje karata.
+    if (!sameHand && b['inProgress'] == true) {
+      Sounds.play('card', volume: 0.6);
+      if (b['toAct'] == mySeat && mySeat >= 0) Future.delayed(const Duration(milliseconds: 350), () => Sounds.play('turn'));
+      return;
+    }
+    // Kraj ruke: pobeda (glasnije ako sam ja dobio).
+    final result = b['result'] as Json?;
+    if (result != null && a['result'] == null) {
+      final iWon = (result['pots'] as List).any((p) => (p['winners'] as List).any((w) => w['seat'] == mySeat));
+      Sounds.play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
+      return;
+    }
+    // Novi potezi u ruci: check, fold ili žetoni.
+    final oldActs = (a['actions'] as List?)?.length ?? 0;
+    final acts = (b['actions'] as List?) ?? const [];
+    if (sameHand && acts.length > oldActs) {
+      final type = (acts.last as Json)['type'] as String?;
+      switch (type) {
+        case 'check':
+          Sounds.play('check', volume: 0.6);
+        case 'fold':
+          Sounds.play('fold', volume: 0.5);
+        case 'call' || 'bet' || 'raise' || 'allin' || 'straddle':
+          Sounds.play('chips', volume: 0.6);
+      }
+    }
+    // Nove karte na stolu.
+    final oldBoard = (a['board'] as List?)?.length ?? 0;
+    final board = (b['board'] as List?)?.length ?? 0;
+    if (sameHand && board > oldBoard) Future.delayed(const Duration(milliseconds: 250), () => Sounds.play('card', volume: 0.6));
+    // Na potezu sam.
+    if (mySeat >= 0 && b['toAct'] == mySeat && (a['toAct'] != mySeat || !sameHand)) {
+      Future.delayed(const Duration(milliseconds: 300), () => Sounds.play('turn'));
+    }
+  }
+
   @override
   void didUpdateWidget(covariant _TableView old) {
     super.didUpdateWidget(old);
     final a = old.st, b = widget.st;
+    if (!identical(a, b)) _playSounds(a, b);
     if (a['handNo'] != b['handNo'] && b['inProgress'] == true) return; // nova ruka: ništa ne leti
     final lay = _layoutFor(b);
     final oldLay = _layoutFor(a);
@@ -878,6 +1110,7 @@ class _TableViewState extends State<_TableView> {
       if (won.containsKey(s['seat'])) best.addAll((s['best'] as List).cast<String>());
     }
     final board = (st['board'] as List).cast<String>();
+    final board2 = (result?['board2'] as List?)?.cast<String>();
     final cardW = lay.cardW;
     final boardTop = lay.boardTop;
     final collected = (st['collected'] as int?) ?? 0;
@@ -989,11 +1222,51 @@ class _TableViewState extends State<_TableView> {
           width: 100,
           child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 25 : 19)),
         ),
-      if (result != null || st['closing'] == true)
+      // Run it twice: drugi sto ispod prvog.
+      if (board2 != null)
         Positioned(
           left: 0,
           right: 0,
           top: boardTop + cardW * 1.4 + 6,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (var k = 0; k < board2.length; k++)
+              Padding(
+                key: ValueKey('board2-${st['handNo']}-$k'),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: Duration(milliseconds: 500 + k * 150),
+                  curve: Curves.easeOut,
+                  builder: (_, t, child) => Opacity(opacity: t, child: child),
+                  child: PlayingCard(code: board2[k], width: cardW * 0.9),
+                ),
+              ),
+          ]),
+        ),
+      // Bomb pot (ruka u toku) ili najava da je sledeća ruka bomb pot.
+      if (result == null && st['closing'] != true && (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1)))
+        Positioned(
+          left: 0,
+          right: 0,
+          top: boardTop + cardW * 1.4 + 8,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+              decoration: BoxDecoration(
+                gradient: redGradient,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: gold.withOpacity(0.7)),
+              ),
+              child: Text(st['bombPot'] == true ? '💣 BOMB POT' : '💣 Sledeća ruka: BOMB POT',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: widget.wide ? 13 : 11, letterSpacing: 1)),
+            ),
+          ),
+        ),
+      if (result != null || st['closing'] == true)
+        Positioned(
+          left: 0,
+          right: 0,
+          top: boardTop + cardW * 1.4 + 6 + (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0),
           child: Center(
             child: result != null
                 ? _ResultText(result: result, money: money)
@@ -1092,6 +1365,20 @@ class _TableViewState extends State<_TableView> {
       // Sedište je centrirano na avatar; svoje malo podignuto da stane cela pločica.
       final avatarSize = widget.wide ? (isMe ? 76.0 : 64.0) : (isMe ? 58.0 : 48.0);
       final topY = isMe ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : p.dy - avatarSize / 2;
+      // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
+      if (!isMe && app.notes.containsKey(s['userId'])) {
+        overlays.add(Positioned(
+          left: p.dx - avatarSize / 2 - 10,
+          top: topY - 6,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(color: const Color(0xFFE0B341), shape: BoxShape.circle, border: Border.all(color: Colors.black54)),
+              child: const Icon(Icons.edit_note, size: 14, color: Colors.black),
+            ),
+          ),
+        ));
+      }
       children.add(Positioned(
         left: p.dx - seatW / 2,
         top: topY,
@@ -1100,7 +1387,7 @@ class _TableViewState extends State<_TableView> {
           seat: s,
           isMe: isMe,
           hideCards: isMe && widget.hideMine,
-          onTap: isMe ? widget.onTapMine : null,
+          onTap: isMe ? widget.onTapMine : () => widget.onTapPlayer(s),
           avatarSize: avatarSize,
           won: won[i],
           timeLeft: timeLeft,
@@ -1242,10 +1529,16 @@ class _ResultText extends StatelessWidget {
   Widget build(BuildContext context) {
     final pots = (result['pots'] as List).cast<Json>();
     final lines = <String>[];
+    final twice = pots.any((p) => p['run'] != null);
     for (var k = 0; k < pots.length; k++) {
       final p = pots[k];
       final names = (p['winners'] as List).map((w) => w['name']).join(' i ');
-      final prefix = pots.length > 1 ? (k == 0 ? 'Glavni: ' : 'Sporedni: ') : '';
+      // Run it twice: svaki pot ima polovinu za 1. i 2. sto.
+      final prefix = twice
+          ? '${p['run']}. sto: '
+          : pots.length > 1
+              ? (k == 0 ? 'Glavni: ' : 'Sporedni: ')
+              : '';
       lines.add('$prefix$names +${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
     }
     return Container(

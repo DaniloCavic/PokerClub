@@ -8,7 +8,7 @@ import { blockedMessage, CurrentUser, Public } from '../common/auth.guard';
 import { avatarUrl, publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { TablesService } from '../tables/tables.service';
-import { AvatarDto, ChangePasswordDto, LoginDto } from './dto';
+import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto } from './dto';
 
 @Controller('auth')
 export class AuthController {
@@ -157,6 +157,61 @@ export class MeController {
   @Get('tables')
   lobby() {
     return this.tables.lobby();
+  }
+
+  /** Statistika igrača: odigrane ruke, dobijene ruke, najveći dobijeni pot, ukupan rezultat. */
+  @Get('stats')
+  async stats(@CurrentUser() user: User) {
+    const hands = await this.prisma.hand.findMany({
+      where: { playerIds: { has: user.id } },
+      select: { details: true },
+    });
+    let won = 0;
+    let biggest = 0;
+    let net = 0;
+    for (const h of hands) {
+      const d = h.details as {
+        players?: { seat: number; userId: string; startStack: number; endStack: number }[];
+        pots?: { winners: { seat: number; amount: number }[] }[];
+      };
+      const me = d.players?.find((p) => p.userId === user.id);
+      if (!me) continue;
+      net += me.endStack - me.startStack;
+      const mine = (d.pots ?? []).flatMap((p) => p.winners).filter((w) => w.seat === me.seat).reduce((s, w) => s + w.amount, 0);
+      if (mine > 0) {
+        won++;
+        biggest = Math.max(biggest, mine);
+      }
+    }
+    return {
+      hands: hands.length,
+      won,
+      winRate: hands.length ? Math.round((won / hands.length) * 1000) / 10 : 0,
+      biggestPot: biggest,
+      net,
+    };
+  }
+
+  /** Beleške o drugim igračima (vidi ih samo onaj ko ih je napisao). */
+  @Get('notes')
+  async notes(@CurrentUser() user: User) {
+    const rows = await this.prisma.playerNote.findMany({ where: { ownerId: user.id } });
+    return Object.fromEntries(rows.map((r) => [r.targetId, r.text]));
+  }
+
+  @Post('notes/:targetId')
+  async setNote(@CurrentUser() user: User, @Param('targetId') targetId: string, @Body() dto: NoteDto) {
+    if (targetId === user.id) throw new BadRequestException('Ne možete pisati belešku o sebi.');
+    const target = await this.prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    if (!target) throw new NotFoundException('Igrač nije pronađen.');
+    const text = dto.text.trim();
+    const key = { ownerId_targetId: { ownerId: user.id, targetId } };
+    if (!text) {
+      await this.prisma.playerNote.deleteMany({ where: { ownerId: user.id, targetId } });
+    } else {
+      await this.prisma.playerNote.upsert({ where: key, create: { ownerId: user.id, targetId, text }, update: { text } });
+    }
+    return { text };
   }
 }
 
