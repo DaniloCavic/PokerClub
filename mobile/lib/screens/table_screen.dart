@@ -532,9 +532,10 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                 tile(p(s['pfr'] as num), 'PFR', hint: 'Procenat ruku u kojima je povisio pre flopa'),
               ]),
               Row(children: [
+                tile('${p(s['threeBet'] as num)} (${s['threeBets']}×)', '3-bet',
+                    hint: 'Koliko puta je ponovo povisio na nečije povišenje pre flopa (procenat od prilika)'),
                 tile(p(s['winRate'] as num), 'Dobijene ruke', hint: '${s['won']} od ${s['hands']} ruku'),
                 tile(widget.money(s['biggestPot']), 'Najveći pot', color: goldLight),
-                tile(chips(s['showdowns'] as num), 'Otvaranja', hint: 'Koliko puta je pokazao karte na kraju ruke'),
               ]),
               Container(
                 width: double.infinity,
@@ -544,7 +545,8 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                 child: s['bestHand'] == null
                     ? const Text('Najbolja ruka: još nije pokazao karte', style: TextStyle(color: Colors.white54, fontSize: 12.5))
                     : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text('Najbolja pokazana ruka', style: TextStyle(fontSize: 11, color: Colors.white60, fontWeight: FontWeight.w600)),
+                        Text('Najbolja pokazana ruka · otvaranja: ${s['showdowns']}',
+                            style: const TextStyle(fontSize: 11, color: Colors.white60, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 6),
                         Row(children: [
                           for (final c in ((s['bestHand'] as Json)['cards'] as List).cast<String>())

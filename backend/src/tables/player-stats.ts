@@ -23,6 +23,8 @@ const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) 
  * Statistika igrača za jednim stolom (kao na GG / ClubGG):
  * - VPIP: procenat ruku u kojima je dobrovoljno uložio pre flopa (call, bet, raise; blajndovi se ne računaju),
  * - PFR: procenat ruku u kojima je povisio pre flopa,
+ * - 3-bet: koliko puta je ponovo povisio na nečije povišenje pre flopa, i procenat od prilika za to
+ *   (prilika = bio je na potezu kad je pre flopa bilo tačno jedno povišenje),
  * - dobijene ruke, najveći osvojen pot i najbolja ruka koju je pokazao na otvaranju karata.
  * Bomb pot ruke nemaju rundu pre flopa, pa ne ulaze u VPIP i PFR.
  */
@@ -31,6 +33,8 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
   let preflopHands = 0;
   let vpip = 0;
   let pfr = 0;
+  let threeBets = 0;
+  let threeBetChances = 0;
   let won = 0;
   let showdowns = 0;
   let biggestPot = 0;
@@ -47,22 +51,31 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
     if (!actions.some((a) => a.type === 'bomb')) {
       preflopHands++;
       let level = 0;
+      let raises = 0;
       let voluntary = false;
       let raised = false;
+      let chance = false;
+      let threeBet = false;
       for (const a of actions) {
         if (a.street !== 'preflop') continue;
+        // Povišenje: raise/bet, ili all-in iznad dosadašnjeg uloga (blajndovi i straddle se ne računaju).
+        const isRaise = a.type === 'bet' || a.type === 'raise' || (a.type === 'allin' && a.amount > level);
         if (a.seat === me.seat) {
-          if (a.type === 'call') voluntary = true;
-          if (a.type === 'bet' || a.type === 'raise') voluntary = raised = true;
-          if (a.type === 'allin') {
-            voluntary = true;
-            if (a.amount > level) raised = true;
+          if (a.type === 'call' || a.type === 'allin') voluntary = true;
+          if (isRaise) voluntary = raised = true;
+          // Prvi put na potezu posle tačno jednog povišenja: prilika za 3-bet.
+          if (!chance && raises === 1 && a.type !== 'ante' && a.type !== 'sb' && a.type !== 'bb' && a.type !== 'straddle') {
+            chance = true;
+            if (isRaise) threeBet = true;
           }
         }
+        if (isRaise) raises++;
         if (BET_TYPES.has(a.type)) level = Math.max(level, a.amount);
       }
       if (voluntary) vpip++;
       if (raised) pfr++;
+      if (chance) threeBetChances++;
+      if (threeBet) threeBets++;
     }
 
     const mine = (d.pots ?? []).flatMap((p) => p.winners).filter((w) => w.seat === me.seat).reduce((s, w) => s + w.amount, 0);
@@ -82,6 +95,8 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
     hands: played,
     vpip: pct(vpip, preflopHands),
     pfr: pct(pfr, preflopHands),
+    threeBets,
+    threeBet: pct(threeBets, threeBetChances),
     won,
     winRate: pct(won, played),
     showdowns,

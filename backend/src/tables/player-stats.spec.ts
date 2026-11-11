@@ -41,6 +41,16 @@ const hands: StoredHand[] = [
       shown: [],
     },
   },
+  // 5) Ana povisuje, Bojan uradi 3-bet, Ceca odustaje, Ana dorovnava.
+  {
+    board: '',
+    details: {
+      players,
+      actions: [act(1, 'sb', 5), act(2, 'bb', 10), act(0, 'raise', 30), act(1, 'raise', 90), act(2, 'fold'), act(0, 'call', 90)],
+      pots: [{ amount: 190, winners: [{ seat: 1, amount: 190 }] }],
+      shown: [],
+    },
+  },
   // 4) Ana je all-in preko uloga (povišenje); Ceca (BB) dorovnava all-in (nije povišenje).
   {
     board: '',
@@ -54,24 +64,31 @@ const hands: StoredHand[] = [
 ];
 
 describe('statistika igrača za stolom', () => {
-  it('VPIP, PFR, dobijene ruke i najveći pot', () => {
+  it('VPIP, PFR, 3-bet, dobijene ruke i najveći pot', () => {
     const ana = playerStats('ana', hands, 'HOLDEM');
-    expect(ana.hands).toBe(4);
-    expect(ana.vpip).toBe(100); // 3 od 3 ruke sa rundom pre flopa
-    expect(ana.pfr).toBe(66.7); // raise i all-in povišenje, ne i call
+    expect(ana.hands).toBe(5);
+    expect(ana.vpip).toBe(100); // 4 od 4 ruke sa rundom pre flopa
+    expect(ana.pfr).toBe(75); // raise, raise i all-in povišenje, ne i call
+    expect(ana.threeBets).toBe(0); // nikad nije imala priliku (ona je prva povisivala)
     expect(ana.won).toBe(2);
-    expect(ana.winRate).toBe(50);
+    expect(ana.winRate).toBe(40);
     expect(ana.biggestPot).toBe(160);
     expect(ana.bestHand?.name).toBe('Visoka karta A');
 
     const ceca = playerStats('ceca', hands, 'HOLDEM');
-    expect(ceca.vpip).toBe(33.3); // samo all-in dorovnavanje; BB check se ne računa
+    expect(ceca.vpip).toBe(25); // samo all-in dorovnavanje; BB check se ne računa
     expect(ceca.pfr).toBe(0);
+    // Prilike za 3-bet: ruka 1 (fold), ruka 4 (dorovnala all-in); ruka 5 je posle 3-beta.
+    expect(ceca.threeBets).toBe(0);
+    expect(ceca.threeBet).toBe(0);
     expect(ceca.biggestPot).toBe(805);
     expect(ceca.bestHand).toBeNull();
 
     const bojan = playerStats('bojan', hands, 'HOLDEM');
-    expect(bojan.vpip).toBe(66.7);
+    expect(bojan.vpip).toBe(75);
+    // Prilike: ruka 1 (call), ruka 5 (3-bet), ruka 4 (fold) → 1 od 3
+    expect(bojan.threeBets).toBe(1);
+    expect(bojan.threeBet).toBe(33.3);
     expect(bojan.bestHand?.name).toBe('Triling K');
     expect(bojan.showdowns).toBe(1);
   });
