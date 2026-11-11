@@ -39,11 +39,10 @@ class TrilingLogo extends StatelessWidget {
                 fontFamily: 'Cinzel', fontWeight: FontWeight.w800, fontSize: size, letterSpacing: size * 0.04, height: 1.05)),
       ],
     );
+    // U trakama (vodoravno) samo naziv kluba, bez pika; na prijavi pik stoji iznad naziva.
+    if (!icon || horizontal) return words;
     final spade = GoldText('♠', style: TextStyle(fontSize: size * 1.35, height: 1));
-    if (!icon) return words;
-    return horizontal
-        ? Row(mainAxisSize: MainAxisSize.min, children: [spade, SizedBox(width: size * 0.25), words])
-        : Column(mainAxisSize: MainAxisSize.min, children: [spade, words]);
+    return Column(mainAxisSize: MainAxisSize.min, children: [spade, words]);
   }
 }
 
