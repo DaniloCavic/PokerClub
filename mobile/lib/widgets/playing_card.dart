@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 
 const _suits = {'s': '♠', 'h': '♥', 'd': '♦', 'c': '♣'};
 
-/// Izgled karata: klasične bele (crveno/crno) ili u četiri boje. Menja se u podešavanjima.
+/// Izgled karata: klasične bele (crveno/crno) ili u boji, gde je cela karta obojena
+/// po znaku (pik crna, herc crvena, karo plava, tref zelena), kao na ClubGG. Bira se u profilu.
 class CardStyle {
   static bool fourColor = false;
 }
 
-// Četiri boje: pik crna, herc crvena, karo plava, tref zelena.
-const _fourColors = {'s': Color(0xFF1B1B1B), 'h': Color(0xFFC8102E), 'd': Color(0xFF1565C0), 'c': Color(0xFF1E7B34)};
+// Karte u boji: pozadina cele karte po znaku (svetlija gore, tamnija dole).
+const _fullColors = {
+  's': [Color(0xFF4A4A4F), Color(0xFF1E1E22)],
+  'h': [Color(0xFFE0303F), Color(0xFFA30F1F)],
+  'd': [Color(0xFF2F7FE0), Color(0xFF14509E)],
+  'c': [Color(0xFF2FA352), Color(0xFF16692F)],
+};
 const _twoColors = {'s': Color(0xFF151515), 'h': Color(0xFFC8102E), 'd': Color(0xFFC8102E), 'c': Color(0xFF151515)};
 
 /// Karta "As" / "Td" / "7h"; null = poleđina.
@@ -18,7 +24,10 @@ class PlayingCard extends StatelessWidget {
   final bool highlight;
   final bool dim;
 
-  const PlayingCard({super.key, this.code, this.width = 40, this.highlight = false, this.dim = false});
+  /// Stil za ovu kartu (pregled u izboru); null = podešavanje igrača.
+  final bool? colored;
+
+  const PlayingCard({super.key, this.code, this.width = 40, this.highlight = false, this.dim = false, this.colored});
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +58,8 @@ class PlayingCard extends StatelessWidget {
     }
     final rank = code![0] == 'T' ? '10' : code![0];
     final suit = code![1];
-    final color = (CardStyle.fourColor ? _fourColors : _twoColors)[suit]!;
+    final full = colored ?? CardStyle.fourColor;
+    final color = full ? Colors.white : _twoColors[suit]!;
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
       opacity: dim ? 0.4 : 1,
@@ -57,11 +67,14 @@ class PlayingCard extends StatelessWidget {
         width: width,
         height: h,
         decoration: BoxDecoration(
-          color: Colors.white,
-          gradient: const LinearGradient(
-              colors: [Colors.white, Color(0xFFEDEAE3)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+          gradient: LinearGradient(
+              colors: full ? _fullColors[suit]! : const [Colors.white, Color(0xFFEDEAE3)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter),
           borderRadius: radius,
-          border: Border.all(color: highlight ? const Color(0xFFD4AF37) : Colors.black26, width: highlight ? width * 0.07 : 0.8),
+          border: Border.all(
+              color: highlight ? const Color(0xFFD4AF37) : (full ? Colors.white70 : Colors.black26),
+              width: highlight ? width * 0.07 : (full ? 1.0 : 0.8)),
           boxShadow: [
             const BoxShadow(color: Colors.black54, blurRadius: 3, offset: Offset(0, 1)),
             if (highlight) const BoxShadow(color: Color(0xAAF6E27A), blurRadius: 10),

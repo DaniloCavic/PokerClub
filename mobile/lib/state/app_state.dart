@@ -45,7 +45,7 @@ class AppState extends ChangeNotifier {
   /// Prikaz iznosa za stolom u velikim blajndovima umesto u žetonima.
   bool showBB = false;
 
-  /// Karte u četiri boje umesto klasičnih.
+  /// Karte u boji (cela karta obojena po znaku, kao na ClubGG) umesto klasičnih belih.
   bool fourColor = false;
 
   /// Svoje karte su sakrivene dok ih igrač ne dodirne.
@@ -90,8 +90,6 @@ class AppState extends ChangeNotifier {
     showBB = prefs.getBool('showBB') ?? false;
     fourColor = prefs.getBool('fourColor') ?? false;
     CardStyle.fourColor = fourColor;
-    hideCards = prefs.getBool('hideCards') ?? false;
-    autoRebuy = prefs.getBool('autoRebuy') ?? false;
     final token = prefs.getString('token');
     if (token == null) {
       status = AuthStatus.loggedOut;

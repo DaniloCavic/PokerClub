@@ -8,7 +8,6 @@ import '../widgets/avatar.dart';
 import '../widgets/brand.dart';
 import '../widgets/hand_history.dart';
 import 'account_screen.dart';
-import 'settings_screen.dart';
 import 'table_screen.dart';
 import 'transactions_screen.dart';
 
@@ -26,7 +25,6 @@ const navItems = [
   NavItem('Istorija', Icons.history),
   NavItem('Blagajna', Icons.account_balance_wallet),
   NavItem('Moj profil', Icons.person),
-  NavItem('Podešavanja', Icons.settings),
 ];
 
 /// Glavni okvir aplikacije posle prijave.
@@ -48,7 +46,6 @@ class _HomeShellState extends State<HomeShell> {
       const _HistoryView(),
       const TransactionsScreen(embedded: true),
       const AccountScreen(embedded: true),
-      const SettingsScreen(),
     ];
     final body = LuxBackground(child: IndexedStack(index: _tab, children: pages));
     if (wide) {

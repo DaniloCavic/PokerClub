@@ -6,7 +6,7 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
-import 'transactions_screen.dart';
+import '../widgets/playing_card.dart';
 
 class AccountScreen extends StatefulWidget {
   /// U glavnom okviru aplikacije (bez sopstvene gornje trake).
@@ -151,10 +151,10 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 16),
           _MenuCard(children: [
             _MenuItem(
-              icon: Icons.receipt_long,
-              title: 'Transakcije',
-              subtitle: 'Uplate, isplate i stolovi',
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionsScreen())),
+              icon: Icons.style,
+              title: 'Boja karata',
+              subtitle: app.fourColor ? 'U boji (cela karta obojena)' : 'Klasične (bele)',
+              onTap: () => showDialog(context: context, builder: (_) => const _CardColorDialog()),
             ),
             _MenuItem(
               icon: Icons.lock,
@@ -220,6 +220,56 @@ class _MenuItem extends StatelessWidget {
       subtitle: subtitle == null ? null : Text(subtitle!, style: const TextStyle(fontSize: 12)),
       trailing: const Icon(Icons.chevron_right, color: Colors.white38),
       onTap: onTap,
+    );
+  }
+}
+
+/// Izbor izgleda karata: klasične bele ili u boji (cela karta obojena po znaku).
+class _CardColorDialog extends StatelessWidget {
+  const _CardColorDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    Widget option(String title, bool colored) {
+      final selected = app.fourColor == colored;
+      final cards = Row(mainAxisSize: MainAxisSize.min, children: [
+        for (final c in const ['As', 'Kh', 'Qd', 'Jc'])
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 3), child: PlayingCard(code: c, width: 38, colored: colored)),
+      ]);
+      return InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          app.setSetting('fourColor', colored);
+          Navigator.pop(context);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.black26,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: selected ? gold : Colors.white12, width: selected ? 2 : 1),
+          ),
+          child: Column(children: [
+            Row(children: [
+              Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: selected ? gold : Colors.white38, size: 20),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            ]),
+            const SizedBox(height: 10),
+            cards,
+          ]),
+        ),
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('Boja karata'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        option('Klasične', false),
+        const SizedBox(height: 12),
+        option('U boji', true),
+      ]),
     );
   }
 }
