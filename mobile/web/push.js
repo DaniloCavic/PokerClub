@@ -54,6 +54,30 @@
         return '';
       }
     },
+    /** Trenutna pretplata ovog uređaja kao JSON tekst (prazno ako obaveštenja nisu uključena). */
+    async current() {
+      try {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return '';
+        const r = await reg();
+        const sub = r && (await r.pushManager.getSubscription());
+        return sub && Notification.permission === 'granted' ? JSON.stringify(sub) : '';
+      } catch (_) {
+        return '';
+      }
+    },
+    /** Isključuje obaveštenja na ovom uređaju; vraća adresu odjavljene pretplate (ili prazno). */
+    async unsubscribe() {
+      try {
+        const r = await reg();
+        const sub = r && (await r.pushManager.getSubscription());
+        if (!sub) return '';
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe();
+        return endpoint;
+      } catch (_) {
+        return '';
+      }
+    },
     /** Kad je sto otvoren dodirom na obaveštenje dok je aplikacija bila otvorena. */
     onOpenTable(cb) {
       tableListeners.push(cb);

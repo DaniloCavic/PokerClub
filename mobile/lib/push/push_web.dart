@@ -6,6 +6,12 @@ external JSString _status();
 @JS('trilingPush.subscribe')
 external JSPromise<JSString> _subscribe(JSString key);
 
+@JS('trilingPush.current')
+external JSPromise<JSString> _current();
+
+@JS('trilingPush.unsubscribe')
+external JSPromise<JSString> _unsubscribe();
+
 @JS('trilingPush.onOpenTable')
 external void _onOpenTable(JSFunction cb);
 
@@ -24,6 +30,24 @@ class WebPush {
   static Future<String> subscribe(String publicKey) async {
     try {
       return (await _subscribe(publicKey.toJS).toDart).toDart;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Trenutna pretplata ovog uređaja (JSON) ili prazno ako obaveštenja nisu uključena.
+  static Future<String> current() async {
+    try {
+      return (await _current().toDart).toDart;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Isključuje obaveštenja na ovom uređaju; vraća adresu odjavljene pretplate ili prazno.
+  static Future<String> unsubscribe() async {
+    try {
+      return (await _unsubscribe().toDart).toDart;
     } catch (_) {
       return '';
     }

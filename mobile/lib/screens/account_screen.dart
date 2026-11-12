@@ -156,6 +156,7 @@ class _AccountScreenState extends State<AccountScreen> {
               subtitle: app.fourColor ? 'U boji (cela karta obojena)' : 'Klasične (bele)',
               onTap: () => showDialog(context: context, builder: (_) => const _CardColorDialog()),
             ),
+            const _PushSwitch(),
             _MenuItem(
               icon: Icons.lock,
               title: 'Promena lozinke',
@@ -182,6 +183,58 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     if (widget.embedded) return body;
     return Scaffold(appBar: AppBar(title: const Text('Moj profil')), body: body);
+  }
+}
+
+/// Obaveštenja na telefonu: igrač ih uključuje i isključuje na ovom uređaju.
+class _PushSwitch extends StatefulWidget {
+  const _PushSwitch();
+
+  @override
+  State<_PushSwitch> createState() => _PushSwitchState();
+}
+
+class _PushSwitchState extends State<_PushSwitch> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final status = app.pushStatus;
+    final on = app.pushOn && status == 'granted';
+    String subtitle;
+    bool available = true;
+    if (status == 'ios-install') {
+      subtitle = 'Na iPhone-u: Deli → „Dodaj na početni ekran“, pa otvorite Triling odatle';
+      available = false;
+    } else if (status == 'unsupported') {
+      subtitle = 'Ovaj pregledač ili aplikacija ne podržava obaveštenja';
+      available = false;
+    } else if (status == 'denied') {
+      subtitle = 'Obaveštenja su blokirana u podešavanjima telefona/pregledača';
+      available = false;
+    } else {
+      subtitle = on ? 'Novi stolovi, početak zakazanih stolova, na potezu ste' : 'Isključena na ovom telefonu';
+    }
+    return SwitchListTile(
+      secondary: Icon(on ? Icons.notifications_active : Icons.notifications_off, color: Colors.white70),
+      title: const Text('Obaveštenja', style: TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+      value: on,
+      onChanged: !available || _busy
+          ? null
+          : (v) async {
+              setState(() => _busy = true);
+              if (v) {
+                final ok = await app.enablePush();
+                if (!ok) app.toast('Obaveštenja nisu uključena (dozvola nije data).');
+              } else {
+                await app.disablePush();
+                app.toast('Obaveštenja su isključena na ovom telefonu.');
+              }
+              if (mounted) setState(() => _busy = false);
+            },
+    );
   }
 }
 

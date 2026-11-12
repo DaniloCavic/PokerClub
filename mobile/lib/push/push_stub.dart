@@ -6,6 +6,10 @@ class WebPush {
   /// Pretplata kao JSON tekst ili prazno.
   static Future<String> subscribe(String publicKey) async => '';
 
+  static Future<String> current() async => '';
+
+  static Future<String> unsubscribe() async => '';
+
   /// Sto iz obaveštenja (?table=…) kad se aplikacija otvori dodirom na obaveštenje.
   static String? startTable() => null;
 

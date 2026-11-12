@@ -157,7 +157,7 @@ class AppState extends ChangeNotifier {
       final sub = await WebPush.subscribe(key);
       if (sub.isEmpty) return false;
       await api.post('/push/subscribe', jsonDecode(sub) as Map<String, dynamic>);
-      notifyListeners();
+      pushOn = true;
       return true;
     } catch (_) {
       return false;
@@ -166,9 +166,31 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Ako je dozvola već data, osveži pretplatu ovog uređaja posle prijave.
+  /// Obaveštenja su uključena na ovom uređaju (postoji pretplata).
+  bool pushOn = false;
+
+  /// Posle prijave: ako su obaveštenja uključena na ovom uređaju, osveži pretplatu na serveru
+  /// (ako ih je igrač isključio, ne uključuju se ponovo sama).
   Future<void> _refreshPush() async {
-    if (pushStatus == 'granted') await enablePush();
+    final sub = await WebPush.current();
+    pushOn = sub.isNotEmpty;
+    notifyListeners();
+    if (!pushOn) return;
+    try {
+      await api.post('/push/subscribe', jsonDecode(sub) as Map<String, dynamic>);
+    } catch (_) {}
+  }
+
+  /// Isključuje obaveštenja na ovom uređaju (i briše pretplatu na serveru).
+  Future<void> disablePush() async {
+    final endpoint = await WebPush.unsubscribe();
+    pushOn = false;
+    notifyListeners();
+    if (endpoint.isNotEmpty) {
+      try {
+        await api.post('/push/unsubscribe', {'endpoint': endpoint});
+      } catch (_) {}
+    }
   }
 
   /// Otvara sto (postavlja glavni okvir aplikacije posle prijave).
