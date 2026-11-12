@@ -5,7 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
-import { cardToString } from '../poker/engine/cards';
+import { Card, cardToString } from '../poker/engine/cards';
+import { equityAsync } from '../poker/engine/equity';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
 import { agentCut, splitRake } from '../poker/engine/rake';
@@ -402,6 +403,8 @@ export class TablesService implements OnModuleInit {
       handNo: r.handNo,
       board2: r.board2 ? r.board2.map(cardToString) : null,
       runoutFrom: r.runoutFrom ?? null,
+      // Šanse za pobedu tokom all-in-a, po broju karata na stolu (dopunjava se posle, vidi computeEquity).
+      equity: null as { board: number; odds: Record<number, number> }[] | null,
       pots: r.pots.map((p) => ({
         amount: p.amount,
         handName: p.handName,
@@ -736,6 +739,7 @@ export class TablesService implements OnModuleInit {
     if (r.runoutFrom !== undefined) {
       const streets = r.runoutFrom === 0 ? 3 : r.runoutFrom === 3 ? 2 : 1;
       rt.runoutMs = RUNOUT_START_MS + streets * RUNOUT_STREET_MS * (r.board2 ? 2 : 1);
+      void this.computeEquity(rt, r).catch((e) => this.log.warn((e as Error).message));
     } else rt.runoutMs = 0;
     rt.lastResult = this.resultView(rt, r);
     const pot = r.pots.reduce((s, p) => s + p.amount, 0) + r.rake;
@@ -804,6 +808,23 @@ export class TablesService implements OnModuleInit {
       else if (s && s.stack === 0 && !rt.sitOutSince.has(s.userId)) rt.sitOutSince.set(s.userId, Date.now());
     }
     if (rt.closing) await this.shutdown(rt);
+  }
+
+  /**
+   * All-in: šanse za pobedu svakog igrača pre flopa, na flopu i na turnu (kao na GG).
+   * Računa se u pozadini (u delovima) i šalje igračima čim je gotovo.
+   */
+  private async computeEquity(rt: Runtime, r: HandResult) {
+    const from = r.runoutFrom ?? 5;
+    const holes: Record<number, Card[]> = Object.fromEntries(r.shown.map((s) => [s.seat, s.hole]));
+    if (Object.keys(holes).length < 2) return;
+    const stages = [...new Set([from, 3, 4])].filter((l) => l >= from && l < 5).sort((a, b) => a - b);
+    const out: { board: number; odds: Record<number, number> }[] = [];
+    for (const l of stages) out.push({ board: l, odds: await equityAsync(rt.table.variant, holes, r.board.slice(0, l)) });
+    if (rt.lastResult && rt.lastResult.handNo === r.handNo) {
+      rt.lastResult.equity = out;
+      await this.broadcast(rt);
+    }
   }
 
   /** Igrači koji predugo ne igraju ustaju sa stola. */

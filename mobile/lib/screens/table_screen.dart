@@ -1358,6 +1358,9 @@ class _TableViewState extends State<_TableView> {
       ...fin,
       'board': (fin['board'] as List).take(_reveal).toList(),
       'runoutBoard2': _reveal2 > from ? (res['board2'] as List).take(_reveal2).toList() : null,
+      'runoutOdds': _reveal2 > 0
+          ? null
+          : ((res['equity'] as List?) ?? const []).cast<Json>().where((e) => e['board'] == _reveal).map((e) => e['odds']).firstOrNull,
       'result': null,
       'pot': pot,
       'collected': pot,
@@ -1543,6 +1546,10 @@ class _TableViewState extends State<_TableView> {
     }
     final board = (st['board'] as List).cast<String>();
     final board2 = ((result?['board2'] ?? st['runoutBoard2']) as List?)?.cast<String>();
+    // All-in: šanse za pobedu za trenutni broj karata na stolu.
+    final odds = st['runoutOdds'] as Map?;
+    double? equityOf(int seat) => (odds?['$seat'] as num?)?.toDouble();
+    final maxEquity = odds == null || odds.isEmpty ? null : odds.values.map((v) => (v as num).toDouble()).reduce(max);
     final cardW = lay.cardW;
     final boardTop = lay.boardTop;
     final collected = (st['collected'] as int?) ?? 0;
@@ -1838,6 +1845,8 @@ class _TableViewState extends State<_TableView> {
           timeBankLeft: bankLeft,
           best: best,
           money: money,
+          equity: equityOf(i),
+          equityLeader: equityOf(i) != null && equityOf(i) == maxEquity,
           handName: (result?['shown'] as List?)
               ?.cast<Json>()
               .where((x) => x['seat'] == i)
@@ -2006,6 +2015,10 @@ class _SeatView extends StatelessWidget {
   /// Sekunde preostale od dodatnog vremena (TIME), ako je osnovno isteklo.
   final int? timeBankLeft;
   final String? handName;
+
+  /// All-in: šansa za pobedu u procentima (i da li je najveća za stolom).
+  final double? equity;
+  final bool equityLeader;
   final Set<String> best;
   final Money money;
 
@@ -2024,6 +2037,8 @@ class _SeatView extends StatelessWidget {
     required this.money,
     this.timeLeft,
     this.handName,
+    this.equity,
+    this.equityLeader = false,
   });
 
   @override
@@ -2041,7 +2056,10 @@ class _SeatView extends StatelessWidget {
     ({String label, Color color})? tag;
     final bank = timeBankLeft != null;
     const timeColor = Color(0xFFFF9F1C);
-    if (acting && bank) {
+    if (equity != null) {
+      // All-in: šansa za pobedu (kao na GG)
+      tag = (label: '${bbNumber(equity!)} %', color: equityLeader ? const Color(0xFF1E8E4E) : const Color(0xFF3A3F4A));
+    } else if (acting && bank) {
       // Osnovno vreme je isteklo: teče dodatno vreme.
       tag = (label: 'TIME $timeBankLeft', color: timeColor);
     } else if (won != null) {
