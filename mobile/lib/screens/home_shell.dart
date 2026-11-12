@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../format.dart';
+import '../push/push.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
@@ -49,6 +50,16 @@ class _HomeShellState extends State<HomeShell> {
       nav.popUntil((r) => r.isFirst);
       nav.push(MaterialPageRoute(builder: (_) => TableScreen(tableId: tableId)));
     };
+    // Dodir na obaveštenje dok je aplikacija otvorena.
+    WebPush.onOpenTable((id) => app.openTable?.call(id));
+    // Posle ponovnog otvaranja (telefon je ugasio stranicu dok je igrač bio u drugoj aplikaciji)
+    // igrač se vraća za sto za kojim sedi, ili za sto iz obaveštenja.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final fromPush = WebPush.startTable();
+      final seated = ((app.user?['seatedAt'] as List?) ?? const []).cast<String>();
+      final id = fromPush ?? (seated.isNotEmpty ? seated.first : null);
+      if (id != null) app.openTable?.call(id);
+    });
   }
 
   @override
@@ -295,6 +306,7 @@ class _LobbyViewState extends State<LobbyView> {
               padding: const EdgeInsets.all(6),
               child: const Text('Povezivanje sa serverom…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
             ),
+          const _PushBanner(),
           Builder(builder: (context) {
             const title =
                 GoldText('Cash stolovi', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
@@ -349,6 +361,67 @@ class _LobbyViewState extends State<LobbyView> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// Poziv da igrač uključi obaveštenja na telefonu (novi stolovi, na potezu ste…).
+/// Na iPhone-u obaveštenja rade tek kad se sajt doda na početni ekran.
+class _PushBanner extends StatefulWidget {
+  const _PushBanner();
+
+  @override
+  State<_PushBanner> createState() => _PushBannerState();
+}
+
+class _PushBannerState extends State<_PushBanner> {
+  bool _busy = false;
+  bool _hidden = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final status = app.pushStatus;
+    if (_hidden || (status != 'default' && status != 'ios-install')) return const SizedBox.shrink();
+    final ios = status == 'ios-install';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1712),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gold.withOpacity(0.5)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.notifications_active, color: goldLight),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            ios
+                ? 'Za obaveštenja na iPhone-u: dodirnite Deli (□↑) → „Dodaj na početni ekran“, pa otvorite Triling sa početnog ekrana.'
+                : 'Uključite obaveštenja: novi i zakazani stolovi, i kad ste na potezu dok ste u drugoj aplikaciji.',
+            style: const TextStyle(fontSize: 12.5),
+          ),
+        ),
+        if (!ios)
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    setState(() => _busy = true);
+                    final ok = await app.enablePush();
+                    if (!mounted) return;
+                    setState(() => _busy = false);
+                    app.toast(ok ? 'Obaveštenja su uključena.' : 'Obaveštenja nisu uključena (dozvola nije data).');
+                  },
+            child: const Text('UKLJUČI', style: TextStyle(fontWeight: FontWeight.w900)),
+          ),
+        IconButton(
+          tooltip: 'Sakrij',
+          onPressed: () => setState(() => _hidden = true),
+          icon: const Icon(Icons.close, size: 18, color: Colors.white54),
+        ),
+      ]),
     );
   }
 }

@@ -3,6 +3,7 @@ import { PokerTable, Prisma } from '@prisma/client';
 import type { Server } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
 import { cardToString } from '../poker/engine/cards';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
@@ -80,7 +81,44 @@ export class TablesService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
+    private readonly push: PushService,
   ) {}
+
+  // ---------- Prisutnost (da li je igrač trenutno u aplikaciji) ----------
+
+  /** userId → (socketId → da li je aplikacija vidljiva). */
+  private readonly presence = new Map<string, Map<string, boolean>>();
+
+  setPresence(userId: string, socketId: string, visible: boolean | null) {
+    const m = this.presence.get(userId) ?? new Map<string, boolean>();
+    if (visible === null) m.delete(socketId);
+    else m.set(socketId, visible);
+    if (m.size) this.presence.set(userId, m);
+    else this.presence.delete(userId);
+  }
+
+  /** Igrač gleda aplikaciju (bar jedan uređaj je otvoren i vidljiv). */
+  isPresent(userId: string) {
+    return [...(this.presence.get(userId)?.values() ?? [])].some(Boolean);
+  }
+
+  /** Obaveštenje na telefon samo ako igrač trenutno nije u aplikaciji. */
+  private nudge(userId: string, msg: { title: string; body: string; tableId?: string; tag?: string }) {
+    if (this.isPresent(userId)) return;
+    void this.push.toUser(userId, msg).catch((e) => this.log.warn((e as Error).message));
+  }
+
+  /** "četvrtak, 12. 11. 18:00" (vreme Beograda). */
+  static when(d: Date) {
+    return d.toLocaleString('sr-Latn-RS', {
+      timeZone: process.env.APP_TIMEZONE || 'Europe/Belgrade',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
 
   attachServer(server: Server) {
     this.server = server;
@@ -145,6 +183,14 @@ export class TablesService implements OnModuleInit {
         bigBlind: t.bigBlind,
       });
       this.lobbyChanged();
+      void this.push
+        .toAllPlayers({
+          title: `Sto „${t.name}“ je počeo!`,
+          body: `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} RSD — uđite i igrajte.`,
+          tableId: t.id,
+          tag: `open-${t.id}`,
+        })
+        .catch((e) => this.log.warn((e as Error).message));
     }, ms + 500);
   }
 
@@ -158,15 +204,7 @@ export class TablesService implements OnModuleInit {
   assertUnlocked(tableId: string) {
     const opensAt = this.rt(tableId).table.opensAt;
     if (opensAt && opensAt.getTime() > Date.now()) {
-      const when = opensAt.toLocaleString('sr-Latn-RS', {
-        timeZone: process.env.APP_TIMEZONE || 'Europe/Belgrade',
-        weekday: 'long',
-        day: 'numeric',
-        month: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      throw new GameError(`Sto se otvara ${when}.`);
+      throw new GameError(`Sto se otvara ${TablesService.when(opensAt)}.`);
     }
   }
 
@@ -601,6 +639,14 @@ export class TablesService implements OnModuleInit {
     }
     if (rt.ritTimer) return;
     const hand = g.handNo;
+    for (const i of g.ritAsk) {
+      this.nudge(g.seats[i]!.userId, {
+        title: 'All-in: run it twice?',
+        body: `Sto „${rt.table.name}“ — odlučite za ${Math.round(RIT_MS / 1000)} s.`,
+        tableId: rt.table.id,
+        tag: `turn-${rt.table.id}`,
+      });
+    }
     rt.ritDeadline = Date.now() + RIT_MS;
     rt.ritTimer = setTimeout(() => {
       void this.exclusive(rt, async () => {
@@ -626,6 +672,13 @@ export class TablesService implements OnModuleInit {
     if (key === rt.turnKey) return;
     clearTimeout(rt.turnTimer);
     rt.turnKey = key;
+    const turnUser = g.seats[g.toAct]!.userId;
+    this.nudge(turnUser, {
+      title: 'Na potezu ste!',
+      body: `Sto „${rt.table.name}“ — imate ${rt.table.actionSeconds} s (+${Math.round(TIME_BANK_MS / 1000)} s TIME).`,
+      tableId: rt.table.id,
+      tag: `turn-${rt.table.id}`,
+    });
     // Osnovno vreme za potez, pa dodatno vreme (TIME); tek kad istekne i ono, igra se check ili fold.
     const ms = rt.table.actionSeconds * 1000 + TIME_BANK_MS;
     rt.timeBankAt = Date.now() + rt.table.actionSeconds * 1000;
@@ -840,6 +893,12 @@ export class TablesService implements OnModuleInit {
       }).catch((e) => this.log.error(e));
     }, RESERVE_MS);
     rt.reservation = { userId: next.userId, until, timer };
+    this.nudge(next.userId, {
+      title: 'Mesto je slobodno!',
+      body: `Sto „${rt.table.name}“ — imate ${Math.round(RESERVE_MS / 1000)} s da sednete.`,
+      tableId: rt.table.id,
+      tag: `wait-${rt.table.id}`,
+    });
     this.server?.to(`user:${next.userId}`).emit('waitlist:offer', {
       tableId: rt.table.id,
       name: rt.table.name,

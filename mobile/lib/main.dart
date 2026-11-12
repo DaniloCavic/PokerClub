@@ -50,17 +50,24 @@ class _PortraitOnly extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final phoneLandscape = kIsWeb && size.width > size.height && size.height < 500;
-    if (!phoneLandscape) return child;
-    return const Material(
-      color: Color(0xFF0C0A08),
-      child: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.screen_rotation, color: gold, size: 48),
-          SizedBox(height: 14),
-          Text('Okrenite telefon uspravno',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
+    // Aplikacija (i sto za kojim igrač sedi) ostaje ispod poruke, da se posle okretanja
+    // telefona sve vrati tačno kako je bilo, a ne na početnu stranu.
+    return Stack(children: [
+      child,
+      if (phoneLandscape)
+        const Positioned.fill(
+          child: Material(
+            color: Color(0xFF0C0A08),
+            child: Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.screen_rotation, color: gold, size: 48),
+                SizedBox(height: 14),
+                Text('Okrenite telefon uspravno',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+        ),
+    ]);
   }
 }

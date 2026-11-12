@@ -14,7 +14,7 @@ WORKDIR /app/mobile
 COPY mobile/pubspec.yaml mobile/pubspec.lock ./
 RUN flutter pub get
 COPY mobile/ ./
-RUN flutter build web --release --base-href /igra/ --no-web-resources-cdn
+RUN flutter build web --release --base-href /igra/ --no-web-resources-cdn --pwa-strategy=none
 
 FROM base AS backend
 WORKDIR /app/backend

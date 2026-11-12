@@ -10,6 +10,8 @@ import { WalletService } from './wallet/wallet.service';
 import { TablesService } from './tables/tables.service';
 import { TablesGateway } from './tables/tables.gateway';
 import { HealthController } from './health.controller';
+import { PushController } from './push/push.controller';
+import { PushService } from './push/push.service';
 
 /** Ograničenje broja zahteva važi samo za HTTP (ne za Socket.IO). */
 @Injectable()
@@ -29,12 +31,13 @@ class HttpThrottlerGuard extends ThrottlerGuard {
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '30d') as never },
     }),
   ],
-  controllers: [HealthController, AuthController, MeController, AvatarsController, AdminController],
+  controllers: [HealthController, AuthController, MeController, AvatarsController, AdminController, PushController],
   providers: [
     AuthGuard,
     { provide: APP_GUARD, useClass: HttpThrottlerGuard },
     { provide: APP_GUARD, useExisting: AuthGuard },
     WalletService,
+    PushService,
     TablesService,
     TablesGateway,
   ],

@@ -3,6 +3,7 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
@@ -26,7 +27,7 @@ interface TableMsg {
  * Svaki događaj odgovara sa { ok: true, ... } ili { ok: false, error }.
  */
 @WebSocketGateway({ cors: { origin: '*' }, path: '/socket.io' })
-export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
+export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   private readonly log = new Logger(TablesGateway.name);
   @WebSocketServer() server: Server;
 
@@ -47,11 +48,24 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection {
       socket.data.userId = user.id;
       await socket.join(`user:${user.id}`);
       await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
+      // Dok klijent ne javi drugačije, smatra se da je aplikacija otvorena.
+      this.tables.setPresence(user.id, socket.id, true);
       socket.emit('session', { user: publicUser(user), seatedAt: this.tables.seatsOf(user.id) });
     } catch (e) {
       socket.emit('auth:error', { error: (e as Error).message });
       socket.disconnect(true);
     }
+  }
+
+  handleDisconnect(socket: AuthedSocket) {
+    if (socket.data?.userId) this.tables.setPresence(socket.data.userId, socket.id, null);
+  }
+
+  /** Aplikacija je u pozadini (igrač je otišao u drugu aplikaciju) ili ponovo vidljiva. */
+  @SubscribeMessage('presence')
+  presence(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { visible: boolean }) {
+    if (socket.data?.userId) this.tables.setPresence(socket.data.userId, socket.id, !!msg?.visible);
+    return { ok: true };
   }
 
   /** Pre svake radnje: nalog mora i dalje biti aktivan (blokada važi odmah). */

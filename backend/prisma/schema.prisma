@@ -59,6 +59,7 @@ model User {
   liveViews    LiveViewLog[]
   notesWritten PlayerNote[] @relation("NoteOwner")
   notesAbout   PlayerNote[] @relation("NoteTarget")
+  pushSubs     PushSubscription[]
 
   @@index([role, agentId])
 }
@@ -197,4 +198,23 @@ model PlayerNote {
   updatedAt DateTime @updatedAt
 
   @@id([ownerId, targetId])
+}
+
+/// Pretplata na obaveštenja na telefonu (Web Push) za jedan uređaj/pregledač.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Podešavanja servera koja se čuvaju u bazi (npr. ključevi za obaveštenja).
+model AppSetting {
+  key   String @id
+  value String
 }

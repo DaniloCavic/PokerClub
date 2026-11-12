@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
+import { PushService } from '../push/push.service';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -42,7 +43,21 @@ export class AdminController {
     private readonly wallet: WalletService,
     private readonly tables: TablesService,
     private readonly gateway: TablesGateway,
+    private readonly push: PushService,
   ) {}
+
+  /** Obaveštenje svim igračima na telefon: novi sto je otvoren, ili je zakazan za kasnije. */
+  private announceTable(t: { id: string; name: string; variant: string; smallBlind: number; bigBlind: number; opensAt: Date | null }) {
+    const game = `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} RSD`;
+    const later = t.opensAt && t.opensAt.getTime() > Date.now();
+    void this.push
+      .toAllPlayers(
+        later
+          ? { title: `Zakazan novi sto: ${t.name}`, body: `${game} — počinje ${TablesService.when(t.opensAt!)}.`, tableId: t.id, tag: `new-${t.id}` }
+          : { title: `Novi sto je otvoren: ${t.name}`, body: `${game} — uđite i igrajte.`, tableId: t.id, tag: `new-${t.id}` },
+      )
+      .catch(() => undefined);
+  }
 
   // ---------- Pomoćne ----------
 
@@ -477,6 +492,7 @@ export class AdminController {
       include: { createdBy: { select: { displayName: true } } },
     });
     await this.tables.open(t);
+    this.announceTable(t);
     return this.tableView(t);
   }
 
@@ -509,6 +525,7 @@ export class AdminController {
     if (this.tables.liveInfo(id)?.closing) throw new BadRequestException('Sto se još zatvara, sačekajte kraj ruke.');
     const t = await this.prisma.pokerTable.update({ where: { id }, data: { isOpen: true, closedAt: null } });
     await this.tables.open(t);
+    this.announceTable(t);
     return { ok: true };
   }
 

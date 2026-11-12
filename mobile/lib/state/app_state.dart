@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api.dart';
 import '../config.dart';
+import '../push/push.dart';
 import '../sound.dart';
 import '../widgets/playing_card.dart';
 
@@ -89,6 +90,8 @@ class AppState extends ChangeNotifier {
   }
 
   AppState() {
+    // Prisutnost: kad igrač ode u drugu aplikaciju, server mu šalje obaveštenje kad je na potezu.
+    _lifecycle = AppLifecycleListener(onStateChange: (state) => _sendPresence(state == AppLifecycleState.resumed));
     api.onUnauthorized = (msg) {
       if (status == AuthStatus.loggedIn) {
         logout();
@@ -130,6 +133,42 @@ class AppState extends ChangeNotifier {
     messengerKey.currentState
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ---------- Prisutnost i obaveštenja na telefonu ----------
+
+  // ignore: unused_field
+  late final AppLifecycleListener _lifecycle;
+  bool _visible = true;
+
+  void _sendPresence(bool visible) {
+    _visible = visible;
+    _socket?.emit('presence', {'visible': visible});
+  }
+
+  /// "unsupported", "ios-install" (iPhone: dodati na početni ekran), "default", "granted", "denied"
+  String get pushStatus => WebPush.status();
+
+  /// Uključuje obaveštenja na ovom uređaju (traži dozvolu). Vraća true ako je uspelo.
+  Future<bool> enablePush() async {
+    try {
+      final key = (await api.get('/push/key'))['key'] as String? ?? '';
+      if (key.isEmpty) return false;
+      final sub = await WebPush.subscribe(key);
+      if (sub.isEmpty) return false;
+      await api.post('/push/subscribe', jsonDecode(sub) as Map<String, dynamic>);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Ako je dozvola već data, osveži pretplatu ovog uređaja posle prijave.
+  Future<void> _refreshPush() async {
+    if (pushStatus == 'granted') await enablePush();
   }
 
   /// Otvara sto (postavlja glavni okvir aplikacije posle prijave).
@@ -186,6 +225,7 @@ class AppState extends ChangeNotifier {
     balance = (u['balance'] as num?)?.toInt() ?? 0;
     status = AuthStatus.loggedIn;
     loadNotes();
+    _refreshPush();
     notifyListeners();
     _connect();
   }
@@ -248,6 +288,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     s.on('session', (_) {
+      s.emit('presence', {'visible': _visible});
       // Posle (ponovnog) povezivanja: ponovo se prijavi na lobi i stolove koje gledamo.
       if (_inLobby) joinLobby();
       for (final id in _watching) {
@@ -341,6 +382,10 @@ class AppState extends ChangeNotifier {
   /// Vraća false ako sto ne može da se otvori (npr. zakazan za kasnije).
   Future<bool> watch(String tableId) async {
     _watching.add(tableId);
+    // Posle ponovnog otvaranja aplikacije veza se tek uspostavlja: sačekaj je malo.
+    for (var i = 0; i < 100 && !connected; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
     final ok = await _watch(tableId);
     if (!ok) _watching.remove(tableId);
     return ok;
