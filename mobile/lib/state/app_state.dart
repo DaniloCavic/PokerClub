@@ -151,11 +151,23 @@ class AppState extends ChangeNotifier {
 
   /// Uključuje obaveštenja na ovom uređaju (traži dozvolu). Vraća true ako je uspelo.
   Future<bool> enablePush() async {
+    // Pitanje za dozvolu MORA da krene odmah na dodir (iPhone inače tiho odbija),
+    // pa se pokreće pre bilo kakvog čekanja.
+    final permission = WebPush.requestPermission();
     try {
-      final key = (await api.get('/push/key'))['key'] as String? ?? '';
-      if (key.isEmpty) return false;
+      final perm = await permission;
+      pushError = perm == 'granted' ? null : 'Dozvola za obaveštenja nije data ($perm).';
+      if (perm != 'granted') return false;
+      final key = _pushKey ?? (await api.get('/push/key'))['key'] as String? ?? '';
+      if (key.isEmpty) {
+        pushError = 'Server nema ključ za obaveštenja.';
+        return false;
+      }
       final sub = await WebPush.subscribe(key);
-      if (sub.isEmpty) return false;
+      if (sub.isEmpty) {
+        pushError = 'Telefon nije napravio pretplatu za obaveštenja.';
+        return false;
+      }
       await api.post('/push/subscribe', jsonDecode(sub) as Map<String, dynamic>);
       pushOn = true;
       return true;
@@ -169,9 +181,33 @@ class AppState extends ChangeNotifier {
   /// Obaveštenja su uključena na ovom uređaju (postoji pretplata).
   bool pushOn = false;
 
+  /// Razlog ako uključivanje nije uspelo (prikazuje se igraču).
+  String? pushError;
+
+  /// Ključ za obaveštenja, učitan unapred (da pitanje za dozvolu ne čeka server).
+  String? _pushKey;
+
+  /// Probno obaveštenje na sve uređaje igrača; vraća tekst sa rezultatom.
+  Future<String> testPush() async {
+    try {
+      final r = await api.post('/push/test', {});
+      final devices = r['devices'] as int? ?? 0;
+      final sent = r['sent'] as int? ?? 0;
+      final errors = ((r['errors'] as List?) ?? const []).join('\n');
+      if (devices == 0) return 'Nema uređaja prijavljenog za obaveštenja. Uključite obaveštenja ponovo.';
+      if (errors.isEmpty) return 'Poslato na $sent ${sent == 1 ? 'uređaj' : 'uređaja'}. Obaveštenje treba da stigne za par sekundi.';
+      return 'Poslato: $sent od $devices.\n$errors';
+    } catch (e) {
+      return 'Greška: $e';
+    }
+  }
+
   /// Posle prijave: ako su obaveštenja uključena na ovom uređaju, osveži pretplatu na serveru
   /// (ako ih je igrač isključio, ne uključuju se ponovo sama).
   Future<void> _refreshPush() async {
+    try {
+      _pushKey ??= (await api.get('/push/key'))['key'] as String?;
+    } catch (_) {}
     final sub = await WebPush.current();
     pushOn = sub.isNotEmpty;
     notifyListeners();

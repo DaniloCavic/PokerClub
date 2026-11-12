@@ -412,7 +412,7 @@ class _PushBannerState extends State<_PushBanner> {
                     final ok = await app.enablePush();
                     if (!mounted) return;
                     setState(() => _busy = false);
-                    app.toast(ok ? 'Obaveštenja su uključena.' : 'Obaveštenja nisu uključena (dozvola nije data).');
+                    app.toast(ok ? 'Obaveštenja su uključena.' : (app.pushError ?? 'Obaveštenja nisu uključena.'));
                   },
             child: const Text('UKLJUČI', style: TextStyle(fontWeight: FontWeight.w900)),
           ),

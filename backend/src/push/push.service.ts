@@ -47,7 +47,7 @@ export class PushService implements OnModuleInit {
           this.log.log('Napravljeni novi ključevi za obaveštenja.');
         }
       }
-      webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:obavestenja@triling.local', pub, priv);
+      webpush.setVapidDetails(PushService.subject(), pub, priv);
       this.publicKey = pub;
       this.ready = true;
     } catch (e) {
@@ -55,8 +55,29 @@ export class PushService implements OnModuleInit {
     }
   }
 
+  /**
+   * Pošiljalac u potpisu obaveštenja. Apple (iPhone) odbija obaveštenja ako ovo nije prava
+   * adresa sajta (https://…) ili e-pošte, pa se koristi adresa sajta na Railway-u.
+   */
+  static subject() {
+    if (process.env.VAPID_SUBJECT) return process.env.VAPID_SUBJECT;
+    const domain = process.env.PUBLIC_DOMAIN || process.env.RAILWAY_PUBLIC_DOMAIN;
+    return domain ? `https://${domain.replace(/^https?:\/\//, '')}` : 'mailto:poker.klub.triling@gmail.com';
+  }
+
   key() {
     return this.publicKey;
+  }
+
+  /** Probno obaveštenje na sve uređaje igrača; vraća šta je odgovorio servis za obaveštenja. */
+  async test(userId: string) {
+    const subs = await this.prisma.pushSubscription.findMany({ where: { userId } });
+    const results = await this.send(subs, { title: 'Probno obaveštenje', body: 'Obaveštenja rade! ♠ Poker klub Triling', tag: 'test' });
+    return {
+      devices: subs.length,
+      sent: results.filter((r) => r.ok).length,
+      errors: results.filter((r) => !r.ok).map((r) => `${r.service}: ${r.status ?? ''} ${r.error}`.trim()),
+    };
   }
 
   async subscribe(userId: string, sub: { endpoint: string; keys: { p256dh: string; auth: string } }) {
@@ -84,21 +105,26 @@ export class PushService implements OnModuleInit {
   }
 
   private async send(subs: { id: string; endpoint: string; p256dh: string; auth: string }[], msg: PushMessage) {
-    if (!this.ready || !subs.length) return;
+    if (!this.ready || !subs.length) return [];
     const payload = JSON.stringify(msg);
-    await Promise.all(
+    return Promise.all(
       subs.map(async (s) => {
+        const service = new URL(s.endpoint).host;
         try {
           await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, {
             TTL: 600,
             urgency: 'high',
-            ...(msg.tag ? { topic: msg.tag.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) } : {}),
           });
+          return { ok: true, service };
         } catch (e) {
-          const code = (e as { statusCode?: number }).statusCode;
+          const err = e as { statusCode?: number; body?: string; message: string };
           // Uređaj se odjavio ili pretplata više ne važi: briše se.
-          if (code === 404 || code === 410) await this.prisma.pushSubscription.delete({ where: { id: s.id } }).catch(() => undefined);
-          else this.log.warn(`Obaveštenje nije poslato (${code ?? (e as Error).message}).`);
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await this.prisma.pushSubscription.delete({ where: { id: s.id } }).catch(() => undefined);
+          }
+          const reason = (err.body || err.message || '').toString().slice(0, 200);
+          this.log.warn(`Obaveštenje nije poslato na ${service}: ${err.statusCode ?? ''} ${reason}`);
+          return { ok: false, service, status: err.statusCode, error: reason };
         }
       }),
     );

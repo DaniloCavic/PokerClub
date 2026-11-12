@@ -38,13 +38,25 @@
       }
       return Notification.permission;
     },
-    /** Traži dozvolu i pretplaćuje uređaj; vraća pretplatu kao JSON tekst (ili prazno). */
+    /**
+     * Traži dozvolu za obaveštenja. Mora se pozvati odmah na dodir dugmeta (iPhone inače
+     * tiho odbija), pre bilo kakvog čekanja na server.
+     */
+    requestPermission() {
+      try {
+        if (!('Notification' in window)) return Promise.resolve('unsupported');
+        if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
+        return Promise.resolve(Notification.requestPermission());
+      } catch (e) {
+        return Promise.resolve('denied');
+      }
+    },
+    /** Pretplaćuje uređaj (dozvola mora već biti data); vraća pretplatu kao JSON tekst (ili prazno). */
     async subscribe(publicKey) {
       try {
         const r = await reg();
         if (!r) return '';
-        const perm = await Notification.requestPermission();
-        if (perm !== 'granted') return '';
+        if (Notification.permission !== 'granted') return '';
         await navigator.serviceWorker.ready;
         let sub = await r.pushManager.getSubscription();
         if (!sub) sub = await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });

@@ -216,7 +216,7 @@ class _PushSwitchState extends State<_PushSwitch> {
     } else {
       subtitle = on ? 'Novi stolovi, početak zakazanih stolova, na potezu ste' : 'Isključena na ovom telefonu';
     }
-    return SwitchListTile(
+    final tile = SwitchListTile(
       secondary: Icon(on ? Icons.notifications_active : Icons.notifications_off, color: Colors.white70),
       title: const Text('Obaveštenja', style: TextStyle(fontWeight: FontWeight.w700)),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
@@ -227,7 +227,7 @@ class _PushSwitchState extends State<_PushSwitch> {
               setState(() => _busy = true);
               if (v) {
                 final ok = await app.enablePush();
-                if (!ok) app.toast('Obaveštenja nisu uključena (dozvola nije data).');
+                if (!ok) app.toast(app.pushError ?? 'Obaveštenja nisu uključena.');
               } else {
                 await app.disablePush();
                 app.toast('Obaveštenja su isključena na ovom telefonu.');
@@ -235,6 +235,32 @@ class _PushSwitchState extends State<_PushSwitch> {
               if (mounted) setState(() => _busy = false);
             },
     );
+    if (!on) return tile;
+    return Column(children: [
+      tile,
+      ListTile(
+        leading: const Icon(Icons.send_to_mobile, color: Colors.white70),
+        title: const Text('Pošalji probno obaveštenje', style: TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: const Text('Zaključajte telefon ili izađite iz aplikacije — treba da stigne za par sekundi',
+            style: TextStyle(fontSize: 12)),
+        onTap: _busy
+            ? null
+            : () async {
+                setState(() => _busy = true);
+                final msg = await app.testPush();
+                if (!context.mounted) return;
+                setState(() => _busy = false);
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Probno obaveštenje'),
+                    content: Text(msg),
+                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('U redu'))],
+                  ),
+                );
+              },
+      ),
+    ]);
   }
 }
 

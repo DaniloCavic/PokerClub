@@ -3,6 +3,9 @@ import 'dart:js_interop';
 @JS('trilingPush.status')
 external JSString _status();
 
+@JS('trilingPush.requestPermission')
+external JSPromise<JSString> _requestPermission();
+
 @JS('trilingPush.subscribe')
 external JSPromise<JSString> _subscribe(JSString key);
 
@@ -26,7 +29,16 @@ class WebPush {
     }
   }
 
-  /// Traži dozvolu i pretplaćuje uređaj; vraća pretplatu kao JSON tekst ili prazno.
+  /// Pitanje za dozvolu — pozvati odmah na dodir (pre bilo kakvog čekanja). Vraća "granted", "denied"…
+  static Future<String> requestPermission() async {
+    try {
+      return (await _requestPermission().toDart).toDart;
+    } catch (_) {
+      return 'denied';
+    }
+  }
+
+  /// Pretplaćuje uređaj (posle dozvole); vraća pretplatu kao JSON tekst ili prazno.
   static Future<String> subscribe(String publicKey) async {
     try {
       return (await _subscribe(publicKey.toJS).toDart).toDart;

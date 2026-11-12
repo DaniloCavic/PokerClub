@@ -3,6 +3,8 @@ class WebPush {
   /// "unsupported", "ios-install", "default", "granted", "denied"
   static String status() => 'unsupported';
 
+  static Future<String> requestPermission() async => 'unsupported';
+
   /// Pretplata kao JSON tekst ili prazno.
   static Future<String> subscribe(String publicKey) async => '';
 

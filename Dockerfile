@@ -15,6 +15,8 @@ COPY mobile/pubspec.yaml mobile/pubspec.lock ./
 RUN flutter pub get
 COPY mobile/ ./
 RUN flutter build web --release --base-href /igra/ --no-web-resources-cdn --pwa-strategy=none
+# Stari Flutter service worker na telefonima se zamenjuje čistačem keša (vidi web/cleanup-sw.js)
+RUN cp web/cleanup-sw.js build/web/flutter_service_worker.js
 
 FROM base AS backend
 WORKDIR /app/backend
