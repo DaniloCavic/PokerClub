@@ -1094,6 +1094,144 @@ class _Layout {
   }
 }
 
+/// Karta stola sa animacijom kao na GG: flop padne kao špil, raširi se i okrene;
+/// turn i river padnu licem nadole i okrenu se.
+class _BoardCard extends StatefulWidget {
+  final String code;
+  final double width;
+  final int index;
+  final bool spread;
+  final bool highlight;
+  final bool dim;
+  const _BoardCard({
+    required this.code,
+    required this.width,
+    required this.index,
+    required this.spread,
+    this.highlight = false,
+    this.dim = false,
+  });
+
+  @override
+  State<_BoardCard> createState() => _BoardCardState();
+}
+
+class _BoardCardState extends State<_BoardCard> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: widget.spread ? 1050 : 750),
+  )..forward();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slot = widget.width + 4;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = _c.value;
+        double seg(double a, double b) => ((t - a) / (b - a)).clamp(0.0, 1.0);
+        // 1) pad sa špila (licem nadole), 2) flop se raširi, 3) okretanje
+        final drop = Curves.easeOutCubic.transform(seg(0, widget.spread ? 0.28 : 0.4));
+        final spread = widget.spread ? Curves.easeInOutCubic.transform(seg(0.3, 0.62)) : 1.0;
+        final flip = seg(widget.spread ? 0.64 : 0.45, 1);
+        final dx = widget.spread ? -widget.index * slot * (1 - spread) : 0.0;
+        final dy = -36 * (1 - drop);
+        final showFace = flip >= 0.5;
+        final sx = showFace ? Curves.easeOut.transform((flip - 0.5) * 2) : 1 - Curves.easeIn.transform(flip * 2);
+        return Opacity(
+          opacity: drop,
+          child: Transform.translate(
+            offset: Offset(dx, dy),
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(max(0.02, sx), 1, 1),
+              child: showFace
+                  ? PlayingCard(code: widget.code, width: widget.width, highlight: widget.highlight, dim: widget.dim)
+                  : PlayingCard(width: widget.width),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Veliki zlatni WIN preko slike pobednika (iskoči, pa blago pulsira).
+class _WinBadge extends StatefulWidget {
+  final double size;
+  const _WinBadge({required this.size});
+
+  @override
+  State<_WinBadge> createState() => _WinBadgeState();
+}
+
+class _WinBadgeState extends State<_WinBadge> with TickerProviderStateMixin {
+  late final AnimationController _pop = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..forward();
+  late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.size;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_pop, _pulse]),
+      builder: (_, __) {
+        final pop = Curves.elasticOut.transform(_pop.value);
+        final glow = 8 + 14 * _pulse.value;
+        return IgnorePointer(
+          child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+            // Zlatni sjaj oko avatara
+            Container(
+              width: a + 14,
+              height: a + 14,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: const Color(0xCCF2C14E), blurRadius: glow, spreadRadius: 2 + 3 * _pulse.value)],
+              ),
+            ),
+            Transform.scale(
+              scale: 0.2 + 0.8 * pop,
+              child: Transform.rotate(
+                angle: -0.08,
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: a * 0.16, vertical: a * 0.04),
+                  decoration: BoxDecoration(
+                    gradient: goldGradient,
+                    borderRadius: BorderRadius.circular(a * 0.2),
+                    border: Border.all(color: const Color(0xFF5A3A08), width: 1.5),
+                    boxShadow: [const BoxShadow(color: Colors.black87, blurRadius: 8), BoxShadow(color: const Color(0xAAF6E27A), blurRadius: glow)],
+                  ),
+                  child: Text('WIN',
+                      style: TextStyle(
+                          fontFamily: 'Cinzel',
+                          fontWeight: FontWeight.w900,
+                          fontSize: a * 0.36,
+                          letterSpacing: 2,
+                          color: const Color(0xFF2A1A05),
+                          height: 1.1)),
+                ),
+              ),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+}
+
 /// Žetoni u letu: od uloga ka potu, ili od pota ka pobedniku.
 class _Flight {
   final Key key;
@@ -1139,6 +1277,146 @@ class _TableView extends StatefulWidget {
 class _TableViewState extends State<_TableView> {
   final List<_Flight> _flights = [];
   static const _flyMs = 450;
+
+  // ---------- All-in: otkrivanje ulica jedna po jedna (kao na GG) ----------
+  // Server odmah pošalje ceo sto i rezultat; aplikacija prvo pokaže karte igrača,
+  // pa flop, turn i river sa pauzama, i tek onda ko je dobio.
+  // Pauze moraju odgovarati serveru (RUNOUT_START_MS / RUNOUT_STREET_MS).
+  static const _runoutStartMs = 1200;
+  static const _runoutStreetMs = 2000;
+  Json? _runoutBase; // stanje pre kraja ruke
+  Json? _runoutFinal; // konačno stanje sa rezultatom
+  int _reveal = 0; // koliko karata prvog stola je otkriveno
+  int _reveal2 = 0; // drugi sto (run it twice)
+  final List<Timer> _runoutTimers = [];
+
+  void _startRunout(Json a, Json b) {
+    final res = b['result'] as Json;
+    final from = res['runoutFrom'] as int;
+    final board2 = res['board2'] as List?;
+    _runoutBase = a;
+    _runoutFinal = b;
+    _reveal = from;
+    _reveal2 = 0;
+    var t = _runoutStartMs;
+    void at(int ms, VoidCallback f) => _runoutTimers.add(Timer(Duration(milliseconds: ms), () {
+          if (mounted && _runoutFinal != null) setState(f);
+        }));
+    for (final target in [3, 4, 5].where((x) => x > from)) {
+      at(t, () {
+        _reveal = target;
+        Sounds.play('card', volume: 0.6);
+      });
+      t += _runoutStreetMs;
+    }
+    if (board2 != null) {
+      for (final target in [3, 4, 5].where((x) => x > from)) {
+        at(t, () {
+          _reveal2 = target;
+          Sounds.play('card', volume: 0.6);
+        });
+        t += _runoutStreetMs;
+      }
+    }
+    // Posle poslednje karte: rezultat, WIN i žetoni ka pobedniku.
+    _runoutTimers.add(Timer(Duration(milliseconds: t - _runoutStreetMs + 1300), () {
+      if (mounted) _endRunout(effects: true);
+    }));
+  }
+
+  void _endRunout({required bool effects}) {
+    for (final t in _runoutTimers) {
+      t.cancel();
+    }
+    _runoutTimers.clear();
+    final base = _runoutBase, fin = _runoutFinal;
+    _runoutBase = null;
+    _runoutFinal = null;
+    if (!mounted) return;
+    setState(() {});
+    if (effects && base != null && fin != null) {
+      final result = fin['result'] as Json;
+      final mySeat = fin['mySeat'] as int;
+      final iWon = (result['pots'] as List).any((p) => (p['winners'] as List).any((w) => w['seat'] == mySeat));
+      Sounds.play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
+      _addFlights(_resultFlights(widget.st, 0), 0);
+    }
+  }
+
+  /// Šta se prikazuje dok traje otkrivanje: karte igrača su otvorene, sto se otkriva postepeno,
+  /// a stekovi, pot i rezultat ostaju kao pre kraja ruke.
+  Json _display() {
+    final fin = _runoutFinal;
+    if (fin == null) return widget.st;
+    final base = _runoutBase!;
+    final res = fin['result'] as Json;
+    final from = res['runoutFrom'] as int;
+    final oldSeats = (base['seats'] as List).cast<Json?>();
+    final newSeats = (fin['seats'] as List).cast<Json?>();
+    final pot = (res['pots'] as List).fold<int>(0, (s, p) => s + (p['amount'] as int));
+    return {
+      ...fin,
+      'board': (fin['board'] as List).take(_reveal).toList(),
+      'runoutBoard2': _reveal2 > from ? (res['board2'] as List).take(_reveal2).toList() : null,
+      'result': null,
+      'pot': pot,
+      'collected': pot,
+      'toAct': -1,
+      'inProgress': true,
+      'seats': [
+        for (var i = 0; i < newSeats.length; i++)
+          newSeats[i] == null
+              ? null
+              : <String, dynamic>{
+                  ...newSeats[i]!,
+                  'stack': _oldStack(oldSeats, i) ?? newSeats[i]!['stack'],
+                  'bet': 0,
+                },
+      ],
+    };
+  }
+
+  static Object? _oldStack(List<Json?> seats, int i) {
+    if (i >= seats.length) return null;
+    final s = seats[i];
+    return s == null ? null : s['stack'];
+  }
+
+  @override
+  void dispose() {
+    for (final t in _runoutTimers) {
+      t.cancel();
+    }
+    super.dispose();
+  }
+
+  /// Žetoni pota putuju do pobednika.
+  List<_Flight> _resultFlights(Json b, int delay) {
+    final result = b['result'] as Json?;
+    if (result == null) return [];
+    final lay = _layoutFor(b);
+    final seats = (b['seats'] as List).cast<Json?>();
+    final won = <int, int>{};
+    for (final p in (result['pots'] as List)) {
+      for (final win in (p['winners'] as List)) {
+        won[win['seat'] as int] = (won[win['seat'] as int] ?? 0) + (win['amount'] as int);
+      }
+    }
+    return [
+      for (final e in won.entries)
+        if (e.key < seats.length && seats[e.key] != null)
+          _Flight(lay.pile, lay.seat(e.key), widget.money(e.value), e.value, delayMs: delay),
+    ];
+  }
+
+  void _addFlights(List<_Flight> added, int delay) {
+    if (added.isEmpty) return;
+    setState(() => _flights.addAll(added));
+    final keys = added.map((f) => f.key).toSet();
+    Future.delayed(Duration(milliseconds: delay + _flyMs + 200), () {
+      if (mounted) setState(() => _flights.removeWhere((f) => keys.contains(f.key)));
+    });
+  }
 
   _Layout _layoutFor(Json st) {
     final seats = (st['seats'] as List).cast<Json?>();
@@ -1199,12 +1477,22 @@ class _TableViewState extends State<_TableView> {
   void didUpdateWidget(covariant _TableView old) {
     super.didUpdateWidget(old);
     final a = old.st, b = widget.st;
-    if (!identical(a, b)) _playSounds(a, b);
+    // Prikaz all-in-a je u toku: nova ruka ga prekida, ostale izmene samo pamtimo.
+    if (_runoutFinal != null) {
+      if (b['handNo'] != _runoutFinal!['handNo'] || b['result'] == null) {
+        _endRunout(effects: false);
+      } else {
+        _runoutFinal = b;
+        return;
+      }
+    }
+    final res = b['result'] as Json?;
+    final startRunout = res != null && a['result'] == null && res['runoutFrom'] != null && a['handNo'] == b['handNo'];
+    if (!identical(a, b) && !startRunout) _playSounds(a, b);
     if (a['handNo'] != b['handNo'] && b['inProgress'] == true) return; // nova ruka: ništa ne leti
     final lay = _layoutFor(b);
     final oldLay = _layoutFor(a);
     final oldSeats = (a['seats'] as List).cast<Json?>();
-    final newSeats = (b['seats'] as List).cast<Json?>();
     final streetEnded = a['inProgress'] == true && (a['street'] != b['street'] || b['inProgress'] != true);
     final added = <_Flight>[];
     var delay = 0;
@@ -1216,32 +1504,23 @@ class _TableViewState extends State<_TableView> {
       }
       if (added.isNotEmpty) delay = _flyMs + 100;
     }
+    if (startRunout) {
+      // All-in: ulozi idu u pot, pa ulice jedna po jedna; rezultat tek posle.
+      _addFlights(added, delay);
+      _startRunout(a, b);
+      return;
+    }
     final result = b['result'] as Json?;
     if (result != null && a['result'] == null) {
       // Kraj ruke: pot putuje do pobednika.
-      final won = <int, int>{};
-      for (final p in (result['pots'] as List)) {
-        for (final win in (p['winners'] as List)) {
-          won[win['seat'] as int] = (won[win['seat'] as int] ?? 0) + (win['amount'] as int);
-        }
-      }
-      won.forEach((seat, amount) {
-        if (seat < newSeats.length && newSeats[seat] != null) {
-          added.add(_Flight(lay.pile, lay.seat(seat), widget.money(amount), amount, delayMs: delay));
-        }
-      });
+      added.addAll(_resultFlights(b, delay));
     }
-    if (added.isEmpty) return;
-    setState(() => _flights.addAll(added));
-    final keys = added.map((f) => f.key).toSet();
-    Future.delayed(Duration(milliseconds: delay + _flyMs + 200), () {
-      if (mounted) setState(() => _flights.removeWhere((f) => keys.contains(f.key)));
-    });
+    _addFlights(added, delay);
   }
 
   @override
   Widget build(BuildContext context) {
-    final st = widget.st;
+    final st = _display();
     final money = widget.money;
     final seats = (st['seats'] as List).cast<Json?>();
     final n = seats.length;
@@ -1263,7 +1542,7 @@ class _TableViewState extends State<_TableView> {
       if (won.containsKey(s['seat'])) best.addAll((s['best'] as List).cast<String>());
     }
     final board = (st['board'] as List).cast<String>();
-    final board2 = (result?['board2'] as List?)?.cast<String>();
+    final board2 = ((result?['board2'] ?? st['runoutBoard2']) as List?)?.cast<String>();
     final cardW = lay.cardW;
     final boardTop = lay.boardTop;
     final collected = (st['collected'] as int?) ?? 0;
@@ -1347,20 +1626,14 @@ class _TableViewState extends State<_TableView> {
               Padding(
                 key: ValueKey('board-${st['handNo']}-${board[k]}'),
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 300 + (k < 3 ? k * 120 : 0)),
-                  curve: Curves.easeOutBack,
-                  builder: (_, t, child) => Opacity(
-                    opacity: t.clamp(0.0, 1.0),
-                    child: Transform.translate(
-                        offset: Offset(0, (1 - t) * -24), child: Transform.scale(scale: 0.7 + 0.3 * t, child: child)),
-                  ),
-                  child: PlayingCard(
-                      code: board[k],
-                      width: cardW,
-                      highlight: best.contains(board[k]),
-                      dim: best.isNotEmpty && !best.contains(board[k])),
+                child: _BoardCard(
+                  code: board[k],
+                  width: cardW,
+                  index: k,
+                  // Flop (prve tri karte zajedno) se raširi iz špila; turn i river se samo okrenu.
+                  spread: k < 3,
+                  highlight: best.contains(board[k]),
+                  dim: best.isNotEmpty && !best.contains(board[k]),
                 ),
               ),
           ],
@@ -1386,13 +1659,7 @@ class _TableViewState extends State<_TableView> {
               Padding(
                 key: ValueKey('board2-${st['handNo']}-$k'),
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 500 + k * 150),
-                  curve: Curves.easeOut,
-                  builder: (_, t, child) => Opacity(opacity: t, child: child),
-                  child: PlayingCard(code: board2[k], width: cardW * 0.9),
-                ),
+                child: _BoardCard(code: board2[k], width: cardW * 0.9, index: k, spread: k < 3),
               ),
           ]),
         ),
@@ -1906,6 +2173,8 @@ class _SeatView extends StatelessWidget {
               // Svoje karte iznad avatara; tuđe (poleđine) gore desno, kao u dizajnu
               if (cardsWidget != null)
                 isMe ? Positioned(top: -a * 0.02, child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
+              // Pobeda: veliki WIN preko slike igrača
+              if (won != null) Positioned(top: a * 0.12, child: _WinBadge(size: a * 1.25)),
             ]),
           ),
         ),

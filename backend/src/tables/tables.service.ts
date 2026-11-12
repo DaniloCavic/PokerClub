@@ -42,10 +42,16 @@ interface Runtime {
   reservation: { userId: string; until: number; timer: NodeJS.Timeout } | null;
   /** Obaveštenje kad se zakazani sto otvori. */
   openTimer?: NodeJS.Timeout;
+  /** Dodatna pauza pre sledeće ruke dok aplikacija prikazuje all-in (flop, turn, river jedan po jedan). */
+  runoutMs?: number;
   /** Run it twice: rok za odgovore igrača. */
   ritTimer?: NodeJS.Timeout;
   ritDeadline: number | null;
 }
+
+/** All-in: pauza pre otvaranja prve ulice i između ulica (mora odgovarati aplikaciji). */
+const RUNOUT_START_MS = 1200;
+const RUNOUT_STREET_MS = 2000;
 
 /** Koliko igrači imaju vremena da odluče o run it twice. */
 const RIT_MS = Number(process.env.RIT_MS || 10_000);
@@ -395,6 +401,7 @@ export class TablesService implements OnModuleInit {
     return {
       handNo: r.handNo,
       board2: r.board2 ? r.board2.map(cardToString) : null,
+      runoutFrom: r.runoutFrom ?? null,
       pots: r.pots.map((p) => ({
         amount: p.amount,
         handName: p.handName,
@@ -720,11 +727,16 @@ export class TablesService implements OnModuleInit {
         const result = rt.game.startHand(undefined, { bombPot: bomb });
         await this.afterChange(rt, result);
       }).catch((e) => this.log.error(e));
-    }, rt.lastResult ? BETWEEN_HANDS_MS : 1000);
+    }, rt.lastResult ? BETWEEN_HANDS_MS + (rt.runoutMs ?? 0) : 1000);
   }
 
   private async handFinished(rt: Runtime, r: HandResult) {
     const g = rt.game;
+    // All-in pre kraja stola: aplikacija otkriva ulice jednu po jednu, pa sledeća ruka čeka duže.
+    if (r.runoutFrom !== undefined) {
+      const streets = r.runoutFrom === 0 ? 3 : r.runoutFrom === 3 ? 2 : 1;
+      rt.runoutMs = RUNOUT_START_MS + streets * RUNOUT_STREET_MS * (r.board2 ? 2 : 1);
+    } else rt.runoutMs = 0;
     rt.lastResult = this.resultView(rt, r);
     const pot = r.pots.reduce((s, p) => s + p.amount, 0) + r.rake;
     const players = Object.keys(rt.startStacks).map(Number).filter((i) => g.seats[i]).map((i) => ({

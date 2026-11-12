@@ -86,6 +86,11 @@ export interface HandResult {
   board: Card[];
   /** Run it twice: drugi sto (karte podeljene drugi put). */
   board2?: Card[];
+  /**
+   * Ruka se završila all-in-om pre kraja stola: koliko karata stola je bilo pre otvaranja
+   * (aplikacija tada prikazuje flop, turn i river jedan po jedan).
+   */
+  runoutFrom?: number;
   pots: PotResult[];
   rake: number;
   /** Ukupno dobijeno po sedištu (bez vraćenog nepokrivenog uloga). */
@@ -688,6 +693,7 @@ export class PokerGame {
       handNo: this.handNo,
       board: [...this.board],
       ...(board2 ? { board2 } : {}),
+      ...(showdown && base.length < 5 ? { runoutFrom: base.length } : {}),
       pots: potResults,
       rake,
       won,
