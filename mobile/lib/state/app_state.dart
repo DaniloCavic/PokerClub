@@ -387,7 +387,7 @@ class AppState extends ChangeNotifier {
     // Zakazani sto se upravo otvorio.
     s.on('table:opened', (data) {
       final m = data as Map;
-      final blinds = '${m['smallBlind']}/${m['bigBlind']} RSD';
+      final blinds = '${m['smallBlind']}/${m['bigBlind']}';
       notify('Sto „${m['name']}“ (${m['variant'] == 'OMAHA' ? 'PLO' : 'NLH'} $blinds) se otvorio!',
           action: 'IGRAJ', tableId: m['tableId'] as String);
     });

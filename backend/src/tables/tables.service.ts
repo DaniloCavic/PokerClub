@@ -193,7 +193,7 @@ export class TablesService implements OnModuleInit {
       void this.push
         .toAllPlayers({
           title: `Sto „${t.name}“ je počeo!`,
-          body: `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} RSD — uđite i igrajte.`,
+          body: `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} — uđite i igrajte.`,
           tableId: t.id,
           tag: `open-${t.id}`,
         })

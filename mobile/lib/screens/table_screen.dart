@@ -109,13 +109,13 @@ class _TableScreenState extends State<TableScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Napustiti sto?'),
+        title: const Text('Leave the table?'),
         content: Text(st['inProgress'] == true
-            ? 'Ako ste u ruci, odustajete od nje. Novac sa stola se vraća na vaš nalog.'
-            : 'Novac sa stola se vraća na vaš nalog.'),
+            ? 'If you are in a hand, you fold. Your chips go back to your account.'
+            : 'Your chips go back to your account.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ostani')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ustani')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Leave')),
         ],
       ),
     );
@@ -220,7 +220,7 @@ class _TableScreenState extends State<TableScreen> {
           selected: 0,
           onSelect: (_) => _back(st),
           leading: IconButton(
-            tooltip: 'Nazad u lobi',
+            tooltip: 'Back to lobby',
             onPressed: () => _back(st),
             icon: const Icon(Icons.arrow_back_ios_new, color: gold, size: 20),
           ),
@@ -307,7 +307,7 @@ class _TableScreenState extends State<TableScreen> {
         title: Row(children: [
           const Icon(Icons.edit_note, color: gold),
           const SizedBox(width: 8),
-          Expanded(child: Text('Beleška: ${seat['name']}', overflow: TextOverflow.ellipsis)),
+          Expanded(child: Text('Note: ${seat['name']}', overflow: TextOverflow.ellipsis)),
         ]),
         content: SizedBox(
           width: 380,
@@ -317,9 +317,9 @@ class _TableScreenState extends State<TableScreen> {
               autofocus: true,
               maxLines: 4,
               maxLength: 500,
-              decoration: const InputDecoration(hintText: 'npr. „bluffuje mnogo“, „igra samo jake ruke“'),
+              decoration: const InputDecoration(hintText: 'e.g. "bluffs a lot", "plays only strong hands"'),
             ),
-            const Text('Belešku vidite samo vi.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const Text('Only you can see this note.', style: TextStyle(color: Colors.white54, fontSize: 12)),
           ]),
         ),
         actions: [
@@ -329,10 +329,10 @@ class _TableScreenState extends State<TableScreen> {
                 ctrl.text = '';
                 Navigator.pop(ctx, true);
               },
-              child: const Text('Obriši', style: TextStyle(color: accent)),
+              child: const Text('Delete', style: TextStyle(color: accent)),
             ),
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Otkaži')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sačuvaj')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
         ],
       ),
     );
@@ -341,7 +341,7 @@ class _TableScreenState extends State<TableScreen> {
       await app.saveNote(id, ctrl.text);
       if (mounted) setState(() {});
     } catch (e) {
-      app.toast('Beleška nije sačuvana.');
+      app.toast('Note was not saved.');
     }
   }
 
@@ -361,7 +361,7 @@ class _TableScreenState extends State<TableScreen> {
                 SwitchListTile(
                   secondary: const Icon(Icons.keyboard_double_arrow_up),
                   title: const Text('Straddle'),
-                  subtitle: const Text('Kad ste prvi posle velikog blajnda, unapred stavljate 2 velika blajnda'),
+                  subtitle: const Text('When you are first after the big blind, you post 2 big blinds before the cards'),
                   value: straddle,
                   onChanged: (v) async {
                     setLocal(() => straddle = v);
@@ -373,7 +373,7 @@ class _TableScreenState extends State<TableScreen> {
           const Divider(height: 1, color: Colors.white12),
           ListTile(
             leading: const Icon(Icons.add_circle),
-            title: const Text('Dopuni'),
+            title: const Text('Rebuy'),
             onTap: () {
               Navigator.pop(ctx);
               _topUp(st, me);
@@ -381,7 +381,7 @@ class _TableScreenState extends State<TableScreen> {
           ),
           ListTile(
             leading: Icon(sittingOut ? Icons.play_arrow : Icons.pause),
-            title: Text(sittingOut ? 'Vrati se u igru' : 'Pauza (preskoči ruke)'),
+            title: Text(sittingOut ? "I'm back" : 'Sit out next hand'),
             onTap: () {
               Navigator.pop(ctx);
               app.run('table:sitout', {'tableId': widget.tableId, 'value': !sittingOut});
@@ -389,7 +389,7 @@ class _TableScreenState extends State<TableScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.logout, color: accent),
-            title: const Text('Ustani sa stola'),
+            title: const Text('Leave table'),
             onTap: () async {
               Navigator.pop(ctx);
               await _back(st);
@@ -406,12 +406,12 @@ class _TableScreenState extends State<TableScreen> {
     final amount = await showDialog<int>(
       context: context,
       builder: (_) => ChipsDialog(
-        title: 'Ulaz za sto',
+        title: 'Buy-in',
         min: min,
         max: max,
         balance: app.balance,
-        confirm: 'Sedi',
-        info: 'Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD · ulaz ${rsd(min)} – ${rsd(max)}',
+        confirm: 'Sit',
+        info: 'Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · buy-in ${chips(min)} – ${chips(max)}',
       ),
     );
     if (amount == null) return;
@@ -421,18 +421,18 @@ class _TableScreenState extends State<TableScreen> {
   Future<void> _topUp(Json st, Json me) async {
     final room = (st['maxBuyIn'] as int) - (me['stack'] as int);
     if (room <= 0) {
-      app.toast('Već imate najviše koliko sme na ovom stolu.');
+      app.toast('You already have the maximum for this table.');
       return;
     }
     final amount = await showDialog<int>(
       context: context,
       builder: (_) => ChipsDialog(
-        title: 'Dopuna',
+        title: 'Rebuy',
         min: 1,
         max: room,
         balance: app.balance,
-        confirm: 'Dopuni',
-        info: 'Na stolu imate ${rsd(me['stack'])}, najviše ${rsd(st['maxBuyIn'])}. Dopuna važi od sledeće ruke.',
+        confirm: 'Rebuy',
+        info: 'You have ${chips(me['stack'])} on the table, max ${chips(st['maxBuyIn'])}. Rebuy applies from the next hand.',
       ),
     );
     if (amount == null) return;
@@ -465,7 +465,7 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
     app.api
         .get('/me/table-stats?tableId=${widget.tableId}&userId=${widget.seat['userId']}')
         .then((r) => mounted ? setState(() => _stats = Map<String, dynamic>.from(r as Map)) : null)
-        .catchError((_) => mounted ? setState(() => _error = 'Statistika trenutno nije dostupna.') : null);
+        .catchError((_) => mounted ? setState(() => _error = 'Stats are not available right now.') : null);
   }
 
   @override
@@ -510,7 +510,7 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                 ]),
               ),
               IconButton(
-                tooltip: 'Zatvori',
+                tooltip: 'Close',
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close, color: Colors.white60),
               ),
@@ -518,7 +518,7 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
             const SizedBox(height: 10),
             const Align(
               alignment: Alignment.centerLeft,
-              child: Text('Statistika za ovim stolom', style: TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
+              child: Text('Stats at this table', style: TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
             ),
             const SizedBox(height: 6),
             if (_error != null)
@@ -527,15 +527,15 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
               const Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator(color: gold, strokeWidth: 2))
             else ...[
               Row(children: [
-                tile(chips(s['hands'] as num), 'Ruke'),
-                tile(p(s['vpip'] as num), 'VPIP', hint: 'Procenat ruku u kojima je dobrovoljno igrao pre flopa'),
-                tile(p(s['pfr'] as num), 'PFR', hint: 'Procenat ruku u kojima je povisio pre flopa'),
+                tile(chips(s['hands'] as num), 'Hands'),
+                tile(p(s['vpip'] as num), 'VPIP', hint: 'Hands where the player voluntarily put chips in preflop'),
+                tile(p(s['pfr'] as num), 'PFR', hint: 'Hands where the player raised preflop'),
               ]),
               Row(children: [
                 tile('${p(s['threeBet'] as num)} (${s['threeBets']}×)', '3-bet',
-                    hint: 'Koliko puta je ponovo povisio na nečije povišenje pre flopa (procenat od prilika)'),
-                tile(p(s['winRate'] as num), 'Dobijene ruke', hint: '${s['won']} od ${s['hands']} ruku'),
-                tile(widget.money(s['biggestPot']), 'Najveći pot', color: goldLight),
+                    hint: 'Re-raises preflop (percent of chances)'),
+                tile(p(s['winRate'] as num), 'Hands won', hint: '${s['won']} of ${s['hands']} hands'),
+                tile(widget.money(s['biggestPot']), 'Biggest pot', color: goldLight),
               ]),
               Container(
                 width: double.infinity,
@@ -543,9 +543,9 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(10)),
                 child: s['bestHand'] == null
-                    ? const Text('Najbolja ruka: još nije pokazao karte', style: TextStyle(color: Colors.white54, fontSize: 12.5))
+                    ? const Text('Best hand: no cards shown yet', style: TextStyle(color: Colors.white54, fontSize: 12.5))
                     : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Najbolja pokazana ruka · otvaranja: ${s['showdowns']}',
+                        Text('Best hand shown · showdowns: ${s['showdowns']}',
                             style: const TextStyle(fontSize: 11, color: Colors.white60, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 6),
                         Row(children: [
@@ -566,7 +566,7 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                 dense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 6),
                 leading: const Icon(Icons.edit_note, color: gold),
-                title: Text(note ?? 'Dodaj belešku o igraču',
+                title: Text(note ?? 'Add a note about this player',
                     maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: note == null ? Colors.white60 : Colors.white)),
                 trailing: const Icon(Icons.chevron_right, color: Colors.white38),
                 onTap: widget.onNote,
@@ -574,7 +574,7 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
             ],
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zatvori')),
+              child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
             ),
           ]),
         ),
@@ -625,7 +625,7 @@ class _WaitPanelState extends State<_WaitPanel> {
         const Icon(Icons.event_seat, color: goldLight),
         const SizedBox(width: 10),
         Expanded(
-          child: Text('Mesto je sačuvano za vas! Dodirnite slobodno mesto da sednete ($left s).',
+          child: Text('A seat is saved for you! Tap an empty seat to sit ($left s).',
               style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800, fontSize: 13.5)),
         ),
       ]);
@@ -634,22 +634,22 @@ class _WaitPanelState extends State<_WaitPanel> {
         const Icon(Icons.hourglass_top, color: gold),
         const SizedBox(width: 10),
         Expanded(
-          child: Text('Na listi čekanja ste: ${st['waitPosition']}. od $waiting. Javićemo vam kad se mesto oslobodi.', style: style),
+          child: Text('Waiting list: you are ${st['waitPosition']} of $waiting. We will let you know when a seat opens.', style: style),
         ),
         TextButton(
           onPressed: () => widget.app.run('table:waitlist', {'tableId': st['id'], 'join': false}),
-          child: const Text('Odjavi se'),
+          child: const Text('Leave list'),
         ),
       ]);
     } else if (full) {
       child = Row(children: [
         Expanded(
-          child: Text(waiting > 0 ? 'Sto je pun · na listi čekanja: $waiting' : 'Sto je pun.', style: style),
+          child: Text(waiting > 0 ? 'Table is full · waiting: $waiting' : 'Table is full.', style: style),
         ),
         SizedBox(
           width: 200,
           child: LuxButton(
-            title: 'Lista čekanja',
+            title: 'Join waiting list',
             icon: Icons.playlist_add,
             height: 42,
             onTap: () => widget.app.run('table:waitlist', {'tableId': st['id'], 'join': true}),
@@ -657,7 +657,7 @@ class _WaitPanelState extends State<_WaitPanel> {
         ),
       ]);
     } else {
-      child = const Text('Dodirnite slobodno mesto da sednete za sto.', style: style);
+      child = const Text('Tap an empty seat to sit down.', style: style);
     }
     return Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 12), child: child);
   }
@@ -672,7 +672,7 @@ class _SoundButton extends StatelessWidget {
     final on = context.select<AppState, bool>((a) => a.soundOn);
     return _RoundIcon(
       icon: on ? Icons.volume_up : Icons.volume_off,
-      tip: on ? 'Isključi zvuk' : 'Uključi zvuk',
+      tip: on ? 'Sound off' : 'Sound on',
       onTap: () => context.read<AppState>().setSound(!on),
     );
   }
@@ -717,7 +717,7 @@ class _UnitToggle extends StatelessWidget {
           color: Colors.black45, borderRadius: BorderRadius.circular(18), border: Border.all(color: gold.withOpacity(0.45))),
       padding: const EdgeInsets.all(3),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        for (final opt in const [(false, 'RSD'), (true, 'BB')])
+        for (final opt in const [(false, 'CHIPS'), (true, 'BB')])
           GestureDetector(
             onTap: () => onToggle(opt.$1),
             child: Container(
@@ -754,7 +754,7 @@ class _TableInfoCard extends StatelessWidget {
         const SizedBox(width: 12),
         Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           Text(omaha ? 'Omaha' : "Texas Hold'em", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-          Text('${omaha ? 'PLO' : 'NLH'} ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
+          Text('${omaha ? 'PLO' : 'NLH'} ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
           Text(st['name'] as String, style: const TextStyle(color: gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
           if (tableExtras(st) != null)
@@ -769,7 +769,7 @@ class _TableInfoCard extends StatelessWidget {
 String? tableExtras(Json t) {
   final parts = <String>[
     if (t['straddle'] == true) 'Straddle',
-    if (((t['bombPotEvery'] as int?) ?? 0) > 0) 'Bomb pot svaka ${t['bombPotEvery']}. ruka',
+    if (((t['bombPotEvery'] as int?) ?? 0) > 0) 'Bomb pot every ${t['bombPotEvery']} hands',
   ];
   return parts.isEmpty ? null : parts.join(' · ');
 }
@@ -805,7 +805,7 @@ class _TopBar extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${omaha ? 'PLO' : 'NLH'} ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
+            Text('${omaha ? 'PLO' : 'NLH'} ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
                 style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
             Text(st['name'] as String,
                 overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: gold, fontWeight: FontWeight.w600)),
@@ -819,7 +819,7 @@ class _TopBar extends StatelessWidget {
         ValueListenableBuilder<int>(
           valueListenable: unread,
           builder: (_, n, __) => Stack(clipBehavior: Clip.none, children: [
-            _RoundIcon(icon: Icons.forum_outlined, tip: 'Igrači, ruke i chat', onTap: onPanel),
+            _RoundIcon(icon: Icons.forum_outlined, tip: 'Players, hands and chat', onTap: onPanel),
             if (n > 0)
               Positioned(
                 right: -2,
@@ -855,21 +855,21 @@ class TableSidePanel extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             child: Row(children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: p['sittingOut'] == true ? Colors.white24 : online),
-              ),
-              const SizedBox(width: 10),
               Expanded(
                   child: Text(p['name'] as String,
-                      overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.w600, color: p['sittingOut'] == true ? Colors.white38 : null))),
+              if (p['sittingOut'] == true)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Text('SIT OUT', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white38)),
+                ),
               Text(money(p['stack']), style: const TextStyle(fontWeight: FontWeight.w700)),
             ]),
           ),
         if (players.isEmpty)
           const Padding(
-              padding: EdgeInsets.all(16), child: Text('Niko ne sedi za stolom.', style: TextStyle(color: Colors.white54))),
+              padding: EdgeInsets.all(16), child: Text('No one is seated.', style: TextStyle(color: Colors.white54))),
       ],
     );
     Widget tabs(List<String> labels) => Container(
@@ -893,7 +893,7 @@ class TableSidePanel extends StatelessWidget {
             child: DefaultTabController(
               length: 2,
               child: Column(children: [
-                tabs(['Igrači (${players.length})', 'Ruke']),
+                tabs(['Players (${players.length})', 'Ruke']),
                 Expanded(
                   child: TabBarView(children: [playersList, HandHistoryTabs(tableId: st['id'] as String, table: table)]),
                 ),
@@ -927,7 +927,7 @@ class TableSidePanel extends StatelessWidget {
       length: 3,
       child: Column(children: [
         const Padding(padding: EdgeInsets.only(top: 12), child: TrilingLogo(size: 22)),
-        tabs(['Igrači (${players.length})', 'Ruke', 'Chat']),
+        tabs(['Players (${players.length})', 'Ruke', 'Chat']),
         Expanded(
           child: TabBarView(children: [
             playersList,
@@ -1691,7 +1691,7 @@ class _TableViewState extends State<_TableView> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 GoldText('RUN IT TWICE?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: widget.wide ? 15 : 12.5, letterSpacing: 1)),
                 Text(
-                  'Pristalo: ${(st['ritYes'] as List).length} od ${(st['ritAsk'] as List).length}',
+                  'Agreed: ${(st['ritYes'] as List).length} od ${(st['ritAsk'] as List).length}',
                   style: TextStyle(fontSize: widget.wide ? 12 : 10.5, color: Colors.white70),
                 ),
               ]),
@@ -1712,7 +1712,7 @@ class _TableViewState extends State<_TableView> {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: gold.withOpacity(0.7)),
               ),
-              child: Text(st['bombPot'] == true ? '💣 BOMB POT' : '💣 Sledeća ruka: BOMB POT',
+              child: Text(st['bombPot'] == true ? '💣 BOMB POT' : '💣 Next hand: BOMB POT',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: widget.wide ? 13 : 11, letterSpacing: 1)),
             ),
           ),
@@ -1725,7 +1725,7 @@ class _TableViewState extends State<_TableView> {
           child: Center(
             child: result != null
                 ? _ResultText(result: result, money: money)
-                : const Text('Sto se zatvara posle ove ruke.', style: TextStyle(color: gold, fontSize: 12)),
+                : const Text('Table closes after this hand.', style: TextStyle(color: gold, fontSize: 12)),
           ),
         ),
     ];
@@ -1752,7 +1752,7 @@ class _TableViewState extends State<_TableView> {
               ),
               child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Icon(Icons.keyboard_double_arrow_down, size: 16, color: Colors.white70),
-                Text('Sedi', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                Text('Sit', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
               ]),
             ),
           ),
@@ -1969,9 +1969,9 @@ class _FeltInfo extends StatelessWidget {
       if (!logoOnly) ...[
       const SizedBox(height: 6),
       Text(st['name'] as String, style: faint.copyWith(fontWeight: FontWeight.w700)),
-      Text('${omaha ? 'Omaha pot-limit' : "Hold'em no-limit"} · Blind ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} RSD',
+      Text('${omaha ? 'Omaha pot-limit' : "Hold'em no-limit"} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
           style: faint),
-      Text('Ante ${chips(st['ante'] ?? 0)} RSD · Ulaz ${chips(st['minBuyIn'])} – ${rsd(st['maxBuyIn'])}', style: faint),
+      Text('Ante ${chips(st['ante'] ?? 0)} · Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
       ],
     ]);
   }
@@ -1992,9 +1992,9 @@ class _ResultText extends StatelessWidget {
       final names = (p['winners'] as List).map((w) => w['name']).join(' i ');
       // Run it twice: svaki pot ima polovinu za 1. i 2. sto.
       final prefix = twice
-          ? '${p['run']}. sto: '
+          ? 'Board ${p['run']}: '
           : pots.length > 1
-              ? (k == 0 ? 'Glavni: ' : 'Sporedni: ')
+              ? (k == 0 ? 'Main: ' : 'Side: ')
               : '';
       lines.add('$prefix$names +${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
     }
@@ -2073,11 +2073,11 @@ class _SeatView extends StatelessWidget {
     } else if (act != null && !acting) {
       tag = actLabel(act, money);
     } else if (seat['leaving'] == true) {
-      tag = (label: 'USTAJE', color: const Color(0xFF2B2F38));
+      tag = (label: 'LEAVING', color: const Color(0xFF2B2F38));
     } else if (away) {
-      tag = (label: 'PAUZA', color: const Color(0xFF2B2F38));
+      tag = (label: 'SIT OUT', color: const Color(0xFF2B2F38));
     } else if (seat['stack'] == 0 && seat['inHand'] != true) {
-      tag = (label: 'PRAZAN STEK', color: const Color(0xFF2B2F38));
+      tag = (label: 'NO CHIPS', color: const Color(0xFF2B2F38));
     }
 
     // Karte preko gornjeg dela avatara: svoje i otvorene licem, tuđe poleđinom.
@@ -2154,12 +2154,6 @@ class _SeatView extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: big ? 13.5 : 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
         Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: big ? 9 : 7,
-            height: big ? 9 : 7,
-            margin: const EdgeInsets.only(right: 5),
-            decoration: BoxDecoration(shape: BoxShape.circle, color: seat['sittingOut'] == true ? Colors.white24 : online),
-          ),
           seat['allIn'] == true
               ? Text('ALL-IN', style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 15 : 12, color: accent))
               : GoldText(money(seat['stack']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 16 : 12)),
@@ -2287,7 +2281,7 @@ class _MyPanel extends StatelessWidget {
           Icon(Icons.filter_2, color: goldLight, size: 20),
           SizedBox(width: 8),
           Expanded(
-            child: Text('Run it twice? Karte se dele dva puta, a pot deli na pola (ako svi pristanu).',
+            child: Text('Run it twice? The board is dealt twice and the pot is split (if everyone agrees).',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           ),
         ]),
@@ -2303,9 +2297,9 @@ class _MyPanel extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Row(children: [
-          Expanded(child: LuxButton(title: 'NE', height: h, gradient: redGradient, onTap: () => answer(false))),
+          Expanded(child: LuxButton(title: 'NO', height: h, gradient: redGradient, onTap: () => answer(false))),
           const SizedBox(width: 10),
-          Expanded(child: LuxButton(title: 'DA, dva puta', icon: Icons.filter_2, height: h, onTap: () => answer(true))),
+          Expanded(child: LuxButton(title: 'YES, twice', icon: Icons.filter_2, height: h, onTap: () => answer(true))),
         ]),
       ]);
     } else if (legal != null) {
@@ -2323,13 +2317,13 @@ class _MyPanel extends StatelessWidget {
       );
     } else if (me['sittingOut'] == true) {
       bottom = LuxButton(
-        title: 'Vrati se u igru',
+        title: "I'm back",
         icon: Icons.play_arrow,
         height: h,
         onTap: () => app.run('table:sitout', {'tableId': tableId, 'value': false}),
       );
     } else if (me['stack'] == 0 && me['inHand'] != true) {
-      bottom = LuxButton(title: 'Dopuni', icon: Icons.add_circle, height: h, onTap: onTopUp);
+      bottom = LuxButton(title: 'Rebuy', icon: Icons.add_circle, height: h, onTap: onTopUp);
     } else if (inHand && me['allIn'] != true) {
       // Potez unapred, kao u velikim poker aplikacijama.
       bottom = Row(children: [
@@ -2356,7 +2350,7 @@ class _MyPanel extends StatelessWidget {
         )
       else if (bottom == null)
         Text(
-          st['inProgress'] == true ? (inHand ? 'Čeka se potez…' : 'Igrate od sledeće ruke.') : 'Sledeća ruka uskoro počinje…',
+          st['inProgress'] == true ? (inHand ? 'Waiting…' : 'You play from the next hand') : 'Next hand starting…',
           style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
       const Spacer(),
@@ -2457,10 +2451,10 @@ class _ChipsDialogState extends State<ChipsDialog> {
         children: [
           Text(widget.info, style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 4),
-          Text('Na nalogu: ${rsd(widget.balance)}', style: const TextStyle(color: Colors.white70)),
+          Text('Account: ${rsd(widget.balance)}', style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 16),
           if (!enough)
-            Text('Nemate dovoljno na nalogu (potrebno bar ${rsd(widget.min)}). Javite se svom agentu za uplatu.',
+            Text('Not enough on your account (at least ${rsd(widget.min)} needed). Contact your agent for a deposit.',
                 style: const TextStyle(color: Color(0xFFFF8A80)))
           else ...[
             Center(child: Text(rsd(_value), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold))),
@@ -2482,7 +2476,7 @@ class _ChipsDialogState extends State<ChipsDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Otkaži')),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
           style: FilledButton.styleFrom(minimumSize: const Size(100, 44)),
           onPressed: enough ? () => Navigator.pop(context, _value) : null,

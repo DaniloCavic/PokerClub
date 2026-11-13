@@ -500,7 +500,7 @@ class _TableTile extends StatelessWidget {
                   ],
                 ]),
                 Text(
-                  '${omaha ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit"} · Blind ${chips(t['smallBlind'])}/${chips(t['bigBlind'])} RSD',
+                  '${omaha ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit"} · Blinds ${chips(t['smallBlind'])}/${chips(t['bigBlind'])}',
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
                 const SizedBox(height: 3),

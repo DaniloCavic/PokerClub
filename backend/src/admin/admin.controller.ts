@@ -48,7 +48,7 @@ export class AdminController {
 
   /** Obaveštenje svim igračima na telefon: novi sto je otvoren, ili je zakazan za kasnije. */
   private announceTable(t: { id: string; name: string; variant: string; smallBlind: number; bigBlind: number; opensAt: Date | null }) {
-    const game = `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} RSD`;
+    const game = `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind}`;
     const later = t.opensAt && t.opensAt.getTime() > Date.now();
     void this.push
       .toAllPlayers(

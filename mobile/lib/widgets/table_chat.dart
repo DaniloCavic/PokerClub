@@ -61,7 +61,7 @@ class _ChatSheetState extends State<TableChatView> {
         Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
         const Padding(
           padding: EdgeInsets.all(10),
-          child: Text('Chat stola', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          child: Text('Table chat', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         ),
       ],
       Expanded(
@@ -69,7 +69,7 @@ class _ChatSheetState extends State<TableChatView> {
           valueListenable: app.chatOf(widget.tableId),
           builder: (_, msgs, __) {
             if (msgs.isEmpty) {
-              return const Center(child: Text('Još nema poruka. Pozdravite sto!', style: TextStyle(color: Colors.white54)));
+              return const Center(child: Text('No messages yet. Say hi!', style: TextStyle(color: Colors.white54)));
             }
             return ListView.builder(
               reverse: true,
@@ -141,7 +141,7 @@ class _ChatSheetState extends State<TableChatView> {
                 maxLength: 200,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _send(),
-                decoration: const InputDecoration(hintText: 'Poruka…', counterText: ''),
+                decoration: const InputDecoration(hintText: 'Message…', counterText: ''),
               ),
             ),
             IconButton(onPressed: _sending ? null : _send, icon: const Icon(Icons.send, color: accent)),

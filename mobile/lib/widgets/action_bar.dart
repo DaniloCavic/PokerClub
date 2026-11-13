@@ -220,7 +220,7 @@ class _ActionBarState extends State<ActionBar> {
                 filled: true,
                 fillColor: Colors.black38,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                suffixText: _m.inBB ? 'BB' : 'RSD',
+                suffixText: _m.inBB ? 'BB' : null,
                 suffixStyle: const TextStyle(fontSize: 12, color: Colors.white60, fontWeight: FontWeight.w700),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: gold.withOpacity(0.35))),
                 enabledBorder:

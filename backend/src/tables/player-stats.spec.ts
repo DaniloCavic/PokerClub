@@ -73,7 +73,7 @@ describe('statistika igrača za stolom', () => {
     expect(ana.won).toBe(2);
     expect(ana.winRate).toBe(40);
     expect(ana.biggestPot).toBe(160);
-    expect(ana.bestHand?.name).toBe('Visoka karta A');
+    expect(ana.bestHand?.name).toBe('High card A');
 
     const ceca = playerStats('ceca', hands, 'HOLDEM');
     expect(ceca.vpip).toBe(25); // samo all-in dorovnavanje; BB check se ne računa
@@ -89,7 +89,7 @@ describe('statistika igrača za stolom', () => {
     // Prilike: ruka 1 (call), ruka 5 (3-bet), ruka 4 (fold) → 1 od 3
     expect(bojan.threeBets).toBe(1);
     expect(bojan.threeBet).toBe(33.3);
-    expect(bojan.bestHand?.name).toBe('Triling K');
+    expect(bojan.bestHand?.name).toBe('Three of a kind K');
     expect(bojan.showdowns).toBe(1);
   });
 

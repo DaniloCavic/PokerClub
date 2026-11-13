@@ -10,8 +10,8 @@ String chips(num? n) {
   return v < 0 ? '-$buf' : buf.toString();
 }
 
-/// Iznos u dinarima: 12500 → "12.500 RSD"
-String rsd(num? n) => '${chips(n)} RSD';
+/// Iznos u žetonima, samo broj (bez oznake valute): 12500 → "12.500"
+String rsd(num? n) => chips(n);
 
 String variantName(String v) => v == 'OMAHA' ? 'Omaha' : "Hold'em";
 String variantLong(String v) => v == 'OMAHA' ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit";
