@@ -18,7 +18,19 @@ import 'home_shell.dart';
 typedef Json = Map<String, dynamic>;
 
 /// Potez izabran unapred, dok igrač još nije na redu.
-enum PreAction { checkFold, callAny }
+/// Potez unapred (štiklira se pre nego što igrač dođe na red), kao na GG.
+/// Bez uloga za dorovnavanje: Check/Fold, Check, Call any. Sa ulogom: Fold, Call X, Call any.
+enum PreAction { checkFold, check, fold, call, callAny }
+
+/// Koliko igrač treba da doplati da bi dorovnao (0 = može check).
+int toCallOf(Json st) {
+  final mySeat = st['mySeat'] as int;
+  if (mySeat < 0) return 0;
+  final seats = (st['seats'] as List).cast<Json?>();
+  final me = seats[mySeat]!;
+  final top = seats.fold<int>(0, (m, x) => x == null ? m : max(m, x['bet'] as int));
+  return min(top - (me['bet'] as int), me['stack'] as int).clamp(0, 1 << 31);
+}
 
 class TableScreen extends StatefulWidget {
   final String tableId;
@@ -33,6 +45,8 @@ class _TableScreenState extends State<TableScreen> {
   Timer? _ticker;
   PreAction? _pre;
   int _preHand = -1;
+  /// Za "Call X": iznos koji je igrač izabrao (ako se promeni, izbor se poništava).
+  int _preCall = 0;
   bool _sending = false;
 
   /// Sakrivene karte su privremeno otkrivene (dodir na svoje karte).
@@ -76,11 +90,32 @@ class _TableScreenState extends State<TableScreen> {
       return;
     }
     final legal = st['legal'] as Json?;
-    if (legal == null) return;
+    if (legal == null) {
+      // Još nismo na redu: neko je povisio → Check/Fold postaje Fold, Check i Call X se poništavaju.
+      final toCall = toCallOf(st);
+      final p = _pre!;
+      PreAction? next = p;
+      if (toCall > 0 && p == PreAction.checkFold) next = PreAction.fold;
+      if (toCall > 0 && p == PreAction.check) next = null;
+      if (p == PreAction.call && toCall != _preCall) next = null;
+      if (toCall == 0 && p == PreAction.fold) next = PreAction.checkFold;
+      if (next != p) setState(() => _pre = next);
+      return;
+    }
     final pre = _pre!;
     _pre = null;
     final canCheck = legal['check'] == true;
-    final action = canCheck ? 'check' : (pre == PreAction.callAny ? 'call' : 'fold');
+    final call = legal['call'] as int;
+    final String? action = switch (pre) {
+      PreAction.checkFold || PreAction.fold => canCheck ? 'check' : 'fold',
+      PreAction.check => canCheck ? 'check' : null,
+      PreAction.call => !canCheck && call == _preCall ? 'call' : (canCheck ? 'check' : null),
+      PreAction.callAny => canCheck ? 'check' : 'call',
+    };
+    if (action == null) {
+      setState(() {});
+      return;
+    }
     _sending = true;
     app.run('table:act', {'tableId': widget.tableId, 'action': action}).whenComplete(() => _sending = false);
   }
@@ -101,6 +136,7 @@ class _TableScreenState extends State<TableScreen> {
     setState(() {
       _pre = _pre == p ? null : p;
       _preHand = st['handNo'] as int;
+      _preCall = toCallOf(st);
     });
   }
 
@@ -1216,12 +1252,10 @@ class _Layout {
 
   Offset dealer(int i) {
     final p = seat(i);
-    // Dugme dilera odmah pored slike igrača (levo od avatara).
-    if (i == mySeat) return Offset(p.dx - myAvatar / 2 - 16, myTop(p) + myAvatar * 0.55);
+    // Oznaka D je u gornjem levom uglu pločice (pločica je već zauzeta mesta).
+    if (i == mySeat) return Offset(p.dx - (wide ? 64 : 52), myTop(p) + myAvatar);
     final a = wide ? 64.0 : 48.0;
-    // Sa strane avatara koja je okrenuta ka sredini stola (da ne ispadne van ekrana).
-    final side = p.dx < center.dx - 10 ? 1.0 : -1.0;
-    return Offset(p.dx + side * (a / 2 + 14), p.dy + a * 0.15);
+    return Offset(p.dx - (wide ? 64 : 52), p.dy + a / 2);
   }
 }
 
@@ -1981,6 +2015,12 @@ class _TableViewState extends State<_TableView> {
           timeBankLeft: bankLeft,
           best: best,
           money: money,
+          // D, SB, BB u gornjem levom uglu pločice
+          badges: [
+            if (st['button'] == i) 'D',
+            if (st['inProgress'] == true && st['sbSeat'] == i) 'SB',
+            if (st['inProgress'] == true && st['bbSeat'] == i) 'BB',
+          ],
           equity: equityOf(i),
           equityLeader: equityOf(i) != null && equityOf(i) == maxEquity,
           handName: (result?['shown'] as List?)
@@ -1988,31 +2028,6 @@ class _TableViewState extends State<_TableView> {
               .where((x) => x['seat'] == i)
               .map((x) => x['handName'] as String)
               .firstOrNull,
-        ),
-      ));
-    }
-
-    // Dugme dilera klizi do sledećeg dilera.
-    final button = st['button'] as int? ?? -1;
-    if (button >= 0 && button < n && seats[button] != null) {
-      final d = lay.dealer(button);
-      overlays.add(AnimatedPositioned(
-        key: const ValueKey('dealer-button'),
-        duration: const Duration(milliseconds: 600),
-        curve: Curves.easeInOut,
-        left: d.dx - 10,
-        top: d.dy - 10,
-        child: Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: gold, width: 2),
-            boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 3)],
-          ),
-          alignment: Alignment.center,
-          child: const Text('D', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10)),
         ),
       ));
     }
@@ -2167,6 +2182,9 @@ class _SeatView extends StatelessWidget {
   final int? timeBankLeft;
   final String? handName;
 
+  /// Oznake D / SB / BB (gornji levi ugao pločice).
+  final List<String> badges;
+
   /// All-in: šansa za pobedu u procentima (i da li je najveća za stolom).
   final double? equity;
   final bool equityLeader;
@@ -2190,6 +2208,7 @@ class _SeatView extends StatelessWidget {
     this.handName,
     this.equity,
     this.equityLeader = false,
+    this.badges = const [],
   });
 
   @override
@@ -2217,7 +2236,7 @@ class _SeatView extends StatelessWidget {
       tag = (label: 'WIN +${money(won)}', color: gold);
     } else if (handName != null) {
       tag = (label: handName!, color: Colors.black87);
-    } else if (act != null && !acting) {
+    } else if (act != null && !acting && !const ['sb', 'bb', 'ante'].contains(act['type'])) {
       tag = actLabel(act, money);
     } else if (seat['leaving'] == true) {
       tag = (label: 'LEAVING', color: const Color(0xFF2B2F38));
@@ -2345,7 +2364,38 @@ class _SeatView extends StatelessWidget {
             ]),
           ),
         ),
-        Transform.translate(offset: const Offset(0, -6), child: plate),
+        Transform.translate(
+          offset: const Offset(0, -6),
+          child: badges.isEmpty
+              ? plate
+              : Stack(clipBehavior: Clip.none, children: [
+                  plate,
+                  Positioned(
+                    left: -7,
+                    top: -9,
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      for (final b in badges)
+                        Container(
+                          margin: const EdgeInsets.only(right: 2),
+                          padding: EdgeInsets.symmetric(horizontal: b == 'D' ? 0 : 4),
+                          constraints: BoxConstraints(minWidth: big ? 20 : 17, minHeight: big ? 20 : 17),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: b == 'D' ? Colors.white : const Color(0xFF2B2F38),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: b == 'D' ? gold : Colors.white38, width: 1.5),
+                            boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 3)],
+                          ),
+                          child: Text(b,
+                              style: TextStyle(
+                                  color: b == 'D' ? Colors.black : Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: big ? 10.5 : 9)),
+                        ),
+                    ]),
+                  ),
+                ]),
+        ),
         if (tag != null)
           Transform.translate(
             offset: const Offset(0, -4),
@@ -2476,15 +2526,22 @@ class _MyPanel extends StatelessWidget {
     } else if (me['stack'] == 0 && me['inHand'] != true) {
       bottom = null; // umesto dugmeta iskače prozor Rebuy / Leave table (vidi _RebuyDialog)
     } else if (inHand && me['allIn'] != true) {
-      // Potez unapred, kao u velikim poker aplikacijama.
+      // Potez unapred, kao na GG: zavisi od toga da li ima uloga za dorovnavanje.
+      final toCall = toCallOf(st);
+      Widget b(String label, PreAction a) =>
+          Expanded(child: _PreButton(label: label, selected: pre == a, onTap: () => onPre(a), height: h));
       bottom = Row(children: [
-        Expanded(
-            child: _PreButton(
-                label: 'Check / Fold', selected: pre == PreAction.checkFold, onTap: () => onPre(PreAction.checkFold), height: h)),
+        if (toCall == 0) ...[
+          b('Check / Fold', PreAction.checkFold),
+          const SizedBox(width: 8),
+          b('Check', PreAction.check),
+        ] else ...[
+          b('Fold', PreAction.fold),
+          const SizedBox(width: 8),
+          b('Call ${money(toCall)}', PreAction.call),
+        ],
         const SizedBox(width: 8),
-        Expanded(
-            child: _PreButton(
-                label: 'Call any', selected: pre == PreAction.callAny, onTap: () => onPre(PreAction.callAny), height: h)),
+        b('Call any', PreAction.callAny),
       ]);
     }
 
