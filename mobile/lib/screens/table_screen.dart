@@ -2703,10 +2703,10 @@ class _ChipsDialogState extends State<ChipsDialog> {
           Text('Account: ${rsd(widget.balance)}', style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 16),
           if (!enough)
-            Text('Not enough on your account (at least ${rsd(widget.min)} needed). Contact your agent for a deposit.',
+            Text('Not enough on your account (at least ${chips(widget.min)} needed). Contact your agent for a deposit.',
                 style: const TextStyle(color: Color(0xFFFF8A80)))
           else ...[
-            Center(child: Text(rsd(_value), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold))),
+            Center(child: Text(chips(_value), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold))),
             if (_top > widget.min)
               Slider(
                 min: widget.min.toDouble(),
@@ -2717,8 +2717,8 @@ class _ChipsDialogState extends State<ChipsDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton(onPressed: () => setState(() => _value = widget.min), child: Text('Min ${rsd(widget.min)}')),
-                TextButton(onPressed: () => setState(() => _value = _top), child: Text('Max ${rsd(_top)}')),
+                TextButton(onPressed: () => setState(() => _value = widget.min), child: Text('Min ${chips(widget.min)}')),
+                TextButton(onPressed: () => setState(() => _value = _top), child: Text('Max ${chips(_top)}')),
               ],
             ),
           ],

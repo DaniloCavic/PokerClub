@@ -236,7 +236,7 @@ class _ActionBarState extends State<ActionBar> {
             ),
           ),
           const SizedBox(height: 2),
-          Text(_m.inBB ? rsd(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
+          Text(_m.inBB ? chips(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
               style: const TextStyle(fontSize: 10.5, color: Colors.white54)),
         ]),
       ),

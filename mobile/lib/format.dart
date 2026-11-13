@@ -10,8 +10,8 @@ String chips(num? n) {
   return v < 0 ? '-$buf' : buf.toString();
 }
 
-/// Iznos u žetonima, samo broj (bez oznake valute): 12500 → "12.500"
-String rsd(num? n) => chips(n);
+/// Iznos na nalogu (van stola): 12500 → "12.500 RSD". Za stolom se piše samo broj (vidi Money).
+String rsd(num? n) => '${chips(n)} RSD';
 
 String variantName(String v) => v == 'OMAHA' ? 'Omaha' : "Hold'em";
 String variantLong(String v) => v == 'OMAHA' ? 'Omaha · pot-limit' : "Texas Hold'em · no-limit";
@@ -38,7 +38,8 @@ class Money {
 
   String call(num? v) {
     final n = (v ?? 0);
-    if (!inBB || bb <= 0) return rsd(n);
+    // Za stolom: samo broj (bez RSD), ili u BB.
+    if (!inBB || bb <= 0) return chips(n);
     return '${bbNumber(n / bb)} BB';
   }
 }
