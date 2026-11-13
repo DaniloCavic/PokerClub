@@ -2074,8 +2074,11 @@ class _SeatView extends StatelessWidget {
       tag = actLabel(act, money);
     } else if (seat['leaving'] == true) {
       tag = (label: 'LEAVING', color: const Color(0xFF2B2F38));
-    } else if (away) {
+    } else if (away && (seat['stack'] as int) > 0) {
+      // Na pauzi sa žetonima: ispod žetona piše SIT OUT (bez žetona piše na pločici umesto broja).
       tag = (label: 'SIT OUT', color: const Color(0xFF2B2F38));
+    } else if (away) {
+      tag = null;
     } else if (seat['stack'] == 0 && seat['inHand'] != true) {
       tag = (label: 'NO CHIPS', color: const Color(0xFF2B2F38));
     }
@@ -2154,9 +2157,12 @@ class _SeatView extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: big ? 13.5 : 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
         Row(mainAxisSize: MainAxisSize.min, children: [
-          seat['allIn'] == true
-              ? Text('ALL-IN', style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 15 : 12, color: accent))
-              : GoldText(money(seat['stack']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 16 : 12)),
+          if (seat['allIn'] == true)
+            Text('ALL-IN', style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 15 : 12, color: accent))
+          else if (away && seat['stack'] == 0)
+            Text('SIT OUT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 15 : 12, color: Colors.white70))
+          else
+            GoldText(money(seat['stack']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 16 : 12)),
         ]),
         // Traka vremena za potez ispod steka
         if (acting)
