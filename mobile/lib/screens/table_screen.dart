@@ -147,13 +147,19 @@ class _TableScreenState extends State<TableScreen> {
           child: Scaffold(
             key: _scaffold,
             backgroundColor: bg,
+            // Tastatura (chat u panelu) ne sme da skupi sto; panel se sam pomera iznad nje.
+            resizeToAvoidBottomInset: false,
             // Telefon: igrači, ruke i chat u panelu koji se izvlači sa desne strane.
             endDrawer: st == null || wide
                 ? null
                 : Drawer(
                     width: min(380, MediaQuery.of(context).size.width * 0.88),
                     backgroundColor: const Color(0xFF0E0B09),
-                    child: SafeArea(child: TableSidePanel(st: st, table: app.tableNotifier(widget.tableId), money: money)),
+                    // Kad se otvori tastatura (chat), panel se skupi iznad nje da se vidi šta se kuca.
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+                      child: SafeArea(child: TableSidePanel(st: st, table: app.tableNotifier(widget.tableId), money: money)),
+                    ),
                   ),
             onEndDrawerChanged: (open) {
               app.openChat = open ? widget.tableId : null;
@@ -893,7 +899,7 @@ class TableSidePanel extends StatelessWidget {
             child: DefaultTabController(
               length: 2,
               child: Column(children: [
-                tabs(['Players (${players.length})', 'Ruke']),
+                tabs(['Players (${players.length})', 'Hands']),
                 Expanded(
                   child: TabBarView(children: [playersList, HandHistoryTabs(tableId: st['id'] as String, table: table)]),
                 ),
@@ -927,7 +933,7 @@ class TableSidePanel extends StatelessWidget {
       length: 3,
       child: Column(children: [
         const Padding(padding: EdgeInsets.only(top: 12), child: TrilingLogo(size: 22)),
-        tabs(['Players (${players.length})', 'Ruke', 'Chat']),
+        tabs(['Players (${players.length})', 'Hands', 'Chat']),
         Expanded(
           child: TabBarView(children: [
             playersList,
