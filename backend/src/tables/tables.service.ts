@@ -33,6 +33,8 @@ interface Runtime {
   startStacks: Record<number, number>;
   lastResult: ReturnType<TablesService['resultView']> | null;
   sitOutSince: Map<string, number>;
+  /** Igrač je ostao bez žetona: rok za rebuy (posle toga ustaje i oslobađa mesto). */
+  rebuy: Map<string, { until: number; timer: NodeJS.Timeout }>;
   /** Sto se zatvara posle ruke koja je u toku. */
   closing: boolean;
   /** Poslednje poruke u chatu stola (samo u memoriji). */
@@ -56,6 +58,9 @@ const RUNOUT_STREET_MS = 2000;
 
 /** Koliko igrači imaju vremena da odluče o run it twice. */
 const RIT_MS = Number(process.env.RIT_MS || 10_000);
+
+/** Koliko vremena igrač bez žetona ima za rebuy pre nego što ustane. */
+const REBUY_MS = Number(process.env.REBUY_MS || 120_000);
 
 /** Koliko dugo se mesto čuva za igrača sa liste čekanja. */
 const RESERVE_MS = Number(process.env.WAITLIST_RESERVE_MS || 45_000);
@@ -162,6 +167,7 @@ export class TablesService implements OnModuleInit {
       startStacks: {},
       lastResult: null,
       sitOutSince: new Map(),
+      rebuy: new Map(),
       closing: false,
       chat: [],
       waitlist: [],
@@ -371,6 +377,7 @@ export class TablesService implements OnModuleInit {
       waitlist: rt.waitlist.map((w) => w.name),
       onWaitlist: !!userId && rt.waitlist.some((w) => w.userId === userId),
       waitPosition: userId ? rt.waitlist.findIndex((w) => w.userId === userId) + 1 : 0,
+      rebuyUntil: userId ? (rt.rebuy.get(userId)?.until ?? null) : null,
       reservedForMe: rt.reservation && rt.reservation.userId === userId ? rt.reservation.until : null,
       // Svi potezi u ruci koja je u toku (spisak na stolu i istorija ruke).
       actions: g.actions,
@@ -532,6 +539,7 @@ export class TablesService implements OnModuleInit {
       }
       s.stack += amount;
       if (!s.sittingOut) rt.sitOutSince.delete(userId);
+      this.clearRebuy(rt, userId);
       await this.balanceChanged(userId);
       await this.afterChange(rt);
       return {};
@@ -614,6 +622,8 @@ export class TablesService implements OnModuleInit {
     clearTimeout(rt.turnTimer);
     clearTimeout(rt.openTimer);
     clearTimeout(rt.ritTimer);
+    for (const r of rt.rebuy.values()) clearTimeout(r.timer);
+    rt.rebuy.clear();
     if (rt.reservation) clearTimeout(rt.reservation.timer);
     rt.reservation = null;
     rt.waitlist = [];
@@ -805,7 +815,10 @@ export class TablesService implements OnModuleInit {
       const s = g.seats[i];
       if (s?.leaving) await this.standUp(rt, i);
       // Igrač bez žetona ima vremena da dopuni; posle toga ustaje kao i onaj koji ne igra.
-      else if (s && s.stack === 0 && !rt.sitOutSince.has(s.userId)) rt.sitOutSince.set(s.userId, Date.now());
+      else if (s && s.stack === 0) {
+        if (!rt.sitOutSince.has(s.userId)) rt.sitOutSince.set(s.userId, Date.now());
+        this.startRebuy(rt, s.userId);
+      }
     }
     if (rt.closing) await this.shutdown(rt);
   }
@@ -849,10 +862,43 @@ export class TablesService implements OnModuleInit {
     const s = rt.game.seats[index]!;
     rt.game.stand(index);
     rt.sitOutSince.delete(s.userId);
+    this.clearRebuy(rt, s.userId);
     await this.cashOutRow(rt.table.id, s.userId, undefined, s.stack);
     await this.balanceChanged(s.userId);
     if (!rt.closing) this.offerSeat(rt);
     this.lobbyChanged();
+  }
+
+  // ---------- Rebuy posle gubitka svih žetona ----------
+
+  /** Igrač bez žetona ima REBUY_MS da dopuni; ako ne dopuni, ustaje i oslobađa mesto. */
+  private startRebuy(rt: Runtime, userId: string) {
+    if (rt.rebuy.has(userId)) return;
+    const until = Date.now() + REBUY_MS;
+    const timer = setTimeout(() => {
+      void this.exclusive(rt, async () => {
+        rt.rebuy.delete(userId);
+        const i = rt.game.seatOf(userId);
+        const s = i >= 0 ? rt.game.seats[i] : null;
+        if (!s || s.stack > 0 || (rt.game.inProgress && s.inHand)) return;
+        this.server?.to(`user:${userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Vreme za rebuy je isteklo, mesto je oslobođeno.' });
+        await this.standUp(rt, i);
+        await this.broadcast(rt);
+      }).catch((e) => this.log.error(e));
+    }, REBUY_MS);
+    rt.rebuy.set(userId, { until, timer });
+    this.nudge(userId, {
+      title: 'Ostali ste bez žetona',
+      body: `Sto „${rt.table.name}“ — dopunite ili ustanite u roku od ${Math.round(REBUY_MS / 60000)} min.`,
+      tableId: rt.table.id,
+      tag: `turn-${rt.table.id}`,
+    });
+  }
+
+  private clearRebuy(rt: Runtime, userId: string) {
+    const r = rt.rebuy.get(userId);
+    if (r) clearTimeout(r.timer);
+    rt.rebuy.delete(userId);
   }
 
   // ---------- Izbor igrača i lista čekanja ----------

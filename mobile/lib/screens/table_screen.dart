@@ -69,6 +69,7 @@ class _TableScreenState extends State<TableScreen> {
   void _onState() {
     final st = app.tableNotifier(widget.tableId).value;
     if (st != null) _autoRebuy(st);
+    if (st != null) _maybeRebuyDialog(st);
     if (st == null || _pre == null || _sending) return;
     if (st['handNo'] != _preHand) {
       setState(() => _pre = null);
@@ -282,6 +283,34 @@ class _TableScreenState extends State<TableScreen> {
     );
   }
 
+  /// Ostali ste bez žetona: prozor Rebuy / Leave table sa tajmerom (2 min), jednom po isteku.
+  int? _rebuyShown;
+  void _maybeRebuyDialog(Json st) {
+    final until = st['rebuyUntil'] as int?;
+    if (until == null || until == _rebuyShown || !mounted) return;
+    _rebuyShown = until;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final choice = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _RebuyDialog(until: until, app: app, tableId: widget.tableId),
+      );
+      if (!mounted) return;
+      final now = app.tableNotifier(widget.tableId).value;
+      if (choice == 'rebuy' && now != null && (now['mySeat'] as int) >= 0) {
+        await _topUp(now, (now['seats'] as List)[now['mySeat'] as int] as Json);
+        // Ako nije dopunio, prozor se ponovo pojavi dok rok ne istekne.
+        final after = app.tableNotifier(widget.tableId).value;
+        if (after?['rebuyUntil'] == until) _rebuyShown = null;
+        if (after != null) _maybeRebuyDialog(after);
+      } else if (choice == 'leave') {
+        await app.run('table:leave', {'tableId': widget.tableId});
+        if (mounted) Navigator.of(context).maybePop();
+      }
+    });
+  }
+
   /// Mali prozor na sredini ekrana: statistika igrača za ovim stolom (i beleška za druge igrače).
   void _playerInfo(Json st, Json seat) {
     final isMe = seat['userId'] == app.user?['id'];
@@ -443,6 +472,78 @@ class _TableScreenState extends State<TableScreen> {
     );
     if (amount == null) return;
     await app.run('table:topup', {'tableId': widget.tableId, 'amount': amount});
+  }
+}
+
+/// Prozor kad igrač ostane bez žetona: Rebuy ili Leave table, sa odbrojavanjem.
+/// Kad vreme istekne, server podiže igrača sa stola i oslobađa mesto.
+class _RebuyDialog extends StatefulWidget {
+  final int until;
+  final AppState app;
+  final String tableId;
+  const _RebuyDialog({required this.until, required this.app, required this.tableId});
+
+  @override
+  State<_RebuyDialog> createState() => _RebuyDialogState();
+}
+
+class _RebuyDialogState extends State<_RebuyDialog> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (!mounted) return;
+      final st = widget.app.tableNotifier(widget.tableId).value;
+      // Dopunio je (npr. na drugom uređaju), ustao ili je vreme isteklo: prozor se zatvara.
+      if (st == null || st['rebuyUntil'] != widget.until || widget.app.serverNow > widget.until + 1500) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = ((widget.until - widget.app.serverNow) / 1000).ceil().clamp(0, 999);
+    final total = ((widget.until - widget.app.serverNow) / 120000).clamp(0.0, 1.0);
+    return Dialog(
+      backgroundColor: const Color(0xFF15110E),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: gold.withOpacity(0.6))),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const GoldText('Out of chips', style: TextStyle(fontFamily: 'Cinzel', fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          const Text('Rebuy to keep playing, or leave the table so another player can sit.',
+              textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 14),
+          Text('${left ~/ 60}:${two(left % 60)}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: goldLight)),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(value: total, minHeight: 4, color: goldLight, backgroundColor: Colors.white10),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: LuxButton(title: 'Leave table', height: 46, gradient: redGradient, onTap: () => Navigator.pop(context, 'leave')),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: LuxButton(title: 'Rebuy', icon: Icons.add_circle, height: 46, onTap: () => Navigator.pop(context, 'rebuy'))),
+          ]),
+        ]),
+      ),
+    );
   }
 }
 
@@ -2085,8 +2186,6 @@ class _SeatView extends StatelessWidget {
       tag = (label: 'SIT OUT', color: const Color(0xFF2B2F38));
     } else if (away) {
       tag = null;
-    } else if (seat['stack'] == 0 && seat['inHand'] != true) {
-      tag = (label: 'NO CHIPS', color: const Color(0xFF2B2F38));
     }
 
     // Karte preko gornjeg dela avatara: svoje i otvorene licem, tuđe poleđinom.
@@ -2188,7 +2287,7 @@ class _SeatView extends StatelessWidget {
     );
 
     return Opacity(
-      opacity: (folded && !isMe) || away ? 0.5 : 1,
+      opacity: (folded && !isMe) || away || (seat['stack'] == 0 && seat['inHand'] != true) ? 0.5 : 1,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Avatar i karte preko njega
         GestureDetector(
@@ -2335,7 +2434,7 @@ class _MyPanel extends StatelessWidget {
         onTap: () => app.run('table:sitout', {'tableId': tableId, 'value': false}),
       );
     } else if (me['stack'] == 0 && me['inHand'] != true) {
-      bottom = LuxButton(title: 'Rebuy', icon: Icons.add_circle, height: h, onTap: onTopUp);
+      bottom = null; // umesto dugmeta iskače prozor Rebuy / Leave table (vidi _RebuyDialog)
     } else if (inHand && me['allIn'] != true) {
       // Potez unapred, kao u velikim poker aplikacijama.
       bottom = Row(children: [
@@ -2360,13 +2459,6 @@ class _MyPanel extends StatelessWidget {
           ),
           child: GoldText(myHand, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
         )
-      else if (bottom == null)
-        Text(
-          st['inProgress'] == true ? (inHand ? 'Waiting…' : 'You play from the next hand') : 'Next hand starting…',
-          style: const TextStyle(color: Colors.white54, fontSize: 12),
-        ),
-      const Spacer(),
-      if (!wide) Text('Nalog: ${rsd(app.balance)}', style: const TextStyle(color: Colors.white38, fontSize: 11)),
     ]);
 
     if (!wide) {
