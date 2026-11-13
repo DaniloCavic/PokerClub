@@ -37,6 +37,10 @@ interface Runtime {
   rebuy: Map<string, { until: number; timer: NodeJS.Timeout }>;
   /** Kad je sto počeo (otvaranje ili zakazano vreme). */
   startedAt: number;
+  /** Karte koje je igrač sam pokazao (posle fold-a ili kraja ruke): sedište → indeksi karata. */
+  voluntaryShow: Map<number, number[]>;
+  /** Kad je zakazana sledeća ruka (za produženje pauze kad neko pokaže karte). */
+  nextHandAt?: number;
   /** Sto se zatvara posle ruke koja je u toku. */
   closing: boolean;
   /** Poslednje poruke u chatu stola (samo u memoriji). */
@@ -60,6 +64,9 @@ const RUNOUT_STREET_MS = 2000;
 
 /** Koliko igrači imaju vremena da odluče o run it twice. */
 const RIT_MS = Number(process.env.RIT_MS || 10_000);
+
+/** Kad igrač pokaže karte posle kraja ruke, sledeća ruka čeka bar ovoliko. */
+const SHOW_MS = Number(process.env.SHOW_MS || 4000);
 
 /** Koliko vremena igrač bez žetona ima za rebuy pre nego što ustane. */
 const REBUY_MS = Number(process.env.REBUY_MS || 120_000);
@@ -171,6 +178,7 @@ export class TablesService implements OnModuleInit {
       sitOutSince: new Map(),
       rebuy: new Map(),
       startedAt: Math.max(Date.now(), table.opensAt?.getTime() ?? 0),
+      voluntaryShow: new Map(),
       closing: false,
       chat: [],
       waitlist: [],
@@ -345,7 +353,11 @@ export class TablesService implements OnModuleInit {
       seats: g.seats.map((s, i) => {
         if (!s) return null;
         const own = i === mySeat;
-        const visible = own ? s.hole.map(cardToString) : (shown.get(i) ?? null);
+        // Tuđe karte: otvorene na kraju ruke, ili one koje je igrač sam pokazao (ostale su poleđine).
+        const vol = rt.voluntaryShow.get(i);
+        const visible = own
+          ? s.hole.map(cardToString)
+          : (shown.get(i) ?? (vol && s.hole.length ? s.hole.map((c, k) => (vol.includes(k) ? cardToString(c) : null)) : null));
         return {
           index: i,
           userId: s.userId,
@@ -361,6 +373,8 @@ export class TablesService implements OnModuleInit {
           lastAction: s.lastAction,
           lastAct: s.lastAct,
           cards: visible && visible.length ? visible : null,
+          // Svoje karte koje sam pokazao ostalima (za oznaku i dugmad)
+          myShown: own ? (vol ?? []) : undefined,
           cardCount: s.inHand && !s.folded ? s.hole.length : 0,
         };
       }),
@@ -722,6 +736,11 @@ export class TablesService implements OnModuleInit {
 
   private scheduleNextHand(rt: Runtime) {
     if (rt.nextHandTimer || rt.closing) return;
+    this.scheduleNextHandIn(rt, rt.lastResult ? BETWEEN_HANDS_MS + (rt.runoutMs ?? 0) : 1000);
+  }
+
+  private scheduleNextHandIn(rt: Runtime, ms: number) {
+    rt.nextHandAt = Date.now() + ms;
     rt.nextHandTimer = setTimeout(() => {
       rt.nextHandTimer = undefined;
       void this.exclusive(rt, async () => {
@@ -735,6 +754,7 @@ export class TablesService implements OnModuleInit {
           return;
         }
         rt.lastResult = null;
+        rt.voluntaryShow.clear();
         rt.startStacks = {};
         rt.game.seats.forEach((s, i) => {
           if (s) rt.startStacks[i] = s.stack;
@@ -744,7 +764,7 @@ export class TablesService implements OnModuleInit {
         const result = rt.game.startHand(undefined, { bombPot: bomb });
         await this.afterChange(rt, result);
       }).catch((e) => this.log.error(e));
-    }, rt.lastResult ? BETWEEN_HANDS_MS + (rt.runoutMs ?? 0) : 1000);
+    }, ms);
   }
 
   private async handFinished(rt: Runtime, r: HandResult) {
@@ -906,6 +926,36 @@ export class TablesService implements OnModuleInit {
   }
 
   // ---------- Izbor igrača i lista čekanja ----------
+
+  /**
+   * Igrač pokazuje svoje karte ostalima (jednu ili sve): posle fold-a ili kad je ruka gotova.
+   * Ako je ruka gotova, sledeća ruka čeka bar SHOW_MS da svi vide.
+   */
+  async showCards(userId: string, tableId: string, cards: number[]) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      const g = rt.game;
+      const i = g.seatOf(userId);
+      if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      const s = g.seats[i]!;
+      if (!s.hole.length) throw new GameError('Nemate karte za pokazivanje.');
+      const handOver = !g.inProgress && !!rt.lastResult;
+      if (!handOver && !(g.inProgress && s.inHand && s.folded)) {
+        throw new GameError('Karte možete pokazati posle fold-a ili kad se ruka završi.');
+      }
+      const idx = [...new Set(cards.map(Number))].filter((k) => Number.isInteger(k) && k >= 0 && k < s.hole.length);
+      if (!idx.length) throw new GameError('Izaberite kartu.');
+      const prev = rt.voluntaryShow.get(i) ?? [];
+      rt.voluntaryShow.set(i, [...new Set([...prev, ...idx])].sort());
+      if (handOver && rt.nextHandTimer && (rt.nextHandAt ?? 0) - Date.now() < SHOW_MS) {
+        clearTimeout(rt.nextHandTimer);
+        rt.nextHandTimer = undefined;
+        this.scheduleNextHandIn(rt, SHOW_MS);
+      }
+      await this.broadcast(rt);
+      return {};
+    });
+  }
 
   /** Odgovor na pitanje za run it twice (posle all-in-a). */
   async answerRunTwice(userId: string, tableId: string, yes: boolean) {

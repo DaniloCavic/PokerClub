@@ -2224,7 +2224,8 @@ class _SeatView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cards = (seat['cards'] as List?)?.cast<String>();
+    // Tuđe karte mogu biti delimično pokazane (null = poleđina).
+    final cards = (seat['cards'] as List?)?.cast<String?>();
     final count = seat['cardCount'] as int;
     final folded = seat['folded'] == true;
     final acting = timeLeft != null;
@@ -2414,13 +2415,14 @@ class _SeatView extends StatelessWidget {
               key: ValueKey(won != null ? 'win-${seat['userId']}' : 'tag'),
               pop: won != null,
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 130),
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: big ? 2.5 : 1.5),
                 decoration: BoxDecoration(color: tag.color, borderRadius: BorderRadius.circular(8)),
+                // Ceo natpis (npr. "ALL-IN 5.630", "WIN +1.235"), bez skraćivanja.
                 child: Text(
                   tag.label,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
                   style: TextStyle(
                       fontSize: big ? 11.5 : 10, fontWeight: FontWeight.w900, color: won != null ? Colors.black : Colors.white),
                 ),
@@ -2483,7 +2485,42 @@ class _MyPanel extends StatelessWidget {
     final mySeatIdx = st['mySeat'] as int;
     final ritAsk = ((st['ritAsk'] as List?) ?? const []).cast<int>();
     final ritYes = ((st['ritYes'] as List?) ?? const []).cast<int>();
-    if (st['ritPending'] == true && ritAsk.contains(mySeatIdx) && !ritYes.contains(mySeatIdx)) {
+    // Pokaži karte: posle fold-a ili kad je ruka gotova (a karte nisu već otvorene na kraju).
+    final myCards = (me['cards'] as List?)?.cast<String>() ?? const <String>[];
+    final result = st['result'] as Json?;
+    final openedAtEnd = ((result?['shown'] as List?) ?? const []).any((x) => x['seat'] == mySeatIdx);
+    final myShown = ((me['myShown'] as List?) ?? const []).cast<int>();
+    final canShow = myCards.isNotEmpty &&
+        !openedAtEnd &&
+        myShown.length < myCards.length &&
+        ((result != null && st['inProgress'] != true) || (st['inProgress'] == true && me['inHand'] == true && me['folded'] == true));
+    if (canShow && st['ritPending'] != true) {
+      void show(List<int> idx) => app.run('table:show', {'tableId': tableId, 'cards': idx});
+      bottom = Row(children: [
+        Text('Show:', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: wide ? 14 : 12.5)),
+        const SizedBox(width: 8),
+        for (var k = 0; k < myCards.length; k++)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Opacity(
+              opacity: myShown.contains(k) ? 0.35 : 1,
+              child: GestureDetector(
+                onTap: myShown.contains(k) ? null : () => show([k]),
+                child: PlayingCard(code: myCards[k], width: myCards.length > 2 ? h * 0.55 : h * 0.68),
+              ),
+            ),
+          ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: _PreButton(
+            label: myCards.length > 2 ? 'Show all' : 'Show both',
+            selected: false,
+            height: h,
+            onTap: () => show([for (var k = 0; k < myCards.length; k++) k]),
+          ),
+        ),
+      ]);
+    } else if (st['ritPending'] == true && ritAsk.contains(mySeatIdx) && !ritYes.contains(mySeatIdx)) {
       // Posle all-in-a: da li da se karte dele dva puta (samo ako svi pristanu).
       final deadline = st['ritDeadline'] as int?;
       final leftMs = deadline == null ? 0 : max(0, deadline - app.serverNow);

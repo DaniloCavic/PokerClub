@@ -233,6 +233,22 @@ async function main() {
   };
   const rs = () => ra.state[ritTable.id];
   assert(await waitFor(() => rs()?.inProgress && rs()?.toAct >= 0), 'ruka za run it twice je počela');
+  // Pokazivanje karata: prvi na potezu odustaje i pokaže jednu kartu; drugi vidi samo nju.
+  const folder = rs().toAct === rs().mySeat ? ra : rb;
+  const watcher = folder === ra ? rb : ra;
+  assert((await emit(folder.socket, 'table:act', { tableId: ritTable.id, action: 'fold' })).ok, 'fold');
+  const fSeat = folder.state[ritTable.id].mySeat;
+  const showRes = await emit(folder.socket, 'table:show', { tableId: ritTable.id, cards: [1] });
+  assert(showRes.ok, 'igrač posle fold-a pokazuje jednu kartu');
+  assert(
+    await waitFor(() => {
+      const c = watcher.state[ritTable.id]?.seats?.[fSeat]?.cards;
+      return !!c && c[0] === null && typeof c[1] === 'string';
+    }),
+    'drugi igrač vidi samo pokazanu kartu',
+  );
+  const showHand = rs().handNo;
+  assert(await waitFor(() => rs()?.handNo > showHand && rs()?.inProgress && rs()?.toAct >= 0), 'sledeća ruka je počela');
   const first = rs().toAct === rs().mySeat ? ra : rb;
   const second = first === ra ? rb : ra;
   const legalFirst = first.state[ritTable.id].legal;

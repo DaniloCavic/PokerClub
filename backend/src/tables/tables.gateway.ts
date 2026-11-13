@@ -163,6 +163,13 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     );
   }
 
+  @SubscribeMessage('table:show')
+  show(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { cards: number[] }) {
+    return this.handle(socket, () =>
+      this.tables.showCards(socket.data.userId, String(msg?.tableId), Array.isArray(msg?.cards) ? msg.cards.slice(0, 4) : []),
+    );
+  }
+
   @SubscribeMessage('table:rit')
   rit(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { yes: boolean }) {
     return this.handle(socket, () => this.tables.answerRunTwice(socket.data.userId, String(msg?.tableId), !!msg?.yes));
