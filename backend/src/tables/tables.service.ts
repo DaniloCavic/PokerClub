@@ -35,6 +35,8 @@ interface Runtime {
   sitOutSince: Map<string, number>;
   /** Igrač je ostao bez žetona: rok za rebuy (posle toga ustaje i oslobađa mesto). */
   rebuy: Map<string, { until: number; timer: NodeJS.Timeout }>;
+  /** Kad je sto počeo (otvaranje ili zakazano vreme). */
+  startedAt: number;
   /** Sto se zatvara posle ruke koja je u toku. */
   closing: boolean;
   /** Poslednje poruke u chatu stola (samo u memoriji). */
@@ -168,6 +170,7 @@ export class TablesService implements OnModuleInit {
       lastResult: null,
       sitOutSince: new Map(),
       rebuy: new Map(),
+      startedAt: Math.max(Date.now(), table.opensAt?.getTime() ?? 0),
       closing: false,
       chat: [],
       waitlist: [],
@@ -262,6 +265,7 @@ export class TablesService implements OnModuleInit {
       bombPotBB: t.bombPotBB,
       players: rt.game.seats.filter(Boolean).length,
       waiting: rt.waitlist.length,
+      startedAt: rt.startedAt,
     };
   }
 

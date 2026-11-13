@@ -1100,6 +1100,9 @@ class _Layout {
   /// Dugme dilera (zauzima malo mesta, ulog ne sme preko njega).
   int button = -1;
 
+  /// Koliko karata je na stolu (za raspored uloga).
+  int boardCount = 5;
+
   /// Veličina gomile uloga za svakog igrača koji ima ulog (žetoni + iznos).
   Map<int, Size> betSizes = {};
 
@@ -1123,19 +1126,26 @@ class _Layout {
 
   /// Sredina stola: žetoni pota, natpis POT i zajedničke karte.
   List<Rect> get middleRects {
-    final boardW = 5 * (cardW + 4);
+    // Samo karte koje su stvarno na stolu (prazan sto ne zauzima mesto ulozima).
+    final boardW = boardCount * (cardW + 4);
     final pileHalf = wide ? 36.0 : 28.0;
     return [
       Rect.fromLTRB(center.dx - pileHalf, potTop - (wide ? 40 : 34), center.dx + pileHalf, potTop),
       Rect.fromLTRB(center.dx - 74, potTop - 2, center.dx + 74, boardTop),
-      Rect.fromLTRB(center.dx - boardW / 2 - 4, boardTop, center.dx + boardW / 2 + 4, boardTop + cardW * 1.4 + 4),
+      if (boardCount > 0)
+        Rect.fromLTRB(center.dx - boardW / 2 - 4, boardTop, center.dx + boardW / 2 + 4, boardTop + cardW * 1.4 + 4),
     ];
   }
 
   static const _defaultBet = Size(64, 44);
 
   /// Pravac od igrača ka sredini stola (za mene pravo gore, iznad mojih karata).
-  Offset betDir(int i) => i == mySeat ? const Offset(0, -1) : dir(i);
+  Offset betDir(int i) {
+    // Pravac od igrača ka žetonima glavnog pota (sredina stola).
+    final from = i == mySeat ? Offset(seat(i).dx, myTop(seat(i))) : seat(i);
+    final d = pile - from;
+    return d / max(1.0, d.distance);
+  }
 
   /// Centri gomila uloga: svaka na liniji od igrača ka sredini stola, odmah ispred
   /// njega, tako da ne dodiruje nijedno sedište, karte na stolu, pot, dugme dilera
@@ -1156,32 +1166,43 @@ class _Layout {
       final from = i == mySeat ? Offset(p.dx, myTop(p)) : p;
       Rect box(Offset c) => Rect.fromCenter(center: c, width: sz.width + 6, height: sz.height + 4);
       bool inside(Rect r) => r.left > 2 && r.right < w - 2 && r.top > 2 && r.bottom < h - 2;
-      // Najbolje slobodno mesto: što bliže igraču i što bliže liniji ka sredini.
-      // Ako na samoj liniji nema mesta (npr. karte na stolu), skreni malo levo ili desno.
+      // Samo na liniji igrač → pot (bez skretanja levo-desno): prvo mesto ispred igrača
+      // koje ništa ne dodiruje; ako ga nema pre pota, prvo mesto van sedišta (bilo čijeg).
+      final own = seatRects(i).map((r) => r.inflate(3)).toList();
+      final seatsAll = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3))];
+      final reach = (pile - from).distance;
       Offset? found;
-      var best = double.infinity;
-      for (final deg in const [0, 12, -12, 24, -24, 36, -36, 50, -50, 65, -65, 80, -80]) {
-        final rad = deg * pi / 180;
-        final v = Offset(d.dx * cos(rad) - d.dy * sin(rad), d.dx * sin(rad) + d.dy * cos(rad));
-        for (var dist = 0.0; dist < 320; dist += 2) {
-          final score = dist + deg.abs() * 1.2;
-          if (score >= best) break;
-          final c = from + v * dist;
+      for (var dist = 0.0; dist < reach && found == null; dist += 2) {
+        final c = from + d * dist;
+        final r = box(c);
+        if (inside(r) && !blocked.any(r.overlaps)) found = c;
+      }
+      if (found == null) {
+        // Nema potpuno slobodnog mesta (uzan telefon, igrač sa strane): mesto na liniji koje
+        // ne dodiruje nijedno sedište i najmanje prelazi preko karata/pota.
+        double over(Rect r) => middleRects.fold(0.0, (a, m) {
+              final x = r.intersect(m);
+              return a + (x.width > 0 && x.height > 0 ? x.width * x.height : 0);
+            });
+        final others = [
+          ...seatsAll,
+          if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
+        ];
+        var bestOver = double.infinity;
+        for (var dist = 0.0; dist < reach; dist += 2) {
+          final c = from + d * dist;
           final r = box(c);
-          if (inside(r) && !blocked.any(r.overlaps)) {
-            best = score;
+          if (!inside(r) || others.any(r.overlaps)) continue;
+          final o = over(r);
+          if (o < bestOver - 0.5) {
+            bestOver = o;
             found = c;
-            break;
           }
         }
       }
-      // Rezerva (veoma pun sto): bar van svog sedišta.
-      if (found == null) {
-        final own = seatRects(i).map((r) => r.inflate(3)).toList();
-        for (var dist = 0.0; dist < 320 && found == null; dist += 2) {
-          final c = from + d * dist;
-          if (!own.any(box(c).overlaps)) found = c;
-        }
+      for (var dist = 0.0; dist < 320 && found == null; dist += 2) {
+        final c = from + d * dist;
+        if (!own.any(box(c).overlaps)) found = c;
       }
       final c = found ?? from + d * 80;
       out[i] = c;
@@ -1195,9 +1216,12 @@ class _Layout {
 
   Offset dealer(int i) {
     final p = seat(i);
-    if (i == mySeat) return Offset(p.dx - 62, min(p.dy, h - 104) - 30);
-    final d = dir(i);
-    return p + d * 48 + Offset(-d.dy, d.dx) * 40;
+    // Dugme dilera odmah pored slike igrača (levo od avatara).
+    if (i == mySeat) return Offset(p.dx - myAvatar / 2 - 16, myTop(p) + myAvatar * 0.55);
+    final a = wide ? 64.0 : 48.0;
+    // Sa strane avatara koja je okrenuta ka sredini stola (da ne ispadne van ekrana).
+    final side = p.dx < center.dx - 10 ? 1.0 : -1.0;
+    return Offset(p.dx + side * (a / 2 + 14), p.dy + a * 0.15);
   }
 }
 
@@ -1539,6 +1563,7 @@ class _TableViewState extends State<_TableView> {
     final bb = st['bigBlind'] as int;
     return _Layout(widget.size, n, my >= 0 ? my : 0, my, wide: widget.wide)
       ..button = (st['button'] as int?) ?? -1
+      ..boardCount = ((st['board'] as List?)?.length ?? 0) + (((st['result'] as Json?)?['board2'] as List?) != null ? 5 : 0)
       ..betSizes = {
         for (var i = 0; i < n; i++)
           if (((seats[i]?['bet'] as int?) ?? 0) > 0)
@@ -1718,7 +1743,7 @@ class _TableViewState extends State<_TableView> {
             duration: const Duration(milliseconds: 200),
             opacity: (st['pot'] as int) > 0 ? 1 : 0,
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: widget.wide ? 22 : 14, vertical: widget.wide ? 6 : 4),
+              padding: EdgeInsets.symmetric(horizontal: widget.wide ? 18 : 12, vertical: widget.wide ? 5 : 3),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                     colors: [Color(0xFF1C130D), Color(0xFF0A0706)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
@@ -1727,7 +1752,7 @@ class _TableViewState extends State<_TableView> {
                 boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 8)],
               ),
               child: GoldText('POT: ${money(st['pot'])}',
-                  style: TextStyle(fontSize: widget.wide ? 19 : 14, fontWeight: FontWeight.w800)),
+                  style: TextStyle(fontSize: widget.wide ? 16 : 12, fontWeight: FontWeight.w800)),
             ),
           ),
         ),
@@ -1764,7 +1789,7 @@ class _TableViewState extends State<_TableView> {
           left: lay.pile.dx - 50,
           top: lay.pile.dy - 22,
           width: 100,
-          child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 25 : 19)),
+          child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 21 : 16)),
         ),
       // Run it twice: drugi sto ispod prvog.
       if (board2 != null)
@@ -2027,7 +2052,7 @@ class _ChipPile extends StatelessWidget {
 
   /// Približna veličina gomile sa natpisom (za raspored uloga oko stola).
   static Size sizeOf(String text, int amount, int bigBlind, bool big) {
-    final chips = chipStacksSize(amount, bigBlind, big ? 22 : 16);
+    final chips = chipStacksSize(amount, bigBlind, big ? 19 : 13.5);
     final labelW = text.length * (big ? 8.6 : 7.6) + 16;
     return Size(max(chips.width, labelW), chips.height + 2 + (big ? 21 : 18.5));
   }
@@ -2035,7 +2060,7 @@ class _ChipPile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 22 : 16),
+      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 19 : 13.5),
       const SizedBox(height: 2),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
@@ -2073,15 +2098,30 @@ class _FeltInfo extends StatelessWidget {
               style: TextStyle(fontFamily: 'Cinzel', fontSize: w * 0.025, fontWeight: FontWeight.w600, letterSpacing: 3)),
         ]),
       ),
-      if (!logoOnly) ...[
-      const SizedBox(height: 6),
-      Text(st['name'] as String, style: faint.copyWith(fontWeight: FontWeight.w700)),
-      Text('${omaha ? 'Omaha pot-limit' : "Hold'em no-limit"} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])}',
-          style: faint),
-      Text('Ante ${chips(st['ante'] ?? 0)} · Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
-      ],
+      // Podaci o stolu, bledo na čoji (kao znak kluba)
+      Opacity(
+        opacity: 0.6,
+        child: Column(children: [
+          SizedBox(height: w * 0.02),
+          Text('${omaha ? 'PLO' : 'NLH'} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · Ante ${chips(st['ante'] ?? 0)}',
+              style: faint.copyWith(fontWeight: FontWeight.w700)),
+          Text('Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
+          Text(
+              [
+                if (st['startedAt'] != null) 'Since ${_hhmm(st['startedAt'] as int)}',
+                'Players ${(st['seats'] as List).where((x) => x != null && x['sittingOut'] != true).length}/${(st['seats'] as List).length}',
+              ].join(' · '),
+              style: faint),
+          if (!logoOnly) Text(st['name'] as String, style: faint),
+        ]),
+      ),
     ]);
   }
+}
+
+String _hhmm(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  return '${two(d.hour)}:${two(d.minute)}';
 }
 
 class _ResultText extends StatelessWidget {
