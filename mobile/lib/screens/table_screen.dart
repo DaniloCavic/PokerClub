@@ -1125,7 +1125,9 @@ class _Layout {
   Offset seat(int i) {
     final k = (i - base + n) % n;
     final angle = pi / 2 + 2 * pi * k / n;
-    return center + Offset(w * 0.40 * cos(angle), h * 0.41 * sin(angle));
+    // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
+    final widen = 1 + 0.07 * sin(angle);
+    return center + Offset(w * 0.41 * widen * cos(angle), h * 0.42 * sin(angle));
   }
 
   Offset dir(int i) {
@@ -1142,7 +1144,7 @@ class _Layout {
   /// Veličina gomile uloga za svakog igrača koji ima ulog (žetoni + iznos).
   Map<int, Size> betSizes = {};
 
-  double get myAvatar => wide ? 76.0 : 58.0;
+  double get myAvatar => wide ? 87.0 : 67.0;
   double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - 56);
 
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
@@ -1152,7 +1154,7 @@ class _Layout {
       final a = myAvatar, top = myTop(p);
       return [Rect.fromLTRB(p.dx - (a + 50) / 2, top - 8, p.dx + (a + 50) / 2, top + a + 8 + (wide ? 66 : 54))];
     }
-    final a = wide ? 64.0 : 48.0;
+    final a = wide ? 54.0 : 41.0;
     final half = wide ? 64.0 : 52.0;
     return [
       Rect.fromLTRB(p.dx - a / 2 - 6, p.dy - a / 2 - 16, p.dx + (a + 50) / 2 + 2, p.dy + a / 2),
@@ -1254,7 +1256,7 @@ class _Layout {
     final p = seat(i);
     // Oznaka D je u gornjem levom uglu pločice (pločica je već zauzeta mesta).
     if (i == mySeat) return Offset(p.dx - (wide ? 64 : 52), myTop(p) + myAvatar);
-    final a = wide ? 64.0 : 48.0;
+    final a = wide ? 54.0 : 41.0;
     return Offset(p.dx - (wide ? 64 : 52), p.dy + a / 2);
   }
 }
@@ -1729,11 +1731,18 @@ class _TableViewState extends State<_TableView> {
     final children = <Widget>[
       // Sto: zlatna linija, kožna ivica, zlatna linija i bordo čoja
       Positioned(
-        left: w * 0.08,
-        top: h * 0.05,
-        width: w * 0.84,
-        height: h * 0.90,
-        child: Container(
+        // Nagib skraćuje sto po visini, pa je pre nagiba viši (gornja ivica ostaje kod gornjih igrača).
+        left: w * 0.02,
+        top: -h * 0.06,
+        width: w * 0.96,
+        height: h * 1.04,
+        // Nagib stola (perspektiva): dalja strana se smanjuje, kao na GG.
+        child: Transform(
+          alignment: Alignment.bottomCenter,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.0011)
+            ..rotateX(-0.22),
+          child: Container(
           padding: const EdgeInsets.all(2.5),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(w),
@@ -1758,6 +1767,7 @@ class _TableViewState extends State<_TableView> {
               ),
             ),
           ),
+        ),
         ),
       ),
       // Znak kluba i podaci o igri na čoji (ispod pota)
@@ -1984,7 +1994,8 @@ class _TableViewState extends State<_TableView> {
         }
       }
       // Sedište je centrirano na avatar; svoje malo podignuto da stane cela pločica.
-      final avatarSize = widget.wide ? (isMe ? 76.0 : 64.0) : (isMe ? 58.0 : 48.0);
+      // Svoj igrač je 15 % veći, ostali 15 % manji (svako na svom telefonu vidi sebe većeg).
+      final avatarSize = widget.wide ? (isMe ? 87.0 : 54.0) : (isMe ? 67.0 : 41.0);
       final topY = isMe ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : p.dy - avatarSize / 2;
       // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
       if (!isMe && app.notes.containsKey(s['userId'])) {
@@ -2304,7 +2315,7 @@ class _SeatView extends StatelessWidget {
       ]),
     );
 
-    final big = a >= 60;
+    final big = a >= 52;
     final plate = Container(
       constraints: BoxConstraints(minWidth: big ? 104 : (isMe ? 84 : 76)),
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: big ? 4 : 2),
