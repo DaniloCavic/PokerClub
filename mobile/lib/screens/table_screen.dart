@@ -1288,6 +1288,7 @@ class _TableViewState extends State<_TableView> {
   Json? _runoutFinal; // konačno stanje sa rezultatom
   int _reveal = 0; // koliko karata prvog stola je otkriveno
   int _reveal2 = 0; // drugi sto (run it twice)
+  int _oddsBoard = 0; // za koliko karata stola se prikazuju šanse (menja se tek kad se nova karta okrene)
   final List<Timer> _runoutTimers = [];
 
   void _startRunout(Json a, Json b) {
@@ -1298,6 +1299,7 @@ class _TableViewState extends State<_TableView> {
     _runoutFinal = b;
     _reveal = from;
     _reveal2 = 0;
+    _oddsBoard = from;
     var t = _runoutStartMs;
     void at(int ms, VoidCallback f) => _runoutTimers.add(Timer(Duration(milliseconds: ms), () {
           if (mounted && _runoutFinal != null) setState(f);
@@ -1307,6 +1309,8 @@ class _TableViewState extends State<_TableView> {
         _reveal = target;
         Sounds.play('card', volume: 0.6);
       });
+      // Novi procenat tek kad se karta okrene (do tada važi procenat pre te karte).
+      at(t + (target == 3 ? 1050 : 750), () => _oddsBoard = target);
       t += _runoutStreetMs;
     }
     if (board2 != null) {
@@ -1360,7 +1364,7 @@ class _TableViewState extends State<_TableView> {
       'runoutBoard2': _reveal2 > from ? (res['board2'] as List).take(_reveal2).toList() : null,
       'runoutOdds': _reveal2 > 0
           ? null
-          : ((res['equity'] as List?) ?? const []).cast<Json>().where((e) => e['board'] == _reveal).map((e) => e['odds']).firstOrNull,
+          : ((res['equity'] as List?) ?? const []).cast<Json>().where((e) => e['board'] == _oddsBoard).map((e) => e['odds']).firstOrNull,
       'result': null,
       'pot': pot,
       'collected': pot,
