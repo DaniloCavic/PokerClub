@@ -53,6 +53,8 @@ interface Runtime {
   openTimer?: NodeJS.Timeout;
   /** Dodatna pauza pre sledeće ruke dok aplikacija prikazuje all-in (flop, turn, river jedan po jedan). */
   runoutMs?: number;
+  /** Run it twice: ko je odbio (kratko se prikazuje svima pre deljenja). */
+  ritDeclined?: number;
   /** Run it twice: rok za odgovore igrača. */
   ritTimer?: NodeJS.Timeout;
   ritDeadline: number | null;
@@ -61,6 +63,9 @@ interface Runtime {
 /** All-in: pauza pre otvaranja prve ulice i između ulica (mora odgovarati aplikaciji). */
 const RUNOUT_START_MS = 1200;
 const RUNOUT_STREET_MS = 2000;
+
+/** Koliko dugo svi vide "✗ No" pre nego što se karte podele jednom. */
+const RIT_DECLINE_SHOW_MS = 1500;
 
 /** Koliko igrači imaju vremena da odluče o run it twice. */
 const RIT_MS = Number(process.env.RIT_MS || 10_000);
@@ -390,6 +395,7 @@ export class TablesService implements OnModuleInit {
       ritPending: g.ritPending,
       ritAsk: g.ritPending ? g.ritAsk : [],
       ritYes: g.ritPending ? g.ritYes : [],
+      ritNo: g.ritPending && rt.ritDeclined !== undefined ? [rt.ritDeclined] : [],
       ritDeadline: g.ritPending ? rt.ritDeadline : null,
       // Lista čekanja
       waitlist: rt.waitlist.map((w) => w.name),
@@ -689,7 +695,7 @@ export class TablesService implements OnModuleInit {
     rt.ritTimer = setTimeout(() => {
       void this.exclusive(rt, async () => {
         rt.ritTimer = undefined;
-        if (!rt.game.ritPending || rt.game.handNo !== hand) return;
+        if (!rt.game.ritPending || rt.game.handNo !== hand || rt.ritDeclined !== undefined) return;
         const result = rt.game.resolveRunTwice();
         await this.afterChange(rt, result);
       }).catch((e) => this.log.error(e));
@@ -754,6 +760,7 @@ export class TablesService implements OnModuleInit {
           return;
         }
         rt.lastResult = null;
+        rt.ritDeclined = undefined;
         rt.voluntaryShow.clear();
         rt.startStacks = {};
         rt.game.seats.forEach((s, i) => {
@@ -965,6 +972,24 @@ export class TablesService implements OnModuleInit {
     return this.exclusive(rt, async () => {
       const i = rt.game.seatOf(userId);
       if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      if (!rt.game.ritPending || !rt.game.ritAsk.includes(i)) throw new GameError('Nema pitanja za run it twice.');
+      if (rt.ritDeclined !== undefined) return {};
+      if (!yes) {
+        // Svi za stolom kratko vide ko je odbio, pa se karte dele jednom.
+        rt.ritDeclined = i;
+        await this.broadcast(rt);
+        const hand = rt.game.handNo;
+        setTimeout(() => {
+          void this.exclusive(rt, async () => {
+            if (!rt.game.ritPending || rt.game.handNo !== hand) return;
+            const declined = rt.ritDeclined;
+            rt.ritDeclined = undefined;
+            const result = declined !== undefined && rt.game.seats[declined] ? rt.game.answerRunTwice(declined, false) : rt.game.resolveRunTwice();
+            await this.afterChange(rt, result);
+          }).catch((e) => this.log.error(e));
+        }, RIT_DECLINE_SHOW_MS);
+        return {};
+      }
       const result = rt.game.answerRunTwice(i, yes);
       await this.afterChange(rt, result);
       return {};

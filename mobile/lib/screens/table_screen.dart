@@ -513,6 +513,104 @@ class _TableScreenState extends State<TableScreen> {
   }
 }
 
+/// Prozor dilera za run it twice (ispod pota): pitanje, ko je pristao/odbio, rok,
+/// i dugmad YES/NO za igrača koji još nije odgovorio. Vide ga svi za stolom.
+class _RitPanel extends StatefulWidget {
+  final Json st;
+  final bool wide;
+  const _RitPanel({required this.st, required this.wide});
+
+  @override
+  State<_RitPanel> createState() => _RitPanelState();
+}
+
+class _RitPanelState extends State<_RitPanel> {
+  Timer? _t;
+  bool _sent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(milliseconds: 200), (_) => mounted ? setState(() {}) : null);
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    final st = widget.st;
+    final seats = (st['seats'] as List).cast<Json?>();
+    final ask = ((st['ritAsk'] as List?) ?? const []).cast<int>();
+    final yes = ((st['ritYes'] as List?) ?? const []).cast<int>();
+    final no = ((st['ritNo'] as List?) ?? const []).cast<int>();
+    final me = st['mySeat'] as int;
+    final deadline = st['ritDeadline'] as int?;
+    final left = deadline == null ? 0.0 : ((deadline - app.serverNow) / 10000).clamp(0.0, 1.0);
+    final canAnswer = ask.contains(me) && !yes.contains(me) && !no.contains(me) && no.isEmpty && !_sent;
+    final fs = widget.wide ? 13.0 : 11.5;
+
+    Future<void> answer(bool v) async {
+      setState(() => _sent = true);
+      final ok = await app.run('table:rit', {'tableId': st['id'], 'yes': v});
+      if (!ok && mounted) setState(() => _sent = false);
+    }
+
+    return Container(
+      width: widget.wide ? 300 : 236,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xEE120E0B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gold),
+        boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 12)],
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.filter_2, size: fs + 3, color: goldLight),
+          const SizedBox(width: 6),
+          GoldText('Dealer: Run it twice?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: fs + 1.5)),
+        ]),
+        const SizedBox(height: 6),
+        for (final i in ask)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1.5),
+            child: Row(children: [
+              Expanded(
+                child: Text((seats[i]?['name'] as String?) ?? '?',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: fs, fontWeight: FontWeight.w700, color: i == me ? goldLight : Colors.white)),
+              ),
+              if (no.contains(i))
+                Text('✗ No', style: TextStyle(fontSize: fs, fontWeight: FontWeight.w900, color: const Color(0xFFFF6B6B)))
+              else if (yes.contains(i))
+                Text('✓ Yes', style: TextStyle(fontSize: fs, fontWeight: FontWeight.w900, color: const Color(0xFF5FD39A)))
+              else
+                Text('…', style: TextStyle(fontSize: fs, fontWeight: FontWeight.w900, color: Colors.white54)),
+            ]),
+          ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(value: left, minHeight: 3, color: goldLight, backgroundColor: Colors.white10),
+        ),
+        if (canAnswer) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: LuxButton(title: 'NO', height: widget.wide ? 38 : 32, gradient: redGradient, onTap: () => answer(false))),
+            const SizedBox(width: 8),
+            Expanded(child: LuxButton(title: 'YES', height: widget.wide ? 38 : 32, onTap: () => answer(true))),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
 /// Prozor kad igrač ostane bez žetona: Rebuy ili Leave table, sa odbrojavanjem.
 /// Kad vreme istekne, server podiže igrača sa stola i oslobađa mesto.
 class _RebuyDialog extends StatefulWidget {
@@ -1853,29 +1951,13 @@ class _TableViewState extends State<_TableView> {
               ),
           ]),
         ),
-      // Run it twice: posle all-in-a čeka se odluka igrača.
+      // Run it twice: diler pita igrače u all-in-u; svi za stolom vide ko je šta odgovorio.
       if (st['ritPending'] == true)
         Positioned(
           left: 0,
           right: 0,
-          top: boardTop + cardW * 1.4 + 8,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: gold),
-              ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                GoldText('RUN IT TWICE?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: widget.wide ? 15 : 12.5, letterSpacing: 1)),
-                Text(
-                  'Agreed: ${(st['ritYes'] as List).length} od ${(st['ritAsk'] as List).length}',
-                  style: TextStyle(fontSize: widget.wide ? 12 : 10.5, color: Colors.white70),
-                ),
-              ]),
-            ),
-          ),
+          top: (board.isEmpty ? boardTop - 4 : boardTop + cardW * 1.4 + 6),
+          child: Center(child: _RitPanel(st: st, wide: widget.wide)),
         ),
       // Bomb pot (ruka u toku) ili najava da je sledeća ruka bomb pot.
       if (st['ritPending'] != true && result == null && st['closing'] != true && (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1)))
@@ -2486,8 +2568,6 @@ class _MyPanel extends StatelessWidget {
 
     Widget? bottom;
     final mySeatIdx = st['mySeat'] as int;
-    final ritAsk = ((st['ritAsk'] as List?) ?? const []).cast<int>();
-    final ritYes = ((st['ritYes'] as List?) ?? const []).cast<int>();
     // Pokaži karte: posle fold-a ili kad je ruka gotova (a karte nisu već otvorene na kraju).
     final myCards = (me['cards'] as List?)?.cast<String>() ?? const <String>[];
     final result = st['result'] as Json?;
@@ -2522,37 +2602,6 @@ class _MyPanel extends StatelessWidget {
             onTap: () => show([for (var k = 0; k < myCards.length; k++) k]),
           ),
         ),
-      ]);
-    } else if (st['ritPending'] == true && ritAsk.contains(mySeatIdx) && !ritYes.contains(mySeatIdx)) {
-      // Posle all-in-a: da li da se karte dele dva puta (samo ako svi pristanu).
-      final deadline = st['ritDeadline'] as int?;
-      final leftMs = deadline == null ? 0 : max(0, deadline - app.serverNow);
-      void answer(bool yes) => app.run('table:rit', {'tableId': tableId, 'yes': yes});
-      bottom = Column(mainAxisSize: MainAxisSize.min, children: [
-        const Row(children: [
-          Icon(Icons.filter_2, color: goldLight, size: 20),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text('Run it twice? The board is dealt twice and the pot is split (if everyone agrees).',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          ),
-        ]),
-        const SizedBox(height: 6),
-        TweenAnimationBuilder<double>(
-          key: ValueKey('rit-${st['handNo']}'),
-          tween: Tween(begin: leftMs / 10000, end: 0),
-          duration: Duration(milliseconds: leftMs),
-          builder: (_, v, __) => ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(value: v.clamp(0, 1), minHeight: 3, color: goldLight, backgroundColor: Colors.white10),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: LuxButton(title: 'NO', height: h, gradient: redGradient, onTap: () => answer(false))),
-          const SizedBox(width: 10),
-          Expanded(child: LuxButton(title: 'YES, twice', icon: Icons.filter_2, height: h, onTap: () => answer(true))),
-        ]),
       ]);
     } else if (legal != null) {
       bottom = ActionBar(
