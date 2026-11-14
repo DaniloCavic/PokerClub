@@ -214,7 +214,8 @@ class _TableScreenState extends State<TableScreen> {
   Widget _tableArea(Json st, Money money, bool wide) {
     return LayoutBuilder(builder: (_, c) {
       // Sto zadržava dobru srazmeru i stoji u sredini.
-      final w = min(c.maxWidth, c.maxHeight * 1.6);
+      // Računar: sto je širi i niži (da donja traka ništa ne seče).
+      final w = min(c.maxWidth, c.maxHeight * (wide ? 1.95 : 1.6));
       final h = min(c.maxHeight, w * 2.0);
       return Center(
         child: SizedBox(
@@ -656,7 +657,10 @@ class _RebuyDialogState extends State<_RebuyDialog> {
       backgroundColor: const Color(0xFF15110E),
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: gold.withOpacity(0.6))),
-      child: Padding(
+      // Mali, skoro kvadratni prozor i na računaru (kao na telefonu).
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const GoldText('Out of chips', style: TextStyle(fontFamily: 'Cinzel', fontSize: 20, fontWeight: FontWeight.w800)),
@@ -679,6 +683,7 @@ class _RebuyDialogState extends State<_RebuyDialog> {
             Expanded(child: LuxButton(title: 'Rebuy', icon: Icons.add_circle, height: 46, onTap: () => Navigator.pop(context, 'rebuy'))),
           ]),
         ]),
+      ),
       ),
     );
   }
@@ -1215,7 +1220,7 @@ class _Layout {
   double get w => size.width;
   double get h => size.height;
   // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
-  Offset get center => Offset(w / 2, h * 0.455);
+  Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.455));
   double get cardW => min(min(w, h) > 600 ? 46.0 : 38.0, (w * 0.56) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
@@ -1229,7 +1234,7 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
     final widen = 1 + 0.07 * sin(angle);
-    return center + Offset(w * 0.41 * widen * cos(angle), h * 0.42 * sin(angle));
+    return center + Offset(w * (wide ? 0.43 : 0.41) * widen * cos(angle), h * (wide ? 0.37 : 0.42) * sin(angle));
   }
 
   Offset dir(int i) {
@@ -1835,9 +1840,9 @@ class _TableViewState extends State<_TableView> {
       Positioned(
         // Nagib skraćuje sto po visini, pa je pre nagiba viši (gornja ivica ostaje kod gornjih igrača).
         left: w * 0.02,
-        top: -h * 0.105,
+        top: -h * (widget.wide ? 0.07 : 0.105),
         width: w * 0.96,
-        height: h * 1.04,
+        height: h * (widget.wide ? 0.93 : 1.04),
         // Nagib stola (perspektiva): dalja strana se smanjuje, kao na GG.
         child: Transform(
           alignment: Alignment.bottomCenter,
