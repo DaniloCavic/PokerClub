@@ -277,7 +277,7 @@ class _TableScreenState extends State<TableScreen> {
                     child: Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 0), child: _tableArea(st, money, true))),
                 Positioned(left: 14, top: 12, child: _TableInfoCard(st: st)),
                 // Snaga moje ruke: donji levi ugao prostora sa stolom (iznad trake sa potezima).
-                if (st['myHand'] != null && (st['mySeat'] as int) >= 0)
+                if (st['myHand'] != null && (st['mySeat'] as int) >= 0 && !_TableViewState.waitingForPlayers(st))
                   Positioned(left: 14, bottom: 10, child: _HandPill(st['myHand'] as String, big: true)),
                 Positioned(
                   right: 14,
@@ -1223,7 +1223,7 @@ class _Layout {
   double get w => size.width;
   double get h => size.height;
   // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
-  Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.455));
+  Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.44));
   double get cardW => min(min(w, h) > 600 ? 46.0 : 38.0, (w * 0.56) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
@@ -1237,7 +1237,7 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
     final widen = 1 + 0.07 * sin(angle);
-    return center + Offset(w * (wide ? 0.43 : 0.41) * widen * cos(angle), h * (wide ? 0.37 : 0.42) * sin(angle));
+    return center + Offset(w * (wide ? 0.43 : 0.41) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
   }
 
   Offset dir(int i) {
@@ -1255,7 +1255,7 @@ class _Layout {
   Map<int, Size> betSizes = {};
 
   double get myAvatar => wide ? 87.0 : 67.0;
-  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - 80);
+  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - (wide ? 80 : 100));
 
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
   List<Rect> seatRects(int i) {
@@ -1803,9 +1803,34 @@ class _TableViewState extends State<_TableView> {
     _addFlights(added, delay);
   }
 
+  /// Ruka je gotova, a za stolom nema dovoljno igrača za novu: sto se čisti
+  /// (bez karata, pota i oznaka poteza) i čeka se drugi igrač.
+  static bool waitingForPlayers(Json st) {
+    if (st['inProgress'] == true || st['result'] != null) return false;
+    final ready = (st['seats'] as List)
+        .cast<Json?>()
+        .where((s) => s != null && ((s['stack'] as int?) ?? 0) > 0 && s['sittingOut'] != true)
+        .length;
+    return ready < 2;
+  }
+
+  static Json _cleared(Json st) => {
+        ...st,
+        'board': const <String>[],
+        'pot': 0,
+        'collected': 0,
+        'pots': const [],
+        'seats': [
+          for (final s in (st['seats'] as List).cast<Json?>())
+            s == null ? null : <String, dynamic>{...s, 'cards': null, 'bet': 0, 'lastAct': null, 'bestHand': null, 'myShown': const []},
+        ],
+      };
+
   @override
   Widget build(BuildContext context) {
-    final st = _display();
+    final raw = _display();
+    final idle = _runoutFinal == null && waitingForPlayers(raw);
+    final st = idle ? _cleared(raw) : raw;
     final money = widget.money;
     final seats = (st['seats'] as List).cast<Json?>();
     final n = seats.length;
@@ -1845,7 +1870,7 @@ class _TableViewState extends State<_TableView> {
         left: w * 0.02,
         top: -h * (widget.wide ? 0.07 : 0.105),
         width: w * 0.96,
-        height: h * (widget.wide ? 0.93 : 1.04),
+        height: h * (widget.wide ? 0.93 : 1.0),
         // Nagib stola (perspektiva): dalja strana se smanjuje, kao na GG.
         child: Transform(
           alignment: Alignment.bottomCenter,
@@ -2159,6 +2184,14 @@ class _TableViewState extends State<_TableView> {
       ));
     }
 
+    if (idle && (st['seats'] as List).any((x) => x != null)) {
+      children.add(Positioned(
+        left: 0,
+        right: 0,
+        top: lay.boardTop - 6,
+        child: const Center(child: IgnorePointer(child: _WaitingBadge())),
+      ));
+    }
     return Stack(clipBehavior: Clip.none, children: [...children, ...overlays]);
   }
 }
@@ -2571,7 +2604,7 @@ class _MyPanel extends StatelessWidget {
     final me = (st['seats'] as List)[st['mySeat'] as int] as Json;
     final legal = st['legal'] as Json?;
     final tableId = st['id'] as String;
-    final myHand = st['myHand'] as String?;
+    final myHand = _TableViewState.waitingForPlayers(st) ? null : st['myHand'] as String?;
     final inHand = me['inHand'] == true && me['folded'] != true && st['inProgress'] == true;
     final h = wide ? 52.0 : 48.0;
 
@@ -2677,6 +2710,57 @@ class _MyPanel extends StatelessWidget {
       // Stalna visina (koliko zauzimaju potezi sa iznosima), da sto ne skače kad dođeš na potez.
       // (Snaga ruke na računaru stoji u donjem levom uglu stola, ne ovde.)
       child: SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
+    );
+  }
+}
+
+/// "Waiting for other players" sa tačkicama koje trepere, u sredini praznog stola.
+class _WaitingBadge extends StatefulWidget {
+  const _WaitingBadge();
+  @override
+  State<_WaitingBadge> createState() => _WaitingBadgeState();
+}
+
+class _WaitingBadgeState extends State<_WaitingBadge> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.of(context).size.width > 900;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: wide ? 26 : 18, vertical: wide ? 14 : 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: gold.withOpacity(0.6), width: 1.3),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 14)],
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        GoldText('Waiting for other players',
+            style: TextStyle(fontSize: wide ? 18 : 14, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) => Row(mainAxisSize: MainAxisSize.min, children: [
+            for (var i = 0; i < 3; i++)
+              Container(
+                width: wide ? 9 : 7,
+                height: wide ? 9 : 7,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: goldLight.withOpacity(0.25 + 0.75 * (0.5 + 0.5 * sin(2 * pi * (_c.value - i / 3)))),
+                ),
+              ),
+          ]),
+        ),
+      ]),
     );
   }
 }
