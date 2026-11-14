@@ -1224,7 +1224,8 @@ class _Layout {
   double get h => size.height;
   // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
   Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.44));
-  double get cardW => min(min(w, h) > 600 ? 46.0 : 38.0, (w * 0.56) / 5 - 4);
+  // Karte na stolu (+20%).
+  double get cardW => min(min(w, h) > 600 ? 55.0 : 46.0, (w * 0.68) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
 
@@ -1237,7 +1238,7 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
     final widen = 1 + 0.07 * sin(angle);
-    return center + Offset(w * (wide ? 0.43 : 0.41) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    return center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
   }
 
   Offset dir(int i) {
@@ -1262,7 +1263,7 @@ class _Layout {
     final p = seat(i);
     if (i == mySeat) {
       final a = myAvatar, top = myTop(p);
-      return [Rect.fromLTRB(p.dx - (a + 50) / 2, top - 8, p.dx + (a + 50) / 2, top + a + 8 + (wide ? 66 : 54))];
+      return [Rect.fromLTRB(p.dx - (a + 50) / 2, top - 8 - _myCardsLift(a), p.dx + (a + 50) / 2, top + a + 8 + (wide ? 66 : 54))];
     }
     final a = wide ? 54.0 : 41.0;
     final half = wide ? 64.0 : 52.0;
@@ -2390,7 +2391,8 @@ class _SeatView extends StatelessWidget {
     Widget? cardsWidget;
     final scale = a / 50;
     if (cards != null && cards.isNotEmpty) {
-      final cw = (isMe ? (cards.length > 2 ? 28.0 : 34.0) : (cards.length > 2 ? 19.0 : 24.0)) * (isMe ? scale * 0.86 : scale);
+      // Moje karte su 20% veće (rastu naviše, da ne pređu preko pločice).
+      final cw = (isMe ? (cards.length > 2 ? 28.0 : 34.0) : (cards.length > 2 ? 19.0 : 24.0)) * (isMe ? scale * 0.86 * 1.2 : scale);
       cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
         for (var k = 0; k < cards.length; k++)
           Transform.translate(
@@ -2497,7 +2499,7 @@ class _SeatView extends StatelessWidget {
               avatar,
               // Svoje karte iznad avatara; tuđe (poleđine) gore desno, kao u dizajnu
               if (cardsWidget != null)
-                isMe ? Positioned(top: -a * 0.02, child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
+                isMe ? Positioned(top: -a * 0.02 - _myCardsLift(a), child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
               // Pobeda: veliki WIN preko slike igrača
               if (won != null) Positioned(top: a * 0.12, child: _WinBadge(size: a * 1.25)),
             ]),
@@ -2764,6 +2766,9 @@ class _WaitingBadgeState extends State<_WaitingBadge> with SingleTickerProviderS
     );
   }
 }
+
+/// Koliko se moje (uvećane) karte dižu iznad avatara: 20% visine karte.
+double _myCardsLift(double a) => 34.0 * (a / 50) * 0.86 * 0.2 * 1.4;
 
 /// Natpis sa snagom moje ruke ("Two pair 8 & 3").
 class _HandPill extends StatelessWidget {
