@@ -324,6 +324,8 @@ class _TableScreenState extends State<TableScreen> {
   void _maybeRebuyDialog(Json st) {
     final until = st['rebuyUntil'] as int?;
     if (until == null || until == _rebuyShown || !mounted) return;
+    // Prvo se odigra kraj ruke (karte, pobednik, žetoni), pa tek onda prozor.
+    if (st['result'] != null) return;
     _rebuyShown = until;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -549,8 +551,9 @@ class _RebuyDialogState extends State<_RebuyDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final left = ((widget.until - widget.app.serverNow) / 1000).ceil().clamp(0, 999);
+    final left0 = ((widget.until - widget.app.serverNow) / 1000).ceil().clamp(0, 999);
     final total = ((widget.until - widget.app.serverNow) / 120000).clamp(0.0, 1.0);
+    final left = min(left0, 120);
     return Dialog(
       backgroundColor: const Color(0xFF15110E),
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),

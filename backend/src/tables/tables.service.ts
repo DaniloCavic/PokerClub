@@ -898,7 +898,9 @@ export class TablesService implements OnModuleInit {
   /** Igrač bez žetona ima REBUY_MS da dopuni; ako ne dopuni, ustaje i oslobađa mesto. */
   private startRebuy(rt: Runtime, userId: string) {
     if (rt.rebuy.has(userId)) return;
-    const until = Date.now() + REBUY_MS;
+    // Rok počinje tek kad se završi prikaz ruke (all-in: flop, turn, river, pobednik).
+    const shownFor = BETWEEN_HANDS_MS + (rt.runoutMs ?? 0);
+    const until = Date.now() + shownFor + REBUY_MS;
     const timer = setTimeout(() => {
       void this.exclusive(rt, async () => {
         rt.rebuy.delete(userId);
@@ -909,7 +911,7 @@ export class TablesService implements OnModuleInit {
         await this.standUp(rt, i);
         await this.broadcast(rt);
       }).catch((e) => this.log.error(e));
-    }, REBUY_MS);
+    }, until - Date.now());
     rt.rebuy.set(userId, { until, timer });
     this.nudge(userId, {
       title: 'Ostali ste bez žetona',
