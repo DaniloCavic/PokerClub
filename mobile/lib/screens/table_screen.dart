@@ -2330,7 +2330,11 @@ class _SeatView extends StatelessWidget {
       tag = (label: 'WIN +${money(won)}', color: gold);
     } else if (handName != null) {
       tag = (label: handName!, color: Colors.black87);
-    } else if (act != null && !acting && !const ['sb', 'bb', 'ante'].contains(act['type'])) {
+    } else if (act != null &&
+        !acting &&
+        !const ['sb', 'bb', 'ante'].contains(act['type']) &&
+        // Kad na pločici već piše ALL-IN, ispod ne treba ljubičasto "ALL-IN iznos".
+        !(seat['allIn'] == true && act['type'] == 'allin')) {
       tag = actLabel(act, money);
     } else if (seat['leaving'] == true) {
       tag = (label: 'LEAVING', color: const Color(0xFF2B2F38));
