@@ -37,13 +37,13 @@ async function main() {
     const free = st.seats.findIndex((x: any) => x === null);
     if (st.mySeat < 0) {
       if (free < 0) throw new Error('Sto je pun.');
-      const r = await ack(s, 'table:sit', { tableId: TABLE_ID, seat: free, buyIn: Math.min(st.maxBuyIn, Math.max(st.minBuyIn, st.bigBlind * 100)) });
+      const r = await ack(s, 'table:sit', { tableId: TABLE_ID, seat: free, buyIn: process.env.BOT_RANDOM_BUYIN ? st.minBuyIn + Math.floor(Math.random() * (st.maxBuyIn - st.minBuyIn)) : Math.min(st.maxBuyIn, Math.max(st.minBuyIn, st.bigBlind * 100)) });
       if (!r.ok) throw new Error(r.error);
     }
     let lastKey = '';
     s.on('table:state', (t: any) => {
       const me = t.mySeat >= 0 ? t.seats[t.mySeat] : null;
-      if (me && me.stack === 0 && !me.inHand) void ack(s, 'table:topup', { tableId: TABLE_ID, amount: t.maxBuyIn });
+      if (me && me.stack === 0 && !me.inHand) void ack(s, 'table:topup', { tableId: TABLE_ID, amount: process.env.BOT_RANDOM_BUYIN ? t.minBuyIn + Math.floor(Math.random() * (t.maxBuyIn - t.minBuyIn)) : t.maxBuyIn });
       if (me?.sittingOut) void ack(s, 'table:sitout', { tableId: TABLE_ID, value: false });
       // Run it twice: bot pristaje u 70 % slučajeva.
       if (t.ritPending && t.ritAsk.includes(t.mySeat) && !t.ritYes.includes(t.mySeat)) {
@@ -60,6 +60,8 @@ async function main() {
         let msg: any = { action: legal.check ? 'check' : 'call' };
         if (r < 0.15 && !legal.check) msg = { action: 'fold' };
         else if (r > 0.8 && legal.minRaiseTo !== null) msg = { action: 'raise', amount: legal.minRaiseTo };
+        // Za proveru izgleda all-in-a: BOT_ALLIN=0.3 → bot često ide all-in.
+        if (Math.random() < Number(process.env.BOT_ALLIN || 0) && legal.maxRaiseTo !== null) msg = { action: 'raise', amount: legal.maxRaiseTo };
         void ack(s, 'table:act', { tableId: TABLE_ID, ...msg });
       }, 700 + Math.random() * 1500);
     });

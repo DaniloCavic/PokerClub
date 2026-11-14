@@ -353,6 +353,8 @@ export class TablesService implements OnModuleInit {
       timeBankSeconds: TIME_BANK_MS / 1000,
       // Pot iz prethodnih rundi (gomila žetona na sredini stola), bez uloga u tekućoj rundi.
       collected: g.inProgress ? g.collected : 0,
+      // Glavni i sporedni potovi (sakupljeni), kad ih ima više od jednog.
+      sidePots: g.inProgress ? g.pots(true).map((p) => p.amount) : [],
       ante: Math.floor(rt.table.bigBlind / 5),
       serverTime: Date.now(),
       seats: g.seats.map((s, i) => {
@@ -372,7 +374,8 @@ export class TablesService implements OnModuleInit {
           bet: s.bet,
           inHand: s.inHand,
           folded: s.folded,
-          allIn: s.allIn,
+          // ALL-IN samo dok ruka traje (posle ruke se vidi stek).
+          allIn: g.inProgress && s.allIn,
           sittingOut: s.sittingOut,
           leaving: s.leaving,
           lastAction: s.lastAction,

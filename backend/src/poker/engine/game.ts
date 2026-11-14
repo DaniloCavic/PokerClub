@@ -575,25 +575,26 @@ export class PokerGame {
     this.toAct = this.next(this.button, (s) => this.canAct(s));
   }
 
-  /** Glavni i sporedni potovi iz ukupnih uloga. */
-  pots(): Pot[] {
+  /** Glavni i sporedni potovi iz ukupnih uloga (collectedOnly: bez uloga u tekućoj rundi). */
+  pots(collectedOnly = false): Pot[] {
+    const put = (i: number) => this.seats[i]!.committed - (collectedOnly ? this.seats[i]!.bet : 0);
     const inHand = this.indices().filter((i) => this.seats[i]!.inHand);
     const live = new Set(this.live());
-    const levels = [...new Set(inHand.filter((i) => live.has(i)).map((i) => this.seats[i]!.committed))].sort((a, b) => a - b);
+    const levels = [...new Set(inHand.filter((i) => live.has(i)).map((i) => put(i)))].sort((a, b) => a - b);
     const pots: Pot[] = [];
     let prev = 0;
     for (const level of levels) {
       let amount = 0;
       for (const i of inHand) {
-        const c = this.seats[i]!.committed;
+        const c = put(i);
         amount += Math.max(0, Math.min(c, level) - prev);
       }
-      const eligible = [...live].filter((i) => this.seats[i]!.committed >= level);
+      const eligible = [...live].filter((i) => put(i) >= level);
       if (amount > 0) pots.push({ amount, eligible });
       prev = level;
     }
     // Ulozi odustalih iznad najvišeg nivoa (ne bi trebalo da postoje) idu u poslednji pot.
-    const leftover = inHand.reduce((sum, i) => sum + Math.max(0, this.seats[i]!.committed - prev), 0);
+    const leftover = inHand.reduce((sum, i) => sum + Math.max(0, put(i) - prev), 0);
     if (leftover > 0) {
       if (pots.length) pots[pots.length - 1].amount += leftover;
       else pots.push({ amount: leftover, eligible: [...live] });

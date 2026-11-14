@@ -1245,7 +1245,8 @@ class _Layout {
     final a = wide ? 54.0 : 41.0;
     final boardHalf = 5 * (cardW + 4) / 2 + 4;
     final boardBottom = boardTop + cardW * 1.4 + 4;
-    final left = p.dx - a / 2 - 6, right = p.dx + (a + 50) / 2 + 2, top = p.dy - a / 2 - 16;
+    final half = faceCardW(2) * 1.86 / 2 + 4;
+    final left = min(p.dx - a / 2 - 6, p.dx - half), right = max(p.dx + (a + 50) / 2 + 2, p.dx + half), top = othersTop(p, a);
     final overlapsX = right > center.dx - boardHalf && left < center.dx + boardHalf;
     if (overlapsX && top < boardBottom + 4 && p.dy > boardTop) return Offset(p.dx, p.dy + (boardBottom + 4 - top));
     return p;
@@ -1262,10 +1263,22 @@ class _Layout {
   /// Koliko karata je na stolu (za raspored uloga).
   int boardCount = 5;
 
+  /// Visina onoga što stoji odmah ispod karata (drugi sto, bomb pot, sporedni potovi).
+  double belowBoard = 0;
+
+  /// Pola širine tog pojasa ispod karata.
+  double belowBoardHalf = 0;
+
   /// Veličina gomile uloga za svakog igrača koji ima ulog (žetoni + iznos).
   Map<int, Size> betSizes = {};
 
   double get myAvatar => wide ? 87.0 : 67.0;
+
+  /// Otvorene karte (svoje i tuđe na kraju/all-in): iste veličine kao moje.
+  double faceCardW(int count) => (count > 2 ? 28.0 : 34.0) * (myAvatar / 50) * 0.86 * 1.2;
+
+  /// Gornja ivica tuđeg sedišta: mesto i za velike otvorene karte iznad pločice.
+  double othersTop(Offset p, double a) => min(p.dy - a / 2 - 16, p.dy + (a + 8) / 2 - 6 - faceCardW(2) * 1.4 - 6);
   double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - (wide ? 80 : 100));
 
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
@@ -1278,7 +1291,8 @@ class _Layout {
     final a = wide ? 54.0 : 41.0;
     final half = wide ? 64.0 : 52.0;
     return [
-      Rect.fromLTRB(p.dx - a / 2 - 6, p.dy - a / 2 - 16, p.dx + (a + 50) / 2 + 2, p.dy + a / 2),
+      Rect.fromLTRB(min(p.dx - a / 2 - 6, p.dx - faceCardW(2) * 0.93 - 4), othersTop(p, a),
+          max(p.dx + (a + 50) / 2 + 2, p.dx + faceCardW(2) * 0.93 + 4), p.dy + a / 2),
       Rect.fromLTRB(p.dx - half, p.dy + a / 2 - 6, p.dx + half, p.dy + a / 2 + (wide ? 70 : 53)),
     ];
   }
@@ -1293,6 +1307,8 @@ class _Layout {
       Rect.fromLTRB(center.dx - 74, potTop - 2, center.dx + 74, boardTop),
       if (boardCount > 0)
         Rect.fromLTRB(center.dx - boardW / 2 - 4, boardTop, center.dx + boardW / 2 + 4, boardTop + cardW * 1.4 + 4),
+      if (belowBoard > 0)
+        Rect.fromLTRB(center.dx - belowBoardHalf, boardTop + cardW * 1.4 + 4, center.dx + belowBoardHalf, boardTop + cardW * 1.4 + 8 + belowBoard),
     ];
   }
 
@@ -1339,10 +1355,16 @@ class _Layout {
       if (found == null) {
         // Nema potpuno slobodnog mesta (uzan telefon, igrač sa strane): mesto na liniji koje
         // ne dodiruje nijedno sedište i najmanje prelazi preko karata/pota.
-        double over(Rect r) => middleRects.fold(0.0, (a, m) {
-              final x = r.intersect(m);
-              return a + (x.width > 0 && x.height > 0 ? x.width * x.height : 0);
-            });
+        // Najgore je preći preko karata na stolu (indeks 2), pa tek onda preko pota i natpisa.
+        final mids = middleRects;
+        double over(Rect r) {
+          var a = 0.0;
+          for (var k = 0; k < mids.length; k++) {
+            final x = r.intersect(mids[k]);
+            if (x.width > 0 && x.height > 0) a += x.width * x.height * (k == 2 ? 10 : 1);
+          }
+          return a;
+        }
         final others = [
           ...seatsAll,
           if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
@@ -1654,6 +1676,8 @@ class _TableViewState extends State<_TableView> {
           ? null
           : ((res['equity'] as List?) ?? const []).cast<Json>().where((e) => e['board'] == _oddsBoard).map((e) => e['odds']).firstOrNull,
       'result': null,
+      // Glavni i sporedni potovi iz rezultata (drugi sto kod run it twice se ne broji posebno).
+      'sidePots': _potsOf(res),
       'pot': pot,
       'collected': pot,
       'toAct': -1,
@@ -1665,10 +1689,21 @@ class _TableViewState extends State<_TableView> {
               : <String, dynamic>{
                   ...newSeats[i]!,
                   'stack': _oldStack(oldSeats, i) ?? newSeats[i]!['stack'],
+                  // Dok se otkriva sto, igrači u all-in-u i dalje imaju ALL-IN na pločici.
+                  'allIn': i < oldSeats.length && oldSeats[i]?['allIn'] == true,
+                  'inHand': i < oldSeats.length && oldSeats[i]?['inHand'] == true,
                   'bet': 0,
                 },
       ],
     };
+  }
+
+  /// Iznosi potova iz rezultata; kod run it twice se polovine oba stola sabiraju.
+  static List<int> _potsOf(Json res) {
+    final all = (res['pots'] as List).cast<Json>();
+    final r1 = [for (final p in all) if (p['run'] != 2) p['amount'] as int];
+    final r2 = [for (final p in all) if (p['run'] == 2) p['amount'] as int];
+    return [for (var k = 0; k < r1.length; k++) r1[k] + (k < r2.length ? r2[k] : 0)];
   }
 
   static Object? _oldStack(List<Json?> seats, int i) {
@@ -1713,6 +1748,49 @@ class _TableViewState extends State<_TableView> {
     });
   }
 
+  bool _bombLabel(Json st) =>
+      st['ritPending'] != true &&
+      st['result'] == null &&
+      st['closing'] != true &&
+      (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1));
+
+  List<int> _sidePots(Json st) {
+    if (st['ritPending'] == true || st['result'] != null) return const [];
+    final p = ((st['sidePots'] as List?) ?? const []).cast<int>();
+    return p.length > 1 ? p : const [];
+  }
+
+  List<String>? _board2(Json st) => (((st['result'] as Json?)?['board2'] ?? st['runoutBoard2']) as List?)?.cast<String>();
+
+  /// Šta sve stoji ispod karata (redom): drugi sto, oznaka bomb pota, sporedni potovi.
+  double _belowBoard(Json st) {
+    final cw = min(min(widget.size.width, widget.size.height) > 600 ? 55.0 : 46.0, (widget.size.width * 0.68) / 5 - 4);
+    var h = 0.0;
+    if (_board2(st) != null) h += cw * 0.9 * 1.4 + 6;
+    if (_bombLabel(st)) h += widget.wide ? 26 : 22;
+    final sp = _sidePots(st);
+    if (sp.isNotEmpty) h += _sidePotsHeight(sp.length);
+    return h;
+  }
+
+  double _sidePotsHeight(int n) {
+    final perRow = widget.wide ? 5 : 3;
+    final rows = (n + perRow - 1) ~/ perRow;
+    return rows * (widget.wide ? 28.0 : 21.0) + 4;
+  }
+
+  /// Pola širine pojasa ispod karata (drugi sto, bomb pot, potovi).
+  double _sidePotsHalf() => widget.wide ? widget.size.width * 0.38 : 112;
+
+  double _belowBoardHalf(Json st) {
+    final cw = min(min(widget.size.width, widget.size.height) > 600 ? 55.0 : 46.0, (widget.size.width * 0.68) / 5 - 4);
+    var half = 0.0;
+    if (_board2(st) != null) half = max(half, 5 * (cw * 0.9 + 4) / 2 + 4);
+    if (_bombLabel(st)) half = max(half, widget.wide ? 80.0 : 70.0);
+    if (_sidePots(st).isNotEmpty) half = max(half, _sidePotsHalf());
+    return half;
+  }
+
   _Layout _layoutFor(Json st) {
     final seats = (st['seats'] as List).cast<Json?>();
     final n = seats.length;
@@ -1720,7 +1798,9 @@ class _TableViewState extends State<_TableView> {
     final bb = st['bigBlind'] as int;
     return _Layout(widget.size, n, my >= 0 ? my : 0, my, wide: widget.wide)
       ..button = (st['button'] as int?) ?? -1
-      ..boardCount = ((st['board'] as List?)?.length ?? 0) + (((st['result'] as Json?)?['board2'] as List?) != null ? 5 : 0)
+      ..boardCount = ((st['board'] as List?)?.length ?? 0)
+      ..belowBoard = _belowBoard(st)
+      ..belowBoardHalf = _belowBoardHalf(st)
       ..betSizes = {
         for (var i = 0; i < n; i++)
           if (((seats[i]?['bet'] as int?) ?? 0) > 0)
@@ -1978,7 +2058,8 @@ class _TableViewState extends State<_TableView> {
       if (collected > 0 && !flyingIn)
         Positioned(
           left: lay.pile.dx - 50,
-          top: lay.pile.dy - 22,
+          // Žetoni rastu naviše od natpisa POT (visoka gomila ne prekriva iznos).
+          bottom: h - lay.potTop + 2,
           width: 100,
           child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 21 : 16)),
         ),
@@ -2006,11 +2087,11 @@ class _TableViewState extends State<_TableView> {
           child: Center(child: _RitPanel(st: st, wide: widget.wide)),
         ),
       // Bomb pot (ruka u toku) ili najava da je sledeća ruka bomb pot.
-      if (st['ritPending'] != true && result == null && st['closing'] != true && (st['bombPot'] == true || (st['inProgress'] != true && st['nextBombIn'] == 1)))
+      if (_bombLabel(st))
         Positioned(
           left: 0,
           right: 0,
-          top: boardTop + cardW * 1.4 + 8,
+          top: boardTop + cardW * 1.4 + 8 + (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0),
           child: Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
@@ -2024,6 +2105,19 @@ class _TableViewState extends State<_TableView> {
             ),
           ),
         ),
+      // Glavni i sporedni potovi (kad ih ima više): ispod karata, koliko god ih ima.
+      if (_sidePots(st).isNotEmpty)
+        Positioned(
+          // Telefon: uzak pojas između velikih karata igrača sa strane (po tri pota u redu).
+          left: w / 2 - _sidePotsHalf(),
+          right: w / 2 - _sidePotsHalf(),
+          top: boardTop +
+              cardW * 1.4 +
+              8 +
+              (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0) +
+              (_bombLabel(st) ? (widget.wide ? 26 : 22) : 0),
+          child: Center(child: _SidePots(pots: _sidePots(st), money: money, wide: widget.wide)),
+        ),
       if (result != null || st['closing'] == true)
         Positioned(
           left: 0,
@@ -2031,7 +2125,7 @@ class _TableViewState extends State<_TableView> {
           top: boardTop + cardW * 1.4 + 6 + (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0),
           child: Center(
             child: result != null
-                ? _ResultText(result: result, money: money)
+                ? _ResultText(result: result, money: money, wide: widget.wide)
                 : const Text('Table closes after this hand.', style: TextStyle(color: gold, fontSize: 12)),
           ),
         ),
@@ -2158,6 +2252,17 @@ class _TableViewState extends State<_TableView> {
           best: best,
           money: money,
           // D, SB, BB u gornjem levom uglu pločice
+          faceCardW: lay.faceCardW,
+          // Velike otvorene karte igrača uz ivicu: pomeri ih ka sredini da ne izađu iz ekrana.
+          faceDx: () {
+            final c = ((s['cards'] as List?) ?? const []).length;
+            if (c == 0) return 0.0;
+            final cw = lay.faceCardW(c);
+            final half = (cw + (c - 1) * cw * 0.86) / 2 + 3;
+            if (p.dx - half < 4) return 4 - (p.dx - half);
+            if (p.dx + half > w - 4) return (w - 4) - (p.dx + half);
+            return 0.0;
+          }(),
           badges: [
             if (st['button'] == i) 'D',
             if (st['inProgress'] == true && st['sbSeat'] == i) 'SB',
@@ -2287,7 +2392,8 @@ class _FeltInfo extends StatelessWidget {
 class _ResultText extends StatelessWidget {
   final Json result;
   final Money money;
-  const _ResultText({required this.result, required this.money});
+  final bool wide;
+  const _ResultText({required this.result, required this.money, this.wide = false});
 
   @override
   Widget build(BuildContext context) {
@@ -2303,10 +2409,11 @@ class _ResultText extends StatelessWidget {
           : pots.length > 1
               ? (k == 0 ? 'Main: ' : 'Side: ')
               : '';
-      lines.add('$prefix$names +${money(p['amount'])}${p['handName'] != null ? ' · ${p['handName']}' : ''}');
+      final hand = p['handName'] != null && (wide || pots.length == 1) ? ' · ${p['handName']}' : '';
+      lines.add('$prefix$names +${money(p['amount'])}$hand');
     }
     return Container(
-      constraints: const BoxConstraints(maxWidth: 260),
+      constraints: BoxConstraints(maxWidth: wide ? 300 : 200),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(color: Colors.black.withOpacity(0.55), borderRadius: BorderRadius.circular(10)),
       child: Text(lines.join('\n'),
@@ -2354,7 +2461,15 @@ class _SeatView extends StatelessWidget {
     this.equity,
     this.equityLeader = false,
     this.badges = const [],
+    this.faceCardW,
+    this.faceDx = 0,
   });
+
+  /// Pomeraj velikih otvorenih karata levo/desno (da ostanu u ekranu).
+  final double faceDx;
+
+  /// Širina otvorene karte (kao moje); tuđe otvorene karte su iste veličine.
+  final double Function(int count)? faceCardW;
 
   @override
   Widget build(BuildContext context) {
@@ -2400,7 +2515,23 @@ class _SeatView extends StatelessWidget {
     // Karte preko gornjeg dela avatara: svoje i otvorene licem, tuđe poleđinom.
     Widget? cardsWidget;
     final scale = a / 50;
-    if (cards != null && cards.isNotEmpty) {
+    // Tuđe karte otvorene licem (all-in, kraj ruke): velike kao moje, preko slike igrača.
+    final bigFace = !isMe && !folded && cards != null && cards.any((c) => c != null) && faceCardW != null;
+    if (bigFace) {
+      final cw = faceCardW!(cards.length);
+      cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
+        for (var k = 0; k < cards.length; k++)
+          Transform.translate(
+            offset: Offset(-k * cw * 0.14, 0),
+            child: Transform.rotate(
+              angle: (k - (cards.length - 1) / 2) * 0.07,
+              child: cards[k] == null
+                  ? PlayingCard(width: cw)
+                  : PlayingCard(code: cards[k], width: cw, highlight: best.contains(cards[k])),
+            ),
+          ),
+      ]);
+    } else if (cards != null && cards.isNotEmpty) {
       // Moje karte su 20% veće (rastu naviše, da ne pređu preko pločice).
       final cw = (isMe ? (cards.length > 2 ? 28.0 : 34.0) : (cards.length > 2 ? 19.0 : 24.0)) * (isMe ? scale * 0.86 * 1.2 : scale);
       cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2509,7 +2640,14 @@ class _SeatView extends StatelessWidget {
               avatar,
               // Svoje karte iznad avatara; tuđe (poleđine) gore desno, kao u dizajnu
               if (cardsWidget != null)
-                isMe ? Positioned(top: -a * 0.02 - _myCardsLift(a), child: cardsWidget) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
+                isMe
+                    ? Positioned(top: -a * 0.02 - _myCardsLift(a), child: cardsWidget)
+                    : bigFace
+                        ? Positioned(
+                            bottom: 6,
+                            left: -80,
+                            right: -80,
+                            child: Center(child: Transform.translate(offset: Offset(faceDx, 0), child: cardsWidget))) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
               // Pobeda: veliki WIN preko slike igrača
               if (won != null) Positioned(top: a * 0.12, child: _WinBadge(size: a * 1.25)),
             ]),
@@ -2724,6 +2862,39 @@ class _MyPanel extends StatelessWidget {
       child: SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
     );
   }
+}
+
+/// Glavni pot i sporedni potovi, jedan pored drugog (u više redova ako ih je mnogo).
+class _SidePots extends StatelessWidget {
+  final List<int> pots;
+  final Money money;
+  final bool wide;
+  const _SidePots({required this.pots, required this.money, required this.wide});
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        alignment: WrapAlignment.center,
+        spacing: wide ? 6 : 4,
+        runSpacing: wide ? 4 : 3,
+        children: [
+          for (var k = 0; k < pots.length; k++)
+            Container(
+              height: wide ? 24 : 18,
+              padding: EdgeInsets.symmetric(horizontal: wide ? 10 : 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: gold.withOpacity(k == 0 ? 0.9 : 0.5)),
+              ),
+              child: Center(
+                widthFactor: 1,
+                child: Text(
+                '${k == 0 ? 'Main' : pots.length > 2 ? 'Side $k' : 'Side'}: ${money(pots[k])}',
+                style: TextStyle(fontSize: wide ? 12.5 : 9.5, fontWeight: FontWeight.w800, color: k == 0 ? goldLight : Colors.white),
+              )),
+            ),
+        ],
+      );
 }
 
 /// "Waiting for other players" sa tačkicama koje trepere, u sredini praznog stola.
