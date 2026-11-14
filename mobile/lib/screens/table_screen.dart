@@ -276,6 +276,9 @@ class _TableScreenState extends State<TableScreen> {
                 Positioned.fill(
                     child: Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 0), child: _tableArea(st, money, true))),
                 Positioned(left: 14, top: 12, child: _TableInfoCard(st: st)),
+                // Snaga moje ruke: donji levi ugao prostora sa stolom (iznad trake sa potezima).
+                if (st['myHand'] != null && (st['mySeat'] as int) >= 0)
+                  Positioned(left: 14, bottom: 10, child: _HandPill(st['myHand'] as String, big: true)),
                 Positioned(
                   right: 14,
                   top: 12,
@@ -2651,18 +2654,7 @@ class _MyPanel extends StatelessWidget {
       ]);
     }
 
-    final status = Row(children: [
-      if (myHand != null)
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-          decoration: BoxDecoration(
-            color: Colors.black45,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: gold.withOpacity(0.4)),
-          ),
-          child: GoldText(myHand, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-        )
-    ]);
+    final status = Row(children: [if (myHand != null) _HandPill(myHand)]);
 
     if (!wide) {
       return Padding(
@@ -2683,13 +2675,28 @@ class _MyPanel extends StatelessWidget {
         border: Border(top: BorderSide(color: gold.withOpacity(0.35))),
       ),
       // Stalna visina (koliko zauzimaju potezi sa iznosima), da sto ne skače kad dođeš na potez.
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: status)),
-        const SizedBox(height: 6),
-        SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
-      ]),
+      // (Snaga ruke na računaru stoji u donjem levom uglu stola, ne ovde.)
+      child: SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
     );
   }
+}
+
+/// Natpis sa snagom moje ruke ("Two pair 8 & 3").
+class _HandPill extends StatelessWidget {
+  final String text;
+  final bool big;
+  const _HandPill(this.text, {this.big = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: EdgeInsets.symmetric(horizontal: big ? 14 : 10, vertical: big ? 6 : 3),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(big ? 10 : 8),
+          border: Border.all(color: gold.withOpacity(0.45)),
+        ),
+        child: GoldText(text, style: TextStyle(fontWeight: FontWeight.w800, fontSize: big ? 15 : 13)),
+      );
 }
 
 class _PreButton extends StatelessWidget {

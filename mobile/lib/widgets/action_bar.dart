@@ -191,25 +191,25 @@ class _ActionBarState extends State<ActionBar> {
       );
 
   /// Polje za upis iznosa (dodir na broj otvara tastaturu).
-  Widget _amountField() => TextField(
+  Widget _amountField({bool big = false}) => TextField(
               controller: _field,
               focusNode: _focus,
               textAlign: TextAlign.center,
               keyboardType: TextInputType.numberWithOptions(decimal: _m.inBB),
               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              style: TextStyle(fontSize: big ? 17 : 18, fontWeight: FontWeight.w800),
               cursorColor: gold,
               decoration: InputDecoration(
                 isDense: true,
                 filled: true,
                 fillColor: Colors.black38,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: big ? 8 : 4),
                 suffixText: _m.inBB ? 'BB' : null,
                 suffixStyle: const TextStyle(fontSize: 12, color: Colors.white60, fontWeight: FontWeight.w700),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: gold.withOpacity(0.35))),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(big ? 10 : 8), borderSide: BorderSide(color: gold.withOpacity(big ? 0.6 : 0.35))),
                 enabledBorder:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: gold.withOpacity(0.35))),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: gold)),
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(big ? 10 : 8), borderSide: BorderSide(color: gold.withOpacity(big ? 0.6 : 0.35))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(big ? 10 : 8), borderSide: const BorderSide(color: gold)),
               ),
               onTap: () => _field.selection = TextSelection(baseOffset: 0, extentOffset: _field.text.length),
               onChanged: (t) {
@@ -390,7 +390,7 @@ class _ActionBarState extends State<ActionBar> {
               ),
               _round(Icons.add, _amount < _max! ? () => _step(1) : null),
               const SizedBox(width: 8),
-              SizedBox(width: 120, height: 36, child: _amountField()),
+              SizedBox(width: 92, height: 38, child: _amountField(big: true)),
             ]),
           ),
         ),
