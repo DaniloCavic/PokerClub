@@ -1671,7 +1671,8 @@ class _TableViewState extends State<_TableView> {
     return {
       ...fin,
       'board': (fin['board'] as List).take(_reveal).toList(),
-      'runoutBoard2': _reveal2 > from ? (res['board2'] as List).take(_reveal2).toList() : null,
+      'runoutBoard2': res['board2'] == null ? null : (res['board2'] as List).take(max(_reveal2, from)).toList(),
+      'ritFrom': from,
       'runoutOdds': _reveal2 > 0
           ? null
           : ((res['equity'] as List?) ?? const []).cast<Json>().where((e) => e['board'] == _oddsBoard).map((e) => e['odds']).firstOrNull,
@@ -1766,7 +1767,7 @@ class _TableViewState extends State<_TableView> {
   double _belowBoard(Json st) {
     final cw = min(min(widget.size.width, widget.size.height) > 600 ? 55.0 : 46.0, (widget.size.width * 0.68) / 5 - 4);
     var h = 0.0;
-    if (_board2(st) != null) h += cw * 0.9 * 1.4 + 6;
+    if (_board2(st) != null) h += cw * 1.4 + 6;
     if (_bombLabel(st)) h += widget.wide ? 26 : 22;
     final sp = _sidePots(st);
     if (sp.isNotEmpty) h += _sidePotsHeight(sp.length);
@@ -1785,7 +1786,7 @@ class _TableViewState extends State<_TableView> {
   double _belowBoardHalf(Json st) {
     final cw = min(min(widget.size.width, widget.size.height) > 600 ? 55.0 : 46.0, (widget.size.width * 0.68) / 5 - 4);
     var half = 0.0;
-    if (_board2(st) != null) half = max(half, 5 * (cw * 0.9 + 4) / 2 + 4);
+    if (_board2(st) != null) half = max(half, 5 * (cw + 4) / 2 + 4);
     if (_bombLabel(st)) half = max(half, widget.wide ? 80.0 : 70.0);
     if (_sidePots(st).isNotEmpty) half = max(half, _sidePotsHalf());
     return half;
@@ -1944,6 +1945,8 @@ class _TableViewState extends State<_TableView> {
     }
     final board = (st['board'] as List).cast<String>();
     final board2 = ((result?['board2'] ?? st['runoutBoard2']) as List?)?.cast<String>();
+    // Koliko karata je bilo na stolu pre all-in-a (zajedničke za oba stola).
+    final ritFrom = ((result?['runoutFrom'] ?? st['ritFrom']) as int?) ?? 0;
     // All-in: šanse za pobedu za trenutni broj karata na stolu.
     final odds = st['runoutOdds'] as Map?;
     double? equityOf(int seat) => (odds?['$seat'] as num?)?.toDouble();
@@ -2029,30 +2032,51 @@ class _TableViewState extends State<_TableView> {
         ),
       ),
       // Karte na stolu: svaka nova karta "padne" na sto
-      Positioned(
-        left: 0,
-        right: 0,
-        top: boardTop,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var k = 0; k < board.length; k++)
-              Padding(
-                key: ValueKey('board-${st['handNo']}-${board[k]}'),
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: _BoardCard(
-                  code: board[k],
-                  width: cardW,
-                  index: k,
-                  // Flop (prve tri karte zajedno) se raširi iz špila; turn i river se samo okrenu.
-                  spread: k < 3,
-                  highlight: best.contains(board[k]),
-                  dim: best.isNotEmpty && !best.contains(board[k]),
+      if (board2 == null)
+        Positioned(
+          left: 0,
+          right: 0,
+          top: boardTop,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var k = 0; k < board.length; k++)
+                Padding(
+                  key: ValueKey('board-${st['handNo']}-${board[k]}'),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _BoardCard(
+                    code: board[k],
+                    width: cardW,
+                    index: k,
+                    // Flop (prve tri karte zajedno) se raširi iz špila; turn i river se samo okrenu.
+                    spread: k < 3,
+                    highlight: best.contains(board[k]),
+                    dim: best.isNotEmpty && !best.contains(board[k]),
+                  ),
                 ),
-              ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        )
+      else
+        // Run it twice (kao na GG): zajedničke karte u sredini, karte 1. stola malo iznad,
+        // karte 2. stola malo ispod, na istim mestima (nema duplih karata).
+        for (final (k, code, run) in [
+          for (var k = 0; k < board.length; k++) (k, board[k], k < ritFrom ? 0 : 1),
+          for (var k = ritFrom; k < board2.length; k++) (k, board2[k], 2),
+        ])
+          Positioned(
+            key: ValueKey('rit-${st['handNo']}-$run-$code'),
+            left: w / 2 - 5 * (cardW + 4) / 2 + k * (cardW + 4) + 2,
+            top: boardTop + (run == 0 ? cardW * 0.7 + 3 : run == 1 ? 0 : cardW * 1.4 + 6),
+            child: _BoardCard(
+              code: code,
+              width: cardW,
+              index: k,
+              spread: k < 3,
+              highlight: best.contains(code),
+              dim: best.isNotEmpty && !best.contains(code),
+            ),
+          ),
       // Sakupljeni pot: gomila žetona i iznos ispod karata
       // Žetoni glavnog pota iznad natpisa POT (iznos piše na natpisu)
       if (collected > 0 && !flyingIn)
@@ -2062,21 +2086,6 @@ class _TableViewState extends State<_TableView> {
           bottom: h - lay.potTop + 2,
           width: 100,
           child: Center(child: ChipStacks(amount: collected, bigBlind: st['bigBlind'] as int, chipSize: widget.wide ? 21 : 16)),
-        ),
-      // Run it twice: drugi sto ispod prvog.
-      if (board2 != null)
-        Positioned(
-          left: 0,
-          right: 0,
-          top: boardTop + cardW * 1.4 + 6,
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            for (var k = 0; k < board2.length; k++)
-              Padding(
-                key: ValueKey('board2-${st['handNo']}-$k'),
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: _BoardCard(code: board2[k], width: cardW * 0.9, index: k, spread: k < 3),
-              ),
-          ]),
         ),
       // Run it twice: diler pita igrače u all-in-u; svi za stolom vide ko je šta odgovorio.
       if (st['ritPending'] == true)
@@ -2091,7 +2100,7 @@ class _TableViewState extends State<_TableView> {
         Positioned(
           left: 0,
           right: 0,
-          top: boardTop + cardW * 1.4 + 8 + (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0),
+          top: boardTop + cardW * 1.4 + 8 + (board2 != null ? cardW * 1.4 + 6 : 0),
           child: Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
@@ -2114,7 +2123,7 @@ class _TableViewState extends State<_TableView> {
           top: boardTop +
               cardW * 1.4 +
               8 +
-              (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0) +
+              (board2 != null ? cardW * 1.4 + 6 : 0) +
               (_bombLabel(st) ? (widget.wide ? 26 : 22) : 0),
           child: Center(child: _SidePots(pots: _sidePots(st), money: money, wide: widget.wide)),
         ),
@@ -2122,7 +2131,7 @@ class _TableViewState extends State<_TableView> {
         Positioned(
           left: 0,
           right: 0,
-          top: boardTop + cardW * 1.4 + 6 + (board2 != null ? cardW * 0.9 * 1.4 + 6 : 0),
+          top: boardTop + cardW * 1.4 + 6 + (board2 != null ? cardW * 1.4 + 6 : 0),
           child: Center(
             child: result != null
                 ? _ResultText(result: result, money: money, wide: widget.wide)

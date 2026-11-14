@@ -47,7 +47,7 @@ async function main() {
       if (me?.sittingOut) void ack(s, 'table:sitout', { tableId: TABLE_ID, value: false });
       // Run it twice: bot pristaje u 70 % slučajeva.
       if (t.ritPending && t.ritAsk.includes(t.mySeat) && !t.ritYes.includes(t.mySeat)) {
-        void ack(s, 'table:rit', { tableId: TABLE_ID, yes: Math.random() < 0.7 });
+        void ack(s, 'table:rit', { tableId: TABLE_ID, yes: Math.random() < Number(process.env.BOT_RIT ?? 0.7) });
         return;
       }
       if (!t.legal) return;

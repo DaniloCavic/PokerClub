@@ -32,6 +32,8 @@ interface Runtime {
   /** Stekovi na početku ruke (za istoriju). */
   startStacks: Record<number, number>;
   lastResult: ReturnType<TablesService['resultView']> | null;
+  /** Kada je ruka završena (rezultat se prikazuje samo kratko posle toga). */
+  lastResultAt?: number;
   sitOutSince: Map<string, number>;
   /** Igrač je ostao bez žetona: rok za rebuy (posle toga ustaje i oslobađa mesto). */
   rebuy: Map<string, { until: number; timer: NodeJS.Timeout }>;
@@ -335,14 +337,15 @@ export class TablesService implements OnModuleInit {
     const g = rt.game;
     const mySeat = userId ? g.seatOf(userId) : -1;
     const shown = new Map<number, string[]>();
-    for (const s of rt.lastResult?.shown ?? []) shown.set(s.seat, s.cards);
+    for (const s of this.freshResult(rt)?.shown ?? []) shown.set(s.seat, s.cards);
     return {
       ...this.summary(rt),
       closing: rt.closing,
       handNo: g.handNo,
       inProgress: g.inProgress,
       street: g.inProgress ? g.street : null,
-      board: g.board.map(cardToString),
+      // Posle ruke (kad se rezultat više ne prikazuje) sto je prazan.
+      board: g.inProgress || this.freshResult(rt) ? g.board.map(cardToString) : [],
       pot: g.potTotal(),
       button: g.button,
       sbSeat: g.inProgress ? g.sbSeat : -1,
@@ -409,7 +412,7 @@ export class TablesService implements OnModuleInit {
       // Svi potezi u ruci koja je u toku (spisak na stolu i istorija ruke).
       actions: g.actions,
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
-      result: rt.lastResult,
+      result: this.freshResult(rt),
     };
   }
 
@@ -743,6 +746,13 @@ export class TablesService implements OnModuleInit {
     }, ms);
   }
 
+  /** Rezultat poslednje ruke, samo dok traje prikaz (posle toga je sto prazan). */
+  private freshResult(rt: Runtime) {
+    if (!rt.lastResult) return null;
+    const showFor = BETWEEN_HANDS_MS + (rt.runoutMs ?? 0) + 3000;
+    return Date.now() - (rt.lastResultAt ?? 0) <= showFor ? rt.lastResult : null;
+  }
+
   private scheduleNextHand(rt: Runtime) {
     if (rt.nextHandTimer || rt.closing) return;
     this.scheduleNextHandIn(rt, rt.lastResult ? BETWEEN_HANDS_MS + (rt.runoutMs ?? 0) : 1000);
@@ -786,6 +796,7 @@ export class TablesService implements OnModuleInit {
       void this.computeEquity(rt, r).catch((e) => this.log.warn((e as Error).message));
     } else rt.runoutMs = 0;
     rt.lastResult = this.resultView(rt, r);
+    rt.lastResultAt = Date.now();
     const pot = r.pots.reduce((s, p) => s + p.amount, 0) + r.rake;
     const players = Object.keys(rt.startStacks).map(Number).filter((i) => g.seats[i]).map((i) => ({
       seat: i,
