@@ -1238,7 +1238,17 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
     final widen = 1 + 0.07 * sin(angle);
-    return center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    final p = center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    if (i == mySeat) return p;
+    // Igrač sa strane čije karte (poleđine) zalaze u karte na stolu: spusti ga tačno toliko
+    // da se ne dodiruju (računa se puna tabla od 5 karata, da raspored ne skače).
+    final a = wide ? 54.0 : 41.0;
+    final boardHalf = 5 * (cardW + 4) / 2 + 4;
+    final boardBottom = boardTop + cardW * 1.4 + 4;
+    final left = p.dx - a / 2 - 6, right = p.dx + (a + 50) / 2 + 2, top = p.dy - a / 2 - 16;
+    final overlapsX = right > center.dx - boardHalf && left < center.dx + boardHalf;
+    if (overlapsX && top < boardBottom + 4 && p.dy > boardTop) return Offset(p.dx, p.dy + (boardBottom + 4 - top));
+    return p;
   }
 
   Offset dir(int i) {
