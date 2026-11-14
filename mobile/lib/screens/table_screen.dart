@@ -2570,7 +2570,7 @@ class _MyPanel extends StatelessWidget {
     final tableId = st['id'] as String;
     final myHand = st['myHand'] as String?;
     final inHand = me['inHand'] == true && me['folded'] != true && st['inProgress'] == true;
-    final h = wide ? 64.0 : 48.0;
+    final h = wide ? 52.0 : 48.0;
 
     Widget? bottom;
     final mySeatIdx = st['mySeat'] as int;
@@ -2682,10 +2682,11 @@ class _MyPanel extends StatelessWidget {
             colors: [Color(0xFF14100C), Color(0xFF080605)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
         border: Border(top: BorderSide(color: gold.withOpacity(0.35))),
       ),
+      // Stalna visina (koliko zauzimaju potezi sa iznosima), da sto ne skače kad dođeš na potez.
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        status,
+        SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: status)),
         const SizedBox(height: 6),
-        bottom ?? SizedBox(height: h),
+        SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
       ]),
     );
   }

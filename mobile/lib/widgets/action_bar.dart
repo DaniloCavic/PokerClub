@@ -136,7 +136,7 @@ class _ActionBarState extends State<ActionBar> {
           icon: Icons.close,
           gradient: redGradient,
           textColor: Colors.white,
-          height: widget.wide ? 64 : 52,
+          height: 52,
           onTap: _busy ? null : () => _send('fold'),
         ),
       ),
@@ -146,7 +146,7 @@ class _ActionBarState extends State<ActionBar> {
           title: canCheck ? 'Check' : (_call >= widget.myStack ? 'All-in' : 'Call'),
           subtitle: canCheck ? null : _m(_call),
           icon: canCheck ? Icons.check : Icons.replay,
-          height: widget.wide ? 64 : 52,
+          height: 52,
           onTap: _busy ? null : () => _send(canCheck ? 'check' : 'call'),
         ),
       ),
@@ -157,7 +157,7 @@ class _ActionBarState extends State<ActionBar> {
             title: allInRaise ? 'All-in' : (_currentBet == 0 ? 'Bet' : 'Raise'),
             subtitle: _m(_amount),
             icon: Icons.keyboard_arrow_up,
-            height: widget.wide ? 64 : 52,
+            height: 52,
             onTap: _busy
                 ? null
                 : () {
@@ -190,24 +190,8 @@ class _ActionBarState extends State<ActionBar> {
         ),
       );
 
-  /// Izbor iznosa: −, iznos, + ; klizač; brzi iznosi.
-  Widget _amountBox() {
-    final presets = <String, int>{
-      'Min': _min!,
-      '½ pot': _potFraction(0.5),
-      'Pot': _potFraction(1),
-      if (!widget.potLimit) 'All-in': _max!,
-    };
-    final step = max(1, min(widget.bigBlind, (_max! - _min!) ~/ 20));
-    final divisions = _max! > _min! ? max(1, (_max! - _min!) ~/ step) : null;
-    final valueRow = Row(children: [
-      _round(Icons.remove, _amount > _min! ? () => _step(-1) : null),
-      Expanded(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // Iznos se može i upisati: dodir na broj otvara tastaturu.
-          SizedBox(
-            height: 30,
-            child: TextField(
+  /// Polje za upis iznosa (dodir na broj otvara tastaturu).
+  Widget _amountField() => TextField(
               controller: _field,
               focusNode: _focus,
               textAlign: TextAlign.center,
@@ -233,8 +217,24 @@ class _ActionBarState extends State<ActionBar> {
                 if (v != null) setState(() => _amount = v);
               },
               onSubmitted: (_) => _focus.unfocus(),
-            ),
-          ),
+            );
+
+  /// Izbor iznosa: −, iznos, + ; klizač; brzi iznosi.
+  Widget _amountBox() {
+    final presets = <String, int>{
+      'Min': _min!,
+      '½ pot': _potFraction(0.5),
+      'Pot': _potFraction(1),
+      if (!widget.potLimit) 'All-in': _max!,
+    };
+    final step = max(1, min(widget.bigBlind, (_max! - _min!) ~/ 20));
+    final divisions = _max! > _min! ? max(1, (_max! - _min!) ~/ step) : null;
+    final valueRow = Row(children: [
+      _round(Icons.remove, _amount > _min! ? () => _step(-1) : null),
+      Expanded(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // Iznos se može i upisati: dodir na broj otvara tastaturu.
+          SizedBox(height: 30, child: _amountField()),
           const SizedBox(height: 2),
           Text(_m.inBB ? chips(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
               style: const TextStyle(fontSize: 10.5, color: Colors.white54)),
@@ -296,12 +296,115 @@ class _ActionBarState extends State<ActionBar> {
     );
   }
 
+  /// Računar: brzi iznosi (Min, ½, ¾, Pot, All-in) kao velika dugmad sa iznosom,
+  /// pored njih −, klizač, + i polje za upis.
+  Widget _wideAmountRow() {
+    final presets = <String, int>{
+      'Min': _min!,
+      '½ pot': _potFraction(0.5),
+      '¾ pot': _potFraction(0.75),
+      'Pot': _potFraction(1),
+      widget.potLimit ? 'Max' : 'All-in': _max!,
+    };
+    final step = max(1, min(widget.bigBlind, (_max! - _min!) ~/ 20));
+    final divisions = _max! > _min! ? max(1, (_max! - _min!) ~/ step) : null;
+    Widget preset(String label, int v) {
+      final sel = _amount == v;
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Material(
+            color: const Color(0xFF1D1513),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: _busy
+                  ? null
+                  : () {
+                      _focus.unfocus();
+                      _set(v);
+                    },
+              child: Container(
+                height: 52,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: sel ? goldLight : gold.withOpacity(0.4), width: sel ? 2 : 1.2),
+                ),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text(label,
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: sel ? goldLight : Colors.white)),
+                  Text(_m(v), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white60)),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 52,
+      child: Row(children: [
+        Expanded(
+          flex: 3,
+          child: Padding(
+            padding: EdgeInsets.zero,
+            child: Row(children: [for (final e in presets.entries) preset(e.key, e.value)]),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          flex: 2,
+          child: Container(
+            height: 52,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1D1513),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: gold.withOpacity(0.4), width: 1.2),
+            ),
+            child: Row(children: [
+              _round(Icons.remove, _amount > _min! ? () => _step(-1) : null),
+              Expanded(
+                child: divisions == null
+                    ? const SizedBox()
+                    : SliderTheme(
+                        data: SliderTheme.of(context).copyWith(trackHeight: 5, overlayShape: SliderComponentShape.noOverlay),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Slider(
+                            min: _min!.toDouble(),
+                            max: _max!.toDouble(),
+                            divisions: divisions,
+                            value: _amount.clamp(_min!, _max!).toDouble(),
+                            onChanged: (v) {
+                              var to = v.round();
+                              if (to != _max) to = (to ~/ step) * step;
+                              _focus.unfocus();
+                              _set(to.clamp(_min!, _max!));
+                            },
+                          ),
+                        ),
+                      ),
+              ),
+              _round(Icons.add, _amount < _max! ? () => _step(1) : null),
+              const SizedBox(width: 8),
+              SizedBox(width: 120, height: 36, child: _amountField()),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.wide) {
-      return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        Expanded(child: _buttons()),
-        if (_canRaise) ...[const SizedBox(width: 14), SizedBox(width: 320, child: _amountBox())],
+      // Računar: gore red velikih brzih iznosa i klizač, dole tri ista dugmeta.
+      return Column(mainAxisSize: MainAxisSize.min, children: [
+        if (_canRaise) ...[_wideAmountRow(), const SizedBox(height: 8)],
+        _buttons(),
       ]);
     }
     return Column(mainAxisSize: MainAxisSize.min, children: [
