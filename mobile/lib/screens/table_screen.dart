@@ -1214,7 +1214,8 @@ class _Layout {
 
   double get w => size.width;
   double get h => size.height;
-  Offset get center => Offset(w / 2, h * 0.5);
+  // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
+  Offset get center => Offset(w / 2, h * 0.455);
   double get cardW => min(min(w, h) > 600 ? 46.0 : 38.0, (w * 0.56) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
@@ -1246,7 +1247,7 @@ class _Layout {
   Map<int, Size> betSizes = {};
 
   double get myAvatar => wide ? 87.0 : 67.0;
-  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - 56);
+  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - 80);
 
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
   List<Rect> seatRects(int i) {
@@ -1834,7 +1835,7 @@ class _TableViewState extends State<_TableView> {
       Positioned(
         // Nagib skraćuje sto po visini, pa je pre nagiba viši (gornja ivica ostaje kod gornjih igrača).
         left: w * 0.02,
-        top: -h * 0.06,
+        top: -h * 0.105,
         width: w * 0.96,
         height: h * 1.04,
         // Nagib stola (perspektiva): dalja strana se smanjuje, kao na GG.
@@ -1875,7 +1876,8 @@ class _TableViewState extends State<_TableView> {
       Positioned(
         left: 0,
         right: 0,
-        top: lay.pile.dy + 28,
+        // Znak kluba i podaci o stolu ispod karata na stolu (i ispod rezultata ruke).
+        top: lay.boardTop + lay.cardW * 1.4 + (widget.wide ? 46 : 40),
         child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75), logoOnly: true)),
       ),
       // POT iznad karata
@@ -2219,7 +2221,6 @@ class _FeltInfo extends StatelessWidget {
           Text('Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
           Text(
               [
-                if (st['startedAt'] != null) 'Since ${_hhmm(st['startedAt'] as int)}',
                 'Players ${(st['seats'] as List).where((x) => x != null && x['sittingOut'] != true).length}/${(st['seats'] as List).length}',
               ].join(' · '),
               style: faint),
@@ -2230,10 +2231,6 @@ class _FeltInfo extends StatelessWidget {
   }
 }
 
-String _hhmm(int ms) {
-  final d = DateTime.fromMillisecondsSinceEpoch(ms);
-  return '${two(d.hour)}:${two(d.minute)}';
-}
 
 class _ResultText extends StatelessWidget {
   final Json result;
