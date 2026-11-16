@@ -319,7 +319,7 @@ class _TableScreenState extends State<TableScreen> {
                     _UnitToggle(showBB: money.inBB, onToggle: app.setShowBB),
                     if (mySeat >= 0) ...[
                       const SizedBox(width: 8),
-                      _RoundIcon(icon: Icons.menu, tip: 'Meni', onTap: () => _menu(st)),
+                      _MenuButton(st: st, onTap: () => _menu(st)),
                     ],
                   ]),
                 ),
@@ -1005,6 +1005,30 @@ class _SoundButton extends StatelessWidget {
   }
 }
 
+/// Dugme menija stola; zlatna tačka kad igrač može da pokaže karte.
+class _MenuButton extends StatelessWidget {
+  final Json st;
+  final VoidCallback onTap;
+  const _MenuButton({required this.st, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Stack(clipBehavior: Clip.none, children: [
+        _RoundIcon(icon: Icons.menu, tip: 'Meni', onTap: onTap),
+        if (showableCards(st) != null)
+          Positioned(
+            right: -1,
+            top: -1,
+            child: IgnorePointer(
+              child: Container(
+                width: 11,
+                height: 11,
+                decoration: BoxDecoration(color: goldLight, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 1.5)),
+              ),
+            ),
+          ),
+      ]);
+}
+
 class _RoundIcon extends StatelessWidget {
   final IconData icon;
   final String tip;
@@ -1128,23 +1152,7 @@ class _TopBar extends StatelessWidget {
       child: Row(children: [
         _RoundIcon(icon: Icons.arrow_back_ios_new, tip: 'Nazad', onTap: onBack),
         const SizedBox(width: 6),
-        if (onMenu != null)
-          Stack(clipBehavior: Clip.none, children: [
-            _RoundIcon(icon: Icons.menu, tip: 'Meni', onTap: onMenu),
-            // Mogu da se pokažu karte: tačka na meniju.
-            if (showableCards(st) != null)
-              Positioned(
-                right: -1,
-                top: -1,
-                child: IgnorePointer(
-                  child: Container(
-                    width: 11,
-                    height: 11,
-                    decoration: BoxDecoration(color: goldLight, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 1.5)),
-                  ),
-                ),
-              ),
-          ]),
+        if (onMenu != null) _MenuButton(st: st, onTap: onMenu!),
         const SizedBox(width: 8),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2869,37 +2877,8 @@ class _MyPanel extends StatelessWidget {
 
     Widget? bottom;
     // Pokaži karte: posle fold-a ili kad je ruka gotova (a karte nisu već otvorene na kraju).
-    final myCards = (me['cards'] as List?)?.cast<String>() ?? const <String>[];
-    final myShown = ((me['myShown'] as List?) ?? const []).cast<int>();
-    // Telefon: pokazivanje karata je u meniju (☰) gore, ne u traci dole.
-    final canShow = wide && showableCards(st) != null;
-    if (canShow) {
-      void show(List<int> idx) => app.run('table:show', {'tableId': tableId, 'cards': idx});
-      bottom = Row(children: [
-        Text('Show:', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: wide ? 14 : 12.5)),
-        const SizedBox(width: 8),
-        for (var k = 0; k < myCards.length; k++)
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Opacity(
-              opacity: myShown.contains(k) ? 0.35 : 1,
-              child: GestureDetector(
-                onTap: myShown.contains(k) ? null : () => show([k]),
-                child: PlayingCard(code: myCards[k], width: myCards.length > 2 ? h * 0.55 : h * 0.68),
-              ),
-            ),
-          ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: _PreButton(
-            label: myCards.length > 2 ? 'Show all' : 'Show both',
-            selected: false,
-            height: h,
-            onTap: () => show([for (var k = 0; k < myCards.length; k++) k]),
-          ),
-        ),
-      ]);
-    } else if (legal != null) {
+    // Pokazivanje karata je u meniju stola (☰), ne u traci dole.
+    if (legal != null) {
       bottom = ActionBar(
         legal: legal,
         pot: st['pot'] as int,
