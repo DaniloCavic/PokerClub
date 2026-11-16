@@ -26,6 +26,14 @@ class AppState extends ChangeNotifier {
 
   /// Stolovi u lobiju (ažurira server).
   List<Map<String, dynamic>> lobby = [];
+
+  /// Turniri u lobiju i znak da se neki turnir promenio (detalji se ponovo učitavaju).
+  List<Map<String, dynamic>> tournaments = [];
+  final tourTick = ValueNotifier<int>(0);
+  bool _inTours = false;
+
+  /// Kraj turnira za igrača (mesto, nagrada); prikazuje ga glavni okvir aplikacije.
+  final tourResult = ValueNotifier<Map<String, dynamic>?>(null);
   bool _inLobby = false;
 
   /// Stanje stolova koje korisnik gleda (iz njegovog ugla).
@@ -416,6 +424,7 @@ class AppState extends ChangeNotifier {
       s.emit('presence', {'visible': _visible});
       // Posle (ponovnog) povezivanja: ponovo se prijavi na lobi i stolove koje gledamo.
       if (_inLobby) joinLobby();
+      if (_inTours) loadTournaments();
       for (final id in _watching) {
         _watch(id);
       }
@@ -464,7 +473,56 @@ class AppState extends ChangeNotifier {
       notify('Mesto za stolom „${m['name']}“ je slobodno! Imate ${m['seconds']} s da sednete.',
           action: 'SEDI', tableId: m['tableId'] as String, duration: Duration(seconds: (m['seconds'] as num).toInt()));
     });
+    // ---------- Turniri ----------
+    s.on('tours', (_) {
+      if (_inTours) loadTournaments();
+    });
+    s.on('tour:changed', (_) => tourTick.value++);
+    // Turnir je počeo ili ste premešteni za drugi sto: otvara se sto.
+    s.on('tournament:seat', (data) {
+      final m = Map<String, dynamic>.from(data as Map);
+      final to = m['tableId'] as String;
+      final from = m['fromTableId'] as String?;
+      final wasActive = activeTable == null || activeTable == from || (from == null);
+      if (from != null && from != to) {
+        unwatch(from);
+        closeTable(from);
+      }
+      if (!openTables.contains(to) && openTables.length >= maxTables) openTables.removeLast();
+      if (!openTables.contains(to)) openTables.add(to);
+      if (wasActive) {
+        navigatorKey.currentState?.popUntil((r) => r.isFirst);
+        activeTable = to;
+      }
+      notifyListeners();
+      if (m['moved'] == true) toast('Premešteni ste za drugi sto turnira „${m['name']}“.');
+      if (from == null && m['moved'] != true) Sounds.play('turn', volume: 0.6);
+    });
+    s.on('tournament:busted', (data) => tourResult.value = Map<String, dynamic>.from(data as Map));
+    s.on('tournament:prize', (data) {
+      final m = data as Map;
+      notify('Turnir „${m['name']}“: ${m['position']}. mesto, nagrada ${m['prize']} je uplaćena na nalog!');
+    });
+    s.on('tournament:closed', (data) => notify((data as Map)['message'].toString()));
     s.connect();
+  }
+
+  Future<void> loadTournaments() async {
+    _inTours = true;
+    final res = await emit('tour:list');
+    if (res['ok'] == true) {
+      tournaments = (res['tournaments'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>?> tournament(String id, {bool watch = false}) async {
+    final res = await emit('tour:get', {'id': id, 'watch': watch});
+    if (res['ok'] != true) {
+      toast(res['error']?.toString() ?? 'Greška.');
+      return null;
+    }
+    return Map<String, dynamic>.from(res['tournament'] as Map);
   }
 
   void _onTable(Map<String, dynamic> st) {

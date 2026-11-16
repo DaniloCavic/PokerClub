@@ -14,6 +14,7 @@ import '../widgets/table_chat.dart';
 import '../widgets/brand.dart';
 import '../widgets/chips.dart';
 import 'home_shell.dart';
+import 'tournaments.dart' show TourBar, clockLeft;
 
 typedef Json = Map<String, dynamic>;
 
@@ -53,6 +54,24 @@ List<String>? showableCards(Json st) {
 Future<void> leaveTable(BuildContext context, AppState app, String tableId) async {
   final st = app.tableNotifier(tableId).value;
   final seated = st != null && (st['mySeat'] as int) >= 0;
+  // Turnir: sa stola se ne ustaje; prozor se zatvara, a igrač je na pauzi (karte mu se same bacaju).
+  if (seated && st['tournament'] != null) {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Close ${st['name']}?'),
+        content: const Text('You stay in the tournament. While the table is closed you are sitting out and your hands are folded automatically.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Close')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await app.run('table:sitout', {'tableId': tableId, 'value': true});
+    app.closeTable(tableId);
+    return;
+  }
   if (seated) {
     final ok = await showDialog<bool>(
       context: context,
@@ -110,7 +129,7 @@ class _TableScreenState extends State<TableScreen> {
     // Osvežavanje tajmera za potez.
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final st = app.tableNotifier(widget.tableId).value;
-      if (mounted && widget.active && st?['deadline'] != null) setState(() {});
+      if (mounted && widget.active && (st?['deadline'] != null || st?['tournament'] != null)) setState(() {});
     });
   }
 
@@ -307,6 +326,7 @@ class _TableScreenState extends State<TableScreen> {
                 Positioned.fill(
                     child: Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 0), child: _tableArea(st, money, true))),
                 Positioned(left: 14, top: 12, child: _TableInfoCard(st: st)),
+
                 // Snaga moje ruke: donji levi ugao prostora sa stolom (iznad trake sa potezima).
                 if (st['myHand'] != null && (st['mySeat'] as int) >= 0 && !_TableViewState.waitingForPlayers(st))
                   Positioned(left: 14, bottom: 10, child: _HandPill(st['myHand'] as String, big: true)),
@@ -329,7 +349,14 @@ class _TableScreenState extends State<TableScreen> {
               width: 340,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-                child: TableSidePanel(st: st, table: app.tableNotifier(widget.tableId), money: money, wide: true),
+                // Turnir: nivo, pauza, mesto i fond iznad liste igrača (ne prekriva sto).
+                child: Column(children: [
+                  if (st['tournament'] != null) ...[
+                    TourBar(tour: st['tournament'] as Json, now: app.serverNow, wide: true, vertical: true),
+                    const SizedBox(height: 10),
+                  ],
+                  Expanded(child: TableSidePanel(st: st, table: app.tableNotifier(widget.tableId), money: money, wide: true)),
+                ]),
               ),
             ),
           ]),
@@ -348,6 +375,11 @@ class _TableScreenState extends State<TableScreen> {
           unread: app.unreadOf(widget.tableId),
           onMenu: mySeat >= 0 ? () => _menu(st) : null,
         ),
+        if (st['tournament'] != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+            child: TourBar(tour: st['tournament'] as Json, now: app.serverNow),
+          ),
         Expanded(child: _tableArea(st, money, false)),
         _panel(st, money, false),
       ]),
@@ -458,6 +490,7 @@ class _TableScreenState extends State<TableScreen> {
     final sittingOut = me['sittingOut'] == true;
     final prefs = (st['myPrefs'] as Json?) ?? const {};
     var straddle = prefs['straddle'] == true;
+    final tour = st['tournament'] as Json?;
     showModalBottomSheet(
       context: context,
       backgroundColor: panel,
@@ -523,14 +556,36 @@ class _TableScreenState extends State<TableScreen> {
             ),
             const Divider(height: 1, color: Colors.white12),
           ],
-          ListTile(
-            leading: const Icon(Icons.add_circle),
-            title: const Text('Rebuy'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _topUp(st, me);
-            },
-          ),
+          if (tour == null)
+            ListTile(
+              leading: const Icon(Icons.add_circle),
+              title: const Text('Rebuy'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _topUp(st, me);
+              },
+            ),
+          // Turnir: rebuy i add-on (kad su dozvoljeni).
+          if (tour != null && tour['canRebuy'] == true)
+            ListTile(
+              leading: const Icon(Icons.add_circle, color: goldLight),
+              title: const Text('Rebuy'),
+              subtitle: Text('${rsd((tour['rebuy'] as Json)['price'])} → ${chips((tour['rebuy'] as Json)['chips'])} chips'),
+              onTap: () {
+                Navigator.pop(ctx);
+                app.run('tour:rebuy', {'id': tour['id']});
+              },
+            ),
+          if (tour != null && tour['canAddon'] == true)
+            ListTile(
+              leading: const Icon(Icons.add_box, color: goldLight),
+              title: const Text('Add-on'),
+              subtitle: Text('${rsd((tour['addon'] as Json)['price'])} → ${chips((tour['addon'] as Json)['chips'])} chips'),
+              onTap: () {
+                Navigator.pop(ctx);
+                app.run('tour:addon', {'id': tour['id']});
+              },
+            ),
           ListTile(
             leading: Icon(sittingOut ? Icons.play_arrow : Icons.pause),
             title: Text(sittingOut ? "I'm back" : 'Sit out next hand'),
@@ -539,6 +594,7 @@ class _TableScreenState extends State<TableScreen> {
               app.run('table:sitout', {'tableId': widget.tableId, 'value': !sittingOut});
             },
           ),
+          if (tour == null)
           ListTile(
             leading: const Icon(Icons.logout, color: accent),
             title: const Text('Leave table'),
@@ -984,7 +1040,9 @@ class _WaitPanelState extends State<_WaitPanel> {
         ),
       ]);
     } else {
-      child = const Text('Tap an empty seat to sit down.', style: style);
+      child = st['tournament'] != null
+          ? const Text('You are watching this tournament table.', style: style)
+          : const Text('Tap an empty seat to sit down.', style: style);
     }
     return Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 12), child: child);
   }
@@ -2254,7 +2312,8 @@ class _TableViewState extends State<_TableView> {
       final s = seats[i];
       final p = lay.seat(i);
       if (s == null) {
-        if (mySeat >= 0) continue;
+        // Za turnirski sto se ne seda (igrače raspoređuje turnir).
+        if (mySeat >= 0 || st['tournament'] != null) continue;
         children.add(Positioned(
           left: p.dx - 27,
           top: p.dy - 27,
@@ -2417,7 +2476,33 @@ class _TableViewState extends State<_TableView> {
       ));
     }
 
-    if (idle && (st['seats'] as List).any((x) => x != null)) {
+    final tourInfo = st['tournament'] as Json?;
+    if (tourInfo?['onBreak'] == true && st['inProgress'] != true && st['result'] == null) {
+      // Pauza turnira: ruke se ne dele do kraja pauze.
+      children.add(Positioned(
+        left: 0,
+        right: 0,
+        top: lay.boardTop - 6,
+        child: Center(
+          child: IgnorePointer(
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: widget.wide ? 26 : 18, vertical: widget.wide ? 14 : 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: gold.withOpacity(0.7), width: 1.3),
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                GoldText('BREAK', style: TextStyle(fontSize: widget.wide ? 20 : 16, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                const SizedBox(height: 4),
+                Text('Play resumes in ${clockLeft((tourInfo!['breakEndsAt'] as num?)?.toInt(), app.serverNow)}',
+                    style: TextStyle(fontSize: widget.wide ? 14 : 12, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+        ),
+      ));
+    } else if (idle && (st['seats'] as List).any((x) => x != null)) {
       children.add(Positioned(
         left: 0,
         right: 0,
@@ -2472,6 +2557,7 @@ class _FeltInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tour = st['tournament'] as Json?;
     final omaha = st['variant'] == 'OMAHA';
     const faint = TextStyle(fontSize: 10.5, color: Color(0x99E8D9A8), height: 1.35);
     return Column(children: [
@@ -2490,9 +2576,12 @@ class _FeltInfo extends StatelessWidget {
         opacity: 0.6,
         child: Column(children: [
           SizedBox(height: w * 0.02),
-          Text('${omaha ? 'PLO' : 'NLH'} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · Ante ${chips(st['ante'] ?? 0)}',
+          Text(
+              tour != null
+                  ? '${omaha ? 'PLO' : 'NLH'} · Level ${tour['level']} · Blinds ${chips(tour['sb'])}/${chips(tour['bb'])} · Ante ${chips(tour['ante'])}'
+                  : '${omaha ? 'PLO' : 'NLH'} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · Ante ${chips(st['ante'] ?? 0)}',
               style: faint.copyWith(fontWeight: FontWeight.w700)),
-          Text('Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
+          Text(tour != null ? '${tour['name']} · ${tour['playersLeft']} left' : 'Buy-in ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
           Text(
               [
                 'Players ${(st['seats'] as List).where((x) => x != null && x['sittingOut'] != true).length}/${(st['seats'] as List).length}',
@@ -2878,7 +2967,29 @@ class _MyPanel extends StatelessWidget {
     Widget? bottom;
     // Pokaži karte: posle fold-a ili kad je ruka gotova (a karte nisu već otvorene na kraju).
     // Pokazivanje karata je u meniju stola (☰), ne u traci dole.
-    if (legal != null) {
+    final tour = st['tournament'] as Json?;
+    if (tour != null && tour['rebuyUntil'] != null && tour['canRebuy'] == true) {
+      // Turnir: ostali ste bez žetona — rebuy dok ne istekne vreme (inače ispadate).
+      final r = tour['rebuy'] as Json;
+      bottom = Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text('Out of chips', style: TextStyle(fontWeight: FontWeight.w800, fontSize: wide ? 15 : 13.5)),
+            Text('Rebuy in ${clockLeft((tour['rebuyUntil'] as num).toInt(), app.serverNow)} or you are out',
+                style: TextStyle(color: Colors.white60, fontSize: wide ? 13 : 11.5)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: LuxButton(
+            title: 'REBUY',
+            subtitle: '${rsd(r['price'])} → ${chips(r['chips'])}',
+            height: h,
+            onTap: () => app.run('tour:rebuy', {'id': tour['id']}),
+          ),
+        ),
+      ]);
+    } else if (legal != null) {
       bottom = ActionBar(
         legal: legal,
         pot: st['pot'] as int,

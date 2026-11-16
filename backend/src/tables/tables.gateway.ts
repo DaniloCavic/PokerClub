@@ -15,6 +15,7 @@ import { publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActionType, GameError } from '../poker/engine/game';
 import { TablesService } from './tables.service';
+import { TournamentsService } from '../tournaments/tournaments.service';
 
 type AuthedSocket = Socket & { data: { userId: string } };
 
@@ -33,12 +34,14 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   constructor(
     private readonly tables: TablesService,
+    private readonly tours: TournamentsService,
     private readonly auth: AuthGuard,
     private readonly prisma: PrismaService,
   ) {}
 
   afterInit(server: Server) {
     this.tables.attachServer(server);
+    this.tours.attachServer(server);
   }
 
   async handleConnection(socket: AuthedSocket) {
@@ -183,6 +186,53 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   @SubscribeMessage('table:leave')
   leave(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg) {
     return this.handle(socket, () => this.tables.leave(socket.data.userId, String(msg?.tableId)));
+  }
+
+  // ---------- Turniri ----------
+
+  @SubscribeMessage('tour:list')
+  tourList(@ConnectedSocket() socket: AuthedSocket) {
+    return this.handle(socket, async () => {
+      await socket.join('tours');
+      return { tournaments: await this.tours.list() };
+    });
+  }
+
+  @SubscribeMessage('tour:get')
+  tourGet(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string; watch?: boolean }) {
+    return this.handle(socket, async () => {
+      const id = String(msg?.id);
+      const tournament = await this.tours.detail(id, socket.data.userId);
+      if (msg?.watch) await socket.join(`tour:${id}`);
+      return { tournament };
+    });
+  }
+
+  @SubscribeMessage('tour:unwatch')
+  tourUnwatch(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string }) {
+    return this.handle(socket, async () => {
+      await socket.leave(`tour:${String(msg?.id)}`);
+    });
+  }
+
+  @SubscribeMessage('tour:register')
+  tourRegister(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string }) {
+    return this.handle(socket, () => this.tours.register(socket.data.userId, String(msg?.id)));
+  }
+
+  @SubscribeMessage('tour:unregister')
+  tourUnregister(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string }) {
+    return this.handle(socket, () => this.tours.unregister(socket.data.userId, String(msg?.id)));
+  }
+
+  @SubscribeMessage('tour:rebuy')
+  tourRebuy(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string }) {
+    return this.handle(socket, () => this.tours.rebuy(socket.data.userId, String(msg?.id)));
+  }
+
+  @SubscribeMessage('tour:addon')
+  tourAddon(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { id: string }) {
+    return this.handle(socket, () => this.tours.addon(socket.data.userId, String(msg?.id)));
   }
 
   /** Prekida sve veze korisnika (posle blokade). */

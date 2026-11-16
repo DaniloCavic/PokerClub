@@ -23,6 +23,8 @@ export interface GameConfig {
    * bira da li se karte dele dva puta. Samo ako svi pristanu.
    */
   runItTwice?: boolean;
+  /** Turnir: i igrač koji je na pauzi dobija karte (i plaća blajndove); njegov potez se odmah odigra (check/fold). */
+  dealSittingOut?: boolean;
 }
 
 export interface StartOptions {
@@ -186,7 +188,7 @@ export class PokerGame {
   readySeats(): number[] {
     return this.indices().filter((i) => {
       const s = this.seats[i]!;
-      return s.stack > 0 && !s.sittingOut && !s.leaving;
+      return s.stack > 0 && (!s.sittingOut || !!this.config.dealSittingOut) && !s.leaving;
     });
   }
 

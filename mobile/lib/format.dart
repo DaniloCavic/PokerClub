@@ -28,6 +28,9 @@ const txLabels = {
   'WITHDRAWAL': 'Isplata',
   'BUY_IN': 'Ulaz za sto',
   'CASH_OUT': 'Povratak sa stola',
+  'TOURNAMENT_BUY_IN': 'Ulaz na turnir',
+  'TOURNAMENT_PRIZE': 'Nagrada sa turnira',
+  'TOURNAMENT_REFUND': 'Povraćaj (turnir)',
 };
 
 /// Iznos u žetonima ili u velikim blajndovima (BB), po izboru igrača.

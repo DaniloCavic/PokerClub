@@ -23,6 +23,21 @@ enum TxType {
   WITHDRAWAL // agent isplatio igraču
   BUY_IN // igrač seo za sto (žetoni sa naloga na sto)
   CASH_OUT // igrač ustao (žetoni sa stola na nalog)
+  TOURNAMENT_BUY_IN // prijava na turnir, rebuy, re-entry ili add-on (nagradni deo + fee)
+  TOURNAMENT_PRIZE // nagrada sa turnira
+  TOURNAMENT_REFUND // povraćaj (odjava ili otkazan turnir)
+}
+
+enum TournamentStatus {
+  REGISTERING // prijave su otvorene, turnir još nije počeo
+  RUNNING
+  FINISHED
+  CANCELLED
+}
+
+enum EntryStatus {
+  PLAYING // prijavljen / igra
+  BUSTED // ispao
 }
 
 model User {
@@ -50,15 +65,17 @@ model User {
   avatarType    String?
   avatarAt      DateTime?
 
-  transactions Transaction[] @relation("TxUser")
-  actions      Transaction[] @relation("TxActor")
+  transactions Transaction[]      @relation("TxUser")
+  actions      Transaction[]      @relation("TxActor")
   tables       PokerTable[]
   seats        TableSeat[]
-  rakePaid     RakeShare[] @relation("RakePlayer")
-  rakeEarned   RakeShare[] @relation("RakeAgent")
+  tournaments  Tournament[]
+  tourEntries  TournamentEntry[]
+  rakePaid     RakeShare[]        @relation("RakePlayer")
+  rakeEarned   RakeShare[]        @relation("RakeAgent")
   liveViews    LiveViewLog[]
-  notesWritten PlayerNote[] @relation("NoteOwner")
-  notesAbout   PlayerNote[] @relation("NoteTarget")
+  notesWritten PlayerNote[]       @relation("NoteOwner")
+  notesAbout   PlayerNote[]       @relation("NoteTarget")
   pushSubs     PushSubscription[]
 
   @@index([role, agentId])
@@ -86,7 +103,7 @@ model Transaction {
 }
 
 model PokerTable {
-  id            String    @id @default(cuid())
+  id            String      @id @default(cuid())
   name          String
   variant       Variant
   smallBlind    Int
@@ -95,23 +112,26 @@ model PokerTable {
   maxBuyIn      Int
   maxSeats      Int
   /// Rake u baznim poenima (500 = 5 %).
-  rakeBps       Int       @default(0)
+  rakeBps       Int         @default(0)
   /// Najviše rake-a po ruci; 0 = bez ograničenja.
-  rakeCap       Int       @default(0)
-  actionSeconds Int       @default(15)
-  isOpen        Boolean   @default(true)
+  rakeCap       Int         @default(0)
+  actionSeconds Int         @default(15)
+  isOpen        Boolean     @default(true)
   /// Zakazano otvaranje: pre ovog trenutka igrači ne mogu da uđu za sto.
   opensAt       DateTime?
   /// Dozvoljen straddle (igrač posle velikog blajnda stavlja dva velika blajnda).
-  straddle      Boolean   @default(false)
+  straddle      Boolean     @default(false)
   /// Bomb pot svaka N-ta ruka (0 = bez bomb pota).
-  bombPotEvery  Int       @default(0)
+  bombPotEvery  Int         @default(0)
   /// Koliko velikih blajndova svaki igrač stavlja u bomb pot.
-  bombPotBB     Int       @default(2)
+  bombPotBB     Int         @default(2)
   createdById   String
-  createdBy     User      @relation(fields: [createdById], references: [id])
-  createdAt     DateTime  @default(now())
+  createdBy     User        @relation(fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
   closedAt      DateTime?
+  /// Sto turnira (ne prikazuje se među cash stolovima).
+  tournamentId  String?
+  tournament    Tournament? @relation(fields: [tournamentId], references: [id])
 
   hands        Hand[]
   seats        TableSeat[]
@@ -134,19 +154,19 @@ model TableSeat {
 }
 
 model Hand {
-  id        String     @id @default(cuid())
-  tableId   String
-  table     PokerTable @relation(fields: [tableId], references: [id])
-  handNo    Int
-  board     String
-  pot       Int
-  rake      Int
+  id         String      @id @default(cuid())
+  tableId    String
+  table      PokerTable  @relation(fields: [tableId], references: [id])
+  handNo     Int
+  board      String
+  pot        Int
+  rake       Int
   /// Igrači, karte, dobici i tok ruke.
-  details   Json
+  details    Json
   rakeShares RakeShare[]
   /// Ko je igrao ruku (za istoriju ruku igrača).
-  playerIds String[]  @default([])
-  createdAt DateTime   @default(now())
+  playerIds  String[]    @default([])
+  createdAt  DateTime    @default(now())
 
   @@index([tableId, createdAt])
   @@index([createdAt])
@@ -217,4 +237,92 @@ model PushSubscription {
 model AppSetting {
   key   String @id
   value String
+}
+
+/// Turnir (Hold'em ili Omaha). Sva podešavanja zadaje administrator.
+model Tournament {
+  id               String           @id @default(cuid())
+  name             String
+  variant          Variant
+  status           TournamentStatus @default(REGISTERING)
+  startAt          DateTime
+  /// Deo ulaza koji ide u nagradni fond.
+  buyIn            Int
+  /// Deo ulaza koji zadržava klub (rake turnira).
+  fee              Int              @default(0)
+  startingStack    Int
+  /// Najviše prijava (0 = bez ograničenja) i najmanje igrača za početak.
+  maxPlayers       Int              @default(0)
+  minPlayers       Int              @default(2)
+  tableSize        Int              @default(9)
+  actionSeconds    Int              @default(20)
+  /// Nivoi blajndova: [{ sb, bb, ante, minutes }].
+  levels           Json
+  /// Pauze: HOURLY (u :55 svakog sata igre), LEVELS (posle svakih breakEvery nivoa), NONE.
+  breakMode        String           @default("HOURLY")
+  breakEvery       Int              @default(4)
+  breakMinutes     Int              @default(5)
+  /// Kasna prijava i re-entry do kraja ovog nivoa (0 = samo pre početka).
+  lateRegLevels    Int              @default(0)
+  /// Rebuy: dozvoljen do kraja nivoa rebuyLevels, najviše rebuyMax puta (0 = bez ograničenja),
+  /// kad stek padne na rebuyBelow ili manje (0 = tek kad ostane bez žetona).
+  rebuyLevels      Int              @default(0)
+  rebuyMax         Int              @default(0)
+  rebuyPrice       Int              @default(0)
+  rebuyFee         Int              @default(0)
+  rebuyChips       Int              @default(0)
+  rebuyBelow       Int              @default(0)
+  /// Re-entry: novi ulaz posle ispadanja (koliko puta), do kraja kasne prijave.
+  reentryMax       Int              @default(0)
+  /// Add-on: jednom po ulazu, do kraja nivoa addonLevel (0 = nema add-on-a).
+  addonLevel       Int              @default(0)
+  addonPrice       Int              @default(0)
+  addonFee         Int              @default(0)
+  addonChips       Int              @default(0)
+  /// Garantovan nagradni fond (klub doplaćuje razliku).
+  guarantee        Int              @default(0)
+  /// Nagrade: PERCENT (plaćeno payPercent % ulaza, raspodela po krivoj) ili FIXED (payouts: procenti po mestima).
+  payoutMode       String           @default("PERCENT")
+  payPercent       Int              @default(15)
+  payouts          Json             @default("[]")
+  /// Procena trajanja koju zadaje administrator (minuti); 0 = računa se iz strukture.
+  estimatedMinutes Int              @default(0)
+  createdById      String
+  createdBy        User             @relation(fields: [createdById], references: [id])
+  createdAt        DateTime         @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  /// Konačni nagradni fond (posle kraja).
+  prizePool        Int              @default(0)
+
+  entries TournamentEntry[]
+  tables  PokerTable[]
+
+  @@index([status, startAt])
+}
+
+/// Jedan ulaz igrača na turnir (re-entry je novi ulaz istog igrača).
+model TournamentEntry {
+  id           String      @id @default(cuid())
+  tournamentId String
+  tournament   Tournament  @relation(fields: [tournamentId], references: [id])
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  entryNo      Int         @default(1)
+  status       EntryStatus @default(PLAYING)
+  /// Žetoni posle poslednje završene ruke (za nastavak posle ponovnog pokretanja servera).
+  chips        Int
+  rebuys       Int         @default(0)
+  addons       Int         @default(0)
+  /// Konačno mesto i nagrada.
+  position     Int?
+  prize        Int         @default(0)
+  /// Ukupno plaćeno (nagradni deo i fee posebno).
+  paid         Int         @default(0)
+  feePaid      Int         @default(0)
+  createdAt    DateTime    @default(now())
+  bustedAt     DateTime?
+
+  @@unique([tournamentId, userId, entryNo])
+  @@index([tournamentId, status])
 }

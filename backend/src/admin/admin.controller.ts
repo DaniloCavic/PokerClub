@@ -67,7 +67,8 @@ export class AdminController {
 
   /** Stolove vide i agenti (samo pregled); pravi ih i menja samo super agent. */
   private tableScope(_actor: User): Prisma.PokerTableWhereInput {
-    return {};
+    // Stolovi turnira se vode na stranici Turniri.
+    return { tournamentId: null };
   }
 
   private isSuper(actor: User) {

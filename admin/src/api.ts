@@ -52,6 +52,9 @@ export const TX_LABELS: Record<string, string> = {
   DEPOSIT: 'Uplata',
   WITHDRAWAL: 'Isplata',
   BUY_IN: 'Ulaz za sto',
+  TOURNAMENT_BUY_IN: 'Ulaz na turnir',
+  TOURNAMENT_PRIZE: 'Nagrada sa turnira',
+  TOURNAMENT_REFUND: 'Povraćaj (turnir)',
   CASH_OUT: 'Povratak sa stola',
 };
 

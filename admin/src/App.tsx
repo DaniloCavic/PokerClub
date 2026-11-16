@@ -5,8 +5,9 @@ import { Tables } from './pages/Tables';
 import { Players } from './pages/Players';
 import { Transactions } from './pages/Transactions';
 import { Agents } from './pages/Agents';
+import { Tournaments } from './pages/Tournaments';
 
-type Page = 'dashboard' | 'tables' | 'players' | 'transactions' | 'agents';
+type Page = 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'agents';
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -37,6 +38,7 @@ export function App() {
   const pages: { id: Page; label: string }[] = [
     { id: 'dashboard', label: 'Pregled' },
     { id: 'tables', label: 'Stolovi' },
+    { id: 'tournaments', label: 'Turniri' },
     { id: 'players', label: 'Igrači' },
     { id: 'transactions', label: 'Transakcije' },
     ...(me.role === 'ADMIN' ? [{ id: 'agents' as Page, label: 'Agenti' }] : []),
@@ -71,6 +73,7 @@ export function App() {
       <main>
         {current === 'dashboard' && <Dashboard me={me} />}
         {current === 'tables' && <Tables me={me} />}
+        {current === 'tournaments' && <Tournaments me={me} />}
         {current === 'players' && <Players me={me} />}
         {current === 'transactions' && <Transactions />}
         {current === 'agents' && <Agents />}

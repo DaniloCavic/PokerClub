@@ -10,6 +10,7 @@ import '../widgets/brand.dart';
 import '../widgets/hand_history.dart';
 import 'account_screen.dart';
 import 'table_screen.dart';
+import 'tournaments.dart';
 import 'transactions_screen.dart';
 
 /// Široki ekran (računar, tablet): meni gore. Uzak (telefon): meni dole.
@@ -48,6 +49,22 @@ class _HomeShellState extends State<HomeShell> {
       app.navigatorKey.currentState?.popUntil((r) => r.isFirst);
       app.showTable(tableId);
     };
+    // Kraj turnira (ispadanje ili pobeda): prozor sa mestom i nagradom.
+    app.tourResult.addListener(() {
+      final r = app.tourResult.value;
+      final ctx = app.navigatorKey.currentContext;
+      if (r == null || ctx == null) return;
+      app.tourResult.value = null;
+      showDialog(context: ctx, builder: (_) => TourResultDialog(r: r)).then((_) {
+        // Sto turnira na kome više ne sedite se zatvara.
+        for (final id in [...app.openTables]) {
+          final st = app.tableNotifier(id).value;
+          final t = st?['tournament'] as Map?;
+          if (t != null && t['id'] == r['tournamentId'] && (st!['mySeat'] as int) < 0) app.closeTable(id);
+        }
+      });
+      app.refreshMe();
+    });
     app.goHome = (i) {
       setState(() => _tab = i);
       app.showLobby();
@@ -187,8 +204,14 @@ class _TableTab extends StatelessWidget {
     final myTurn = s != null && s['legal'] != null;
     final seated = s != null && (s['mySeat'] as int) >= 0;
     final omaha = s?['variant'] == 'OMAHA';
-    final title = s == null ? '…' : '${omaha ? 'PLO' : 'NLH'} ${chips(s['smallBlind'])}/${chips(s['bigBlind'])}';
-    final name = (s?['name'] as String?) ?? '';
+    final tour = s?['tournament'] as Map<String, dynamic>?;
+    // Turnir: naziv turnira i trenutni blajndovi.
+    final title = s == null
+        ? '…'
+        : tour != null
+            ? '🏆 ${tour['name']}'
+            : '${omaha ? 'PLO' : 'NLH'} ${chips(s['smallBlind'])}/${chips(s['bigBlind'])}';
+    final name = tour != null ? '${chips(s?['smallBlind'])}/${chips(s?['bigBlind'])}' : (s?['name'] as String?) ?? '';
     final fg = selected ? Colors.black : Colors.white;
     return _TabChip(
       selected: selected,
@@ -483,6 +506,8 @@ class LobbyView extends StatefulWidget {
 
 class _LobbyViewState extends State<LobbyView> {
   String _filter = 'ALL';
+  /// Cash stolovi ili turniri.
+  bool _tours = false;
   Timer? _clock;
 
   @override
@@ -519,8 +544,20 @@ class _LobbyViewState extends State<LobbyView> {
             ),
           const _PushBanner(),
           Builder(builder: (context) {
-            const title =
-                GoldText('Cash stolovi', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
+            // Cash stolovi / Turniri
+            Widget tab(String label, bool tours) => GestureDetector(
+                  onTap: () => setState(() => _tours = tours),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: _tours == tours ? gold : Colors.transparent, width: 2)),
+                    ),
+                    child: _tours == tours
+                        ? GoldText(label, style: const TextStyle(fontFamily: 'Cinzel', fontSize: 21, fontWeight: FontWeight.w800))
+                        : Text(label, style: const TextStyle(fontFamily: 'Cinzel', fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white38)),
+                  ),
+                );
+            final title = Row(mainAxisSize: MainAxisSize.min, children: [tab('Cash stolovi', false), const SizedBox(width: 18), tab('Turniri', true)]);
             final chips = [
               for (final f in const [('ALL', 'Svi'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
                 Padding(
@@ -551,7 +588,8 @@ class _LobbyViewState extends State<LobbyView> {
               ]),
             );
           }),
-          Expanded(
+          if (_tours) Expanded(child: TournamentList(filter: _filter)),
+          if (!_tours) Expanded(
             child: RefreshIndicator(
               color: gold,
               onRefresh: () async {

@@ -19,8 +19,36 @@ const TIME_BANK_MS = Number(process.env.TIME_BANK_MS || 30_000);
 /** Igrač koji ne igra (sit out) duže od ovoga automatski ustaje sa stola. */
 const SIT_OUT_LIMIT_MS = Number(process.env.SIT_OUT_LIMIT_MS || 10 * 60_000);
 
+/** Sto turnira: turnir zadaje blajndove i pauze, a dobija rezultat svake ruke. */
+export interface TourHooks {
+  tournamentId: string;
+  /** Blajndovi i ante za sledeću ruku (trenutni nivo). */
+  blinds(): { sb: number; bb: number; ante: number };
+  /** Pauza: do kada (ms) se ne dele nove ruke; null ako se igra. */
+  pausedUntil(): number | null;
+  /** Posle svake ruke (unutar reda tog stola): ispadanja, rebuy, premeštanje igrača. */
+  handDone(ctx: TourTableCtx): void | Promise<void>;
+  /** Podaci o turniru koje vidi igrač za stolom. */
+  view(userId?: string): unknown;
+}
+
+/** Radnje nad stolom turnira koje turnir sme da radi dok je sto između dve ruke. */
+export interface TourTableCtx {
+  tableId: string;
+  /** Igrači za stolom: sedište, igrač, stek i stek na početku poslednje ruke. */
+  seats(): { seat: number; userId: string; name: string; stack: number; startStack: number }[];
+  /** Ustaje igrač (premeštanje ili ispadanje); vraća njegov stek. */
+  remove(userId: string): number;
+  /** Sto se zatvara (posle premeštanja svih igrača). */
+  close(): void;
+}
+
 interface Runtime {
   table: PokerTable;
+  /** Sto turnira (null za cash sto). */
+  tour?: TourHooks;
+  /** Turnir: žetoni kupljeni tokom ruke (rebuy, add-on) dodaju se pre sledeće ruke. */
+  pendingChips: Map<string, number>;
   game: PokerGame;
   queue: Promise<unknown>;
   turnTimer?: NodeJS.Timeout;
@@ -162,9 +190,11 @@ export class TablesService implements OnModuleInit {
     for (const t of open) await this.continueNumbering(this.createRuntime(t));
   }
 
-  private createRuntime(table: PokerTable) {
+  private createRuntime(table: PokerTable, tour?: TourHooks) {
     const rt: Runtime = {
       table,
+      tour,
+      pendingChips: new Map(),
       game: new PokerGame({
         variant: table.variant,
         smallBlind: table.smallBlind,
@@ -174,8 +204,10 @@ export class TablesService implements OnModuleInit {
         rakeCap: table.rakeCap,
         // Ante je petina velikog blajnda.
         ante: Math.floor(table.bigBlind / 5),
-        straddle: table.straddle,
-        runItTwice: true,
+        straddle: tour ? false : table.straddle,
+        // Na turniru nema run it twice, a igrač na pauzi i dalje dobija karte (i plaća blajndove).
+        runItTwice: !tour,
+        dealSittingOut: !!tour,
       }),
       queue: Promise.resolve(),
       deadline: null,
@@ -256,7 +288,7 @@ export class TablesService implements OnModuleInit {
 
   lobby() {
     return [...this.runtimes.values()]
-      .filter((rt) => !rt.closing)
+      .filter((rt) => !rt.closing && !rt.tour)
       .map((rt) => this.summary(rt))
       .sort((a, b) => a.variant.localeCompare(b.variant) || a.bigBlind - b.bigBlind || a.name.localeCompare(b.name));
   }
@@ -267,8 +299,8 @@ export class TablesService implements OnModuleInit {
       id: t.id,
       name: t.name,
       variant: t.variant,
-      smallBlind: t.smallBlind,
-      bigBlind: t.bigBlind,
+      smallBlind: rt.game.config.smallBlind,
+      bigBlind: rt.game.config.bigBlind,
       minBuyIn: t.minBuyIn,
       maxBuyIn: t.maxBuyIn,
       maxSeats: t.maxSeats,
@@ -358,7 +390,7 @@ export class TablesService implements OnModuleInit {
       collected: g.inProgress ? g.collected : 0,
       // Glavni i sporedni potovi (sakupljeni), kad ih ima više od jednog.
       sidePots: g.inProgress ? g.pots(true).map((p) => p.amount) : [],
-      ante: Math.floor(rt.table.bigBlind / 5),
+      ante: rt.game.config.ante ?? 0,
       serverTime: Date.now(),
       seats: g.seats.map((s, i) => {
         if (!s) return null;
@@ -413,6 +445,8 @@ export class TablesService implements OnModuleInit {
       actions: g.actions,
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: this.freshResult(rt),
+      // Turnir: nivo, blajndovi, pauza, pozicija igrača, rebuy i add-on.
+      tournament: rt.tour ? rt.tour.view(userId) : null,
     };
   }
 
@@ -513,6 +547,7 @@ export class TablesService implements OnModuleInit {
     return this.exclusive(rt, async () => {
       const t = rt.table;
       if (rt.closing) throw new GameError('Sto se zatvara.');
+      if (rt.tour) throw new GameError('Za turnirski sto se ulazi prijavom na turnir.');
       this.assertUnlocked(tableId);
       const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
       if (user.role !== 'PLAYER') throw new GameError('Samo igrači mogu da sednu za sto.');
@@ -552,6 +587,7 @@ export class TablesService implements OnModuleInit {
     return this.exclusive(rt, async () => {
       const i = rt.game.seatOf(userId);
       if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      if (rt.tour) throw new GameError('Na turniru se žetoni kupuju kroz rebuy ili add-on.');
       const s = rt.game.seats[i]!;
       if (s.inHand && rt.game.inProgress) throw new GameError('Dopuna je moguća tek kad se ruka završi.');
       if (!Number.isInteger(amount) || amount <= 0) throw new GameError('Neispravan iznos.');
@@ -610,6 +646,12 @@ export class TablesService implements OnModuleInit {
       const i = rt.game.seatOf(userId);
       if (i < 0) return {};
       const s = rt.game.seats[i]!;
+      // Turnir: igrač ne može da ode sa žetonima; ostaje na pauzi (karte mu se same bacaju).
+      if (rt.tour) {
+        s.sittingOut = true;
+        await this.afterChange(rt);
+        return { sittingOut: true };
+      }
       if (reason) this.server?.to(`user:${userId}`).emit('kicked', { tableId, reason });
       if (rt.game.inProgress && s.inHand) {
         s.leaving = true;
@@ -626,6 +668,118 @@ export class TablesService implements OnModuleInit {
   /** Izbacuje korisnika sa svih stolova (blokada). */
   async removeEverywhere(userId: string, reason: string) {
     for (const tableId of this.seatsOf(userId)) await this.leave(userId, tableId, reason);
+  }
+
+  // ---------- Turnirski stolovi ----------
+
+  /** Otvara sto turnira (bez novca na stolu: žetoni su turnirski). */
+  openTournamentTable(table: PokerTable, hooks: TourHooks) {
+    const rt = this.createRuntime(table, hooks);
+    const b = hooks.blinds();
+    Object.assign(rt.game.config, { smallBlind: b.sb, bigBlind: b.bb, ante: b.ante });
+    return rt.table.id;
+  }
+
+  /** Igrači i žetoni za stolom turnira (za rang listu tokom igre). */
+  tournamentStacks(tableId: string) {
+    const rt = this.runtimes.get(tableId);
+    if (!rt) return [];
+    return rt.game.seats.flatMap((s) => (s ? [{ userId: s.userId, stack: s.stack + (rt.game.inProgress ? s.committed : 0) }] : []));
+  }
+
+  /** Broj igrača i da li je ruka u toku (za raspoređivanje po stolovima). */
+  tournamentTableInfo(tableId: string) {
+    const rt = this.runtimes.get(tableId);
+    if (!rt) return null;
+    return { players: rt.game.seats.filter(Boolean).length, seats: rt.game.seats.length, inProgress: rt.game.inProgress };
+  }
+
+  /** Posađuje igrača turnira na slobodno mesto (nasumično). */
+  seatTournamentPlayer(tableId: string, userId: string, name: string, chips: number, avatar?: string | null) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      if (rt.game.seatOf(userId) >= 0) return {};
+      const free = rt.game.seats.map((x, i) => (x ? -1 : i)).filter((i) => i >= 0);
+      if (!free.length) throw new GameError('Sto je pun.');
+      const seat = free[Math.floor(Math.random() * free.length)];
+      rt.game.sit(seat, userId, name, chips);
+      if (avatar !== undefined) this.avatars.set(userId, avatar);
+      await this.afterChange(rt);
+      return { seat };
+    });
+  }
+
+  /** Rebuy ili add-on: žetoni se dodaju odmah, ili posle ruke ako je igrač u njoj. */
+  addTournamentChips(tableId: string, userId: string, amount: number) {
+    const rt = this.rt(tableId);
+    return this.exclusive(rt, async () => {
+      const i = rt.game.seatOf(userId);
+      if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      const s = rt.game.seats[i]!;
+      if (rt.game.inProgress && s.inHand) rt.pendingChips.set(userId, (rt.pendingChips.get(userId) ?? 0) + amount);
+      else s.stack += amount;
+      await this.afterChange(rt);
+      return {};
+    });
+  }
+
+  /** Radnja nad stolom turnira dok je između ruku (npr. rasformiranje stola sa premalo igrača). */
+  withIdleTournamentTable(tableId: string, fn: (ctx: TourTableCtx) => void | Promise<void>) {
+    const rt = this.runtimes.get(tableId);
+    if (!rt?.tour) return Promise.resolve();
+    return this.exclusive(rt, async () => {
+      if (rt.game.inProgress || rt.closing) return;
+      await fn(this.tourCtx(rt));
+      if (rt.closing) await this.shutdown(rt);
+      else await this.afterChange(rt);
+    }).catch((e) => this.log.error(e));
+  }
+
+  /** Osvežava prikaz stola (npr. novi nivo ili pauza). */
+  refreshTable(tableId: string) {
+    const rt = this.runtimes.get(tableId);
+    if (rt) void this.exclusive(rt, async () => {
+      // Sto koji je čekao (npr. jedan igrač) možda sada može da počne.
+      if (!rt.game.inProgress) this.scheduleNextHand(rt);
+      await this.broadcast(rt);
+    }).catch((e) => this.log.error(e));
+  }
+
+  /** Zatvara sto turnira (kraj ili otkazivanje turnira). */
+  closeTournamentTable(tableId: string) {
+    const rt = this.runtimes.get(tableId);
+    if (!rt) return Promise.resolve();
+    return this.exclusive(rt, async () => {
+      rt.closing = true;
+      if (!rt.game.inProgress) await this.shutdown(rt);
+    }).catch((e) => this.log.error(e));
+  }
+
+  private applyPendingChips(rt: Runtime) {
+    for (const [userId, amount] of rt.pendingChips) {
+      const i = rt.game.seatOf(userId);
+      if (i >= 0) rt.game.seats[i]!.stack += amount;
+    }
+    rt.pendingChips.clear();
+  }
+
+  private tourCtx(rt: Runtime): TourTableCtx {
+    return {
+      tableId: rt.table.id,
+      seats: () =>
+        rt.game.seats.flatMap((s, i) =>
+          s ? [{ seat: i, userId: s.userId, name: s.name, stack: s.stack, startStack: rt.startStacks[i] ?? s.stack }] : [],
+        ),
+      remove: (userId) => {
+        const i = rt.game.seatOf(userId);
+        if (i < 0) return 0;
+        rt.pendingChips.delete(userId);
+        return rt.game.stand(i);
+      },
+      close: () => {
+        rt.closing = true;
+      },
+    };
   }
 
   // ---------- Upravljanje stolovima ----------
@@ -658,11 +812,12 @@ export class TablesService implements OnModuleInit {
     rt.reservation = null;
     rt.waitlist = [];
     for (let i = 0; i < rt.game.seats.length; i++) {
-      if (rt.game.seats[i]) {
+      if (rt.game.seats[i] && !rt.tour) {
         this.server?.to(`user:${rt.game.seats[i]!.userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Sto je zatvoren.' });
         await this.standUp(rt, i);
       }
     }
+    if (rt.tour) await this.prisma.pokerTable.update({ where: { id: rt.table.id }, data: { closedAt: new Date() } }).catch(() => undefined);
     await this.broadcast(rt);
     this.server?.in(`table:${rt.table.id}`).socketsLeave(`table:${rt.table.id}`);
     this.runtimes.delete(rt.table.id);
@@ -723,6 +878,24 @@ export class TablesService implements OnModuleInit {
     clearTimeout(rt.turnTimer);
     rt.turnKey = key;
     const turnUser = g.seats[g.toAct]!.userId;
+    // Turnir: igrač na pauzi ne čeka se (check ili fold posle kratke pauze).
+    if (rt.tour && g.seats[g.toAct]!.sittingOut) {
+      rt.deadline = Date.now() + 1200;
+      rt.timeBankAt = rt.deadline;
+      rt.turnTimer = setTimeout(() => {
+        void this.exclusive(rt, async () => {
+          if (rt.turnKey !== key || !rt.game.inProgress) return;
+          // Ako su svi u ruci na pauzi, ruka se igra do kraja (check/call), da turnir ne stoji večno.
+          const g2 = rt.game;
+          const live = g2.seats.filter((x) => x && x.inHand && !x.folded);
+          const allAway = live.every((x) => x!.sittingOut || x!.allIn);
+          const legal = g2.legalActions(g2.toAct);
+          const result = allAway && legal ? g2.act(g2.toAct, legal.check ? 'check' : 'call') : g2.timeoutAction();
+          await this.afterChange(rt, result);
+        }).catch((e) => this.log.error(e));
+      }, 1200);
+      return;
+    }
     this.nudge(turnUser, {
       title: 'Na potezu ste!',
       body: `Sto „${rt.table.name}“ — imate ${rt.table.actionSeconds} s (+${Math.round(TIME_BANK_MS / 1000)} s TIME).`,
@@ -764,7 +937,19 @@ export class TablesService implements OnModuleInit {
       rt.nextHandTimer = undefined;
       void this.exclusive(rt, async () => {
         if (rt.game.inProgress || rt.closing || !this.runtimes.has(rt.table.id)) return;
-        await this.standUpIdle(rt);
+        if (rt.tour) {
+          // Pauza turnira: sledeća ruka tek posle nje.
+          const until = rt.tour.pausedUntil();
+          if (until && until > Date.now()) {
+            rt.lastResult = null;
+            await this.broadcast(rt);
+            this.scheduleNextHandIn(rt, until - Date.now() + 300);
+            return;
+          }
+          this.applyPendingChips(rt);
+          const b = rt.tour.blinds();
+          Object.assign(rt.game.config, { smallBlind: b.sb, bigBlind: b.bb, ante: b.ante });
+        } else await this.standUpIdle(rt);
         if (!rt.game.canStart()) {
           if (rt.lastResult) {
             rt.lastResult = null;
@@ -809,7 +994,7 @@ export class TablesService implements OnModuleInit {
 
     // Rake se deli na igrače srazmerno ulogu; od dela svakog igrača njegov agent dobija svoj procenat.
     let rakeShares: Prisma.RakeShareCreateWithoutHandInput[] = [];
-    if (r.rake > 0) {
+    if (r.rake > 0 && !rt.tour) {
       const contributors = Object.keys(rt.startStacks)
         .map(Number)
         .filter((i) => g.seats[i])
@@ -852,10 +1037,16 @@ export class TablesService implements OnModuleInit {
         },
       }),
       ...g.seats.flatMap((s) =>
-        s ? [this.prisma.tableSeat.update({ where: { tableId_userId: { tableId: rt.table.id, userId: s.userId } }, data: { stack: s.stack } })] : [],
+        s && !rt.tour ? [this.prisma.tableSeat.update({ where: { tableId_userId: { tableId: rt.table.id, userId: s.userId } }, data: { stack: s.stack } })] : [],
       ),
     ]);
 
+    if (rt.tour) {
+      this.applyPendingChips(rt);
+      await rt.tour.handDone(this.tourCtx(rt));
+      if (rt.closing) await this.shutdown(rt);
+      return;
+    }
     for (let i = 0; i < g.seats.length; i++) {
       const s = g.seats[i];
       if (s?.leaving) await this.standUp(rt, i);
