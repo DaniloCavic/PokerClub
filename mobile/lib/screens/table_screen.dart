@@ -32,6 +32,23 @@ int toCallOf(Json st) {
   return min(top - (me['bet'] as int), me['stack'] as int).clamp(0, 1 << 31);
 }
 
+/// Moje karte koje mogu da pokažem ostalima (posle fold-a ili na kraju ruke), ili null.
+List<String>? showableCards(Json st) {
+  final mySeat = st['mySeat'] as int;
+  if (mySeat < 0 || st['ritPending'] == true) return null;
+  final me = (st['seats'] as List)[mySeat] as Json?;
+  if (me == null) return null;
+  final cards = (me['cards'] as List?)?.cast<String>() ?? const <String>[];
+  final result = st['result'] as Json?;
+  final openedAtEnd = ((result?['shown'] as List?) ?? const []).any((x) => x['seat'] == mySeat);
+  final shown = ((me['myShown'] as List?) ?? const []).cast<int>();
+  final ok = cards.isNotEmpty &&
+      !openedAtEnd &&
+      shown.length < cards.length &&
+      ((result != null && st['inProgress'] != true) || (st['inProgress'] == true && me['inHand'] == true && me['folded'] == true));
+  return ok ? cards : null;
+}
+
 /// Napušta sto (uz potvrdu ako igrač sedi za njim) i zatvara njegov tab.
 Future<void> leaveTable(BuildContext context, AppState app, String tableId) async {
   final st = app.tableNotifier(tableId).value;
@@ -472,6 +489,40 @@ class _TableScreenState extends State<TableScreen> {
             ]),
           ),
           const Divider(height: 1, color: Colors.white12),
+          // Pokaži svoje karte ostalima (posle fold-a ili na kraju ruke).
+          if (showableCards(st) case final cards?) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(children: [
+                const Icon(Icons.visibility, color: goldLight),
+                const SizedBox(width: 16),
+                const Expanded(child: Text('Show cards', style: TextStyle(fontSize: 16))),
+                for (var k = 0; k < cards.length; k++)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Opacity(
+                      opacity: (((me['myShown'] as List?) ?? const []).contains(k)) ? 0.35 : 1,
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          app.run('table:show', {'tableId': widget.tableId, 'cards': [k]});
+                        },
+                        child: PlayingCard(code: cards[k], width: cards.length > 2 ? 30 : 36),
+                      ),
+                    ),
+                  ),
+              ]),
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_box_outlined, color: goldLight),
+              title: Text(cards.length > 2 ? 'Show all' : 'Show both'),
+              onTap: () {
+                Navigator.pop(ctx);
+                app.run('table:show', {'tableId': widget.tableId, 'cards': [for (var k = 0; k < cards.length; k++) k]});
+              },
+            ),
+            const Divider(height: 1, color: Colors.white12),
+          ],
           ListTile(
             leading: const Icon(Icons.add_circle),
             title: const Text('Rebuy'),
@@ -1077,7 +1128,23 @@ class _TopBar extends StatelessWidget {
       child: Row(children: [
         _RoundIcon(icon: Icons.arrow_back_ios_new, tip: 'Nazad', onTap: onBack),
         const SizedBox(width: 6),
-        if (onMenu != null) _RoundIcon(icon: Icons.menu, tip: 'Meni', onTap: onMenu),
+        if (onMenu != null)
+          Stack(clipBehavior: Clip.none, children: [
+            _RoundIcon(icon: Icons.menu, tip: 'Meni', onTap: onMenu),
+            // Mogu da se pokažu karte: tačka na meniju.
+            if (showableCards(st) != null)
+              Positioned(
+                right: -1,
+                top: -1,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 11,
+                    height: 11,
+                    decoration: BoxDecoration(color: goldLight, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 1.5)),
+                  ),
+                ),
+              ),
+          ]),
         const SizedBox(width: 8),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2801,17 +2868,12 @@ class _MyPanel extends StatelessWidget {
     final h = wide ? 52.0 : 48.0;
 
     Widget? bottom;
-    final mySeatIdx = st['mySeat'] as int;
     // Pokaži karte: posle fold-a ili kad je ruka gotova (a karte nisu već otvorene na kraju).
     final myCards = (me['cards'] as List?)?.cast<String>() ?? const <String>[];
-    final result = st['result'] as Json?;
-    final openedAtEnd = ((result?['shown'] as List?) ?? const []).any((x) => x['seat'] == mySeatIdx);
     final myShown = ((me['myShown'] as List?) ?? const []).cast<int>();
-    final canShow = myCards.isNotEmpty &&
-        !openedAtEnd &&
-        myShown.length < myCards.length &&
-        ((result != null && st['inProgress'] != true) || (st['inProgress'] == true && me['inHand'] == true && me['folded'] == true));
-    if (canShow && st['ritPending'] != true) {
+    // Telefon: pokazivanje karata je u meniju (☰) gore, ne u traci dole.
+    final canShow = wide && showableCards(st) != null;
+    if (canShow) {
       void show(List<int> idx) => app.run('table:show', {'tableId': tableId, 'cards': idx});
       bottom = Row(children: [
         Text('Show:', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: wide ? 14 : 12.5)),
