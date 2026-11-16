@@ -448,6 +448,16 @@ class _TableScreenState extends State<TableScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           StatefulBuilder(
             builder: (ctx, setLocal) => Column(children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.swap_horiz),
+                title: const Text('Auto-switch tables'),
+                subtitle: const Text('When it is your turn at another open table, jump to that table'),
+                value: app.autoSwitch,
+                onChanged: (v) async {
+                  await app.setSetting('autoSwitch', v);
+                  setLocal(() {});
+                },
+              ),
               if (st['straddle'] == true)
                 SwitchListTile(
                   secondary: const Icon(Icons.keyboard_double_arrow_up),

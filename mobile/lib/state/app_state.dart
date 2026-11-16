@@ -57,6 +57,9 @@ class AppState extends ChangeNotifier {
   /// Kad igrač ostane bez novca na stolu, sam se dopuni do najvećeg ulaza.
   bool autoRebuy = false;
 
+  /// Igra na više stolova: kad igrač dođe na red na drugom stolu, aplikacija sama pređe na taj sto.
+  bool autoSwitch = false;
+
   /// Zvukovi za stolom.
   bool soundOn = true;
 
@@ -77,6 +80,9 @@ class AppState extends ChangeNotifier {
         hideCards = v;
       case 'autoRebuy':
         autoRebuy = v;
+      case 'autoSwitch':
+        autoSwitch = v;
+        if (v) _maybeAutoSwitch();
     }
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
@@ -107,6 +113,7 @@ class AppState extends ChangeNotifier {
     fourColor = prefs.getBool('fourColor') ?? false;
     CardStyle.fourColor = fourColor;
     soundOn = prefs.getBool('sound') ?? true;
+    autoSwitch = prefs.getBool('autoSwitch') ?? false;
     Sounds.enabled = soundOn;
     final token = prefs.getString('token');
     if (token == null) {
@@ -464,6 +471,29 @@ class AppState extends ChangeNotifier {
     final server = (st['serverTime'] as num?)?.toInt();
     if (server != null) clockOffset = server - DateTime.now().millisecondsSinceEpoch;
     tableNotifier(st['id'] as String).value = st;
+    _maybeAutoSwitch();
+  }
+
+  /// Stolovi na kojima je igrač bio na potezu pri poslednjoj proveri.
+  final Set<String> _turnAt = {};
+
+  /// Automatski prelazak na sto, samo u trenutku kad na njemu počne igračev potez
+  /// (i samo ako na stolu koji gleda trenutno nije na potezu). Ručni izbor taba se ne poništava.
+  void _maybeAutoSwitch() {
+    final started = <String>[];
+    for (final id in openTables) {
+      final myTurn = tables[id]?.value?['legal'] != null;
+      if (myTurn && _turnAt.add(id)) started.add(id);
+      if (!myTurn) _turnAt.remove(id);
+    }
+    final cur = activeTable;
+    if (!autoSwitch || cur == null || started.isEmpty) return;
+    if (tables[cur]?.value?['legal'] != null) return;
+    final id = started.firstWhere((x) => x != cur, orElse: () => '');
+    if (id.isEmpty) return;
+    Future.microtask(() {
+      if (activeTable == cur && openTables.contains(id)) showTable(id);
+    });
   }
 
   ValueNotifier<Map<String, dynamic>?> tableNotifier(String id) => tables.putIfAbsent(id, () => ValueNotifier(null));
