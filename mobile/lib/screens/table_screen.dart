@@ -32,9 +32,36 @@ int toCallOf(Json st) {
   return min(top - (me['bet'] as int), me['stack'] as int).clamp(0, 1 << 31);
 }
 
+/// Napušta sto (uz potvrdu ako igrač sedi za njim) i zatvara njegov tab.
+Future<void> leaveTable(BuildContext context, AppState app, String tableId) async {
+  final st = app.tableNotifier(tableId).value;
+  final seated = st != null && (st['mySeat'] as int) >= 0;
+  if (seated) {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Leave ${st['name']}?'),
+        content: Text(st['inProgress'] == true
+            ? 'If you are in a hand, you fold. Your chips go back to your account.'
+            : 'Your chips go back to your account.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Leave')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!await app.run('table:leave', {'tableId': tableId})) return;
+  }
+  app.closeTable(tableId);
+}
+
 class TableScreen extends StatefulWidget {
   final String tableId;
-  const TableScreen({super.key, required this.tableId});
+
+  /// Sto je trenutno prikazan (ostali otvoreni stolovi rade u pozadini, u svojim tabovima).
+  final bool active;
+  const TableScreen({super.key, required this.tableId, this.active = true});
 
   @override
   State<TableScreen> createState() => _TableScreenState();
@@ -59,15 +86,25 @@ class _TableScreenState extends State<TableScreen> {
     super.initState();
     app = context.read<AppState>();
     app.watch(widget.tableId).then((ok) {
-      // Sto nije dostupan (npr. zakazan za kasnije): vrati se u lobi.
-      if (!ok && mounted) Navigator.of(context).maybePop();
+      // Sto nije dostupan (npr. zakazan za kasnije): zatvori njegov tab.
+      if (!ok && mounted) app.closeTable(widget.tableId);
     });
     app.tableNotifier(widget.tableId).addListener(_onState);
     // Osvežavanje tajmera za potez.
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final st = app.tableNotifier(widget.tableId).value;
-      if (mounted && st?['deadline'] != null) setState(() {});
+      if (mounted && widget.active && st?['deadline'] != null) setState(() {});
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant TableScreen old) {
+    super.didUpdateWidget(old);
+    // Kad se igrač vrati na ovaj sto: prozor za rebuy koji je čekao dok je bio na drugom stolu.
+    if (widget.active && !old.active) {
+      final st = app.tableNotifier(widget.tableId).value;
+      if (st != null) _maybeRebuyDialog(st);
+    }
   }
 
   @override
@@ -140,31 +177,11 @@ class _TableScreenState extends State<TableScreen> {
     });
   }
 
-  Future<bool> _confirmLeave(Json? st) async {
-    final seated = st != null && (st['mySeat'] as int) >= 0;
-    if (!seated) return true;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Leave the table?'),
-        content: Text(st['inProgress'] == true
-            ? 'If you are in a hand, you fold. Your chips go back to your account.'
-            : 'Your chips go back to your account.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Leave')),
-        ],
-      ),
-    );
-    if (ok != true) return false;
-    await app.run('table:leave', {'tableId': widget.tableId});
-    return true;
-  }
+  /// Nazad u lobi: sto ostaje otvoren u svom tabu (i dalje sedite za njim).
+  void _back(Json? st) => app.showLobby();
 
-  Future<void> _back(Json? st) async {
-    final nav = Navigator.of(context);
-    if (await _confirmLeave(st)) nav.pop();
-  }
+  /// Ustajanje od stola (uz potvrdu) i zatvaranje njegovog taba.
+  Future<void> _leave() => leaveTable(context, app, widget.tableId);
 
   @override
   Widget build(BuildContext context) {
@@ -176,11 +193,7 @@ class _TableScreenState extends State<TableScreen> {
       builder: (context, st, _) {
         final money = Money((st?['bigBlind'] as int?) ?? 0, showBB);
         final wide = MediaQuery.of(context).size.width >= 900;
-        return PopScope(
-          canPop: st == null || (st['mySeat'] as int) < 0,
-          onPopInvokedWithResult: (didPop, _) async {
-            if (!didPop) await _back(st);
-          },
+        return KeyedSubtree(
           child: Scaffold(
             key: _scaffold,
             backgroundColor: bg,
@@ -233,6 +246,7 @@ class _TableScreenState extends State<TableScreen> {
               onTapMine: () => setState(() => _peek = !_peek),
               onSit: (i) => _sit(st, i),
               onTapPlayer: (s) => _playerInfo(st, s),
+              active: widget.active,
             ),
           ),
         ),
@@ -258,11 +272,11 @@ class _TableScreenState extends State<TableScreen> {
     final mySeat = st['mySeat'] as int;
     if (wide) {
       // Računar: gornji meni, sto u sredini, igrači/ruke/chat desno, potezi dole (kao u dizajnu).
-      app.openChat = widget.tableId;
+      if (widget.active) app.openChat = widget.tableId;
       return Column(children: [
         LuxTopBar(
           selected: 0,
-          onSelect: (_) => _back(st),
+          onSelect: (i) => app.goHome?.call(i),
           leading: IconButton(
             tooltip: 'Back to lobby',
             onPressed: () => _back(st),
@@ -327,7 +341,7 @@ class _TableScreenState extends State<TableScreen> {
   int? _rebuyShown;
   void _maybeRebuyDialog(Json st) {
     final until = st['rebuyUntil'] as int?;
-    if (until == null || until == _rebuyShown || !mounted) return;
+    if (until == null || until == _rebuyShown || !mounted || !widget.active) return;
     // Prvo se odigra kraj ruke (karte, pobednik, žetoni), pa tek onda prozor.
     if (st['result'] != null) return;
     _rebuyShown = until;
@@ -348,7 +362,7 @@ class _TableScreenState extends State<TableScreen> {
         if (after != null) _maybeRebuyDialog(after);
       } else if (choice == 'leave') {
         await app.run('table:leave', {'tableId': widget.tableId});
-        if (mounted) Navigator.of(context).maybePop();
+        app.closeTable(widget.tableId);
       }
     });
   }
@@ -469,7 +483,7 @@ class _TableScreenState extends State<TableScreen> {
             title: const Text('Leave table'),
             onTap: () async {
               Navigator.pop(ctx);
-              await _back(st);
+              await _leave();
             },
           ),
         ]),
@@ -1578,13 +1592,22 @@ class _TableView extends StatefulWidget {
     required this.onTapPlayer,
     this.wide = false,
     this.hideMine = false,
+    this.active = true,
   });
+
+  /// Sto je prikazan; sto u pozadini (drugi tab) pušta samo zvuk "tvoj potez".
+  final bool active;
 
   @override
   State<_TableView> createState() => _TableViewState();
 }
 
 class _TableViewState extends State<_TableView> {
+  /// Zvuk stola; sto u pozadini pušta samo "tvoj potez".
+  void _play(String name, {double volume = 0.7}) {
+    if (widget.active || name == 'turn') Sounds.play(name, volume: volume);
+  }
+
   final List<_Flight> _flights = [];
   static const _flyMs = 450;
 
@@ -1617,7 +1640,7 @@ class _TableViewState extends State<_TableView> {
     for (final target in [3, 4, 5].where((x) => x > from)) {
       at(t, () {
         _reveal = target;
-        Sounds.play('card', volume: 0.6);
+        _play('card', volume: 0.6);
       });
       // Novi procenat tek kad se karta okrene (do tada važi procenat pre te karte).
       at(t + (target == 3 ? 1050 : 750), () => _oddsBoard = target);
@@ -1627,7 +1650,7 @@ class _TableViewState extends State<_TableView> {
       for (final target in [3, 4, 5].where((x) => x > from)) {
         at(t, () {
           _reveal2 = target;
-          Sounds.play('card', volume: 0.6);
+          _play('card', volume: 0.6);
         });
         t += _runoutStreetMs;
       }
@@ -1652,7 +1675,7 @@ class _TableViewState extends State<_TableView> {
       final result = fin['result'] as Json;
       final mySeat = fin['mySeat'] as int;
       final iWon = (result['pots'] as List).any((p) => (p['winners'] as List).any((w) => w['seat'] == mySeat));
-      Sounds.play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
+      _play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
       _addFlights(_resultFlights(widget.st, 0), 0);
     }
   }
@@ -1815,15 +1838,15 @@ class _TableViewState extends State<_TableView> {
     final mySeat = b['mySeat'] as int;
     // Nova ruka: deljenje karata.
     if (!sameHand && b['inProgress'] == true) {
-      Sounds.play('card', volume: 0.6);
-      if (b['toAct'] == mySeat && mySeat >= 0) Future.delayed(const Duration(milliseconds: 350), () => Sounds.play('turn'));
+      _play('card', volume: 0.6);
+      if (b['toAct'] == mySeat && mySeat >= 0) Future.delayed(const Duration(milliseconds: 350), () => _play('turn'));
       return;
     }
     // Kraj ruke: pobeda (glasnije ako sam ja dobio).
     final result = b['result'] as Json?;
     if (result != null && a['result'] == null) {
       final iWon = (result['pots'] as List).any((p) => (p['winners'] as List).any((w) => w['seat'] == mySeat));
-      Sounds.play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
+      _play(iWon ? 'win' : 'chips', volume: iWon ? 0.8 : 0.5);
       return;
     }
     // Novi potezi u ruci: check, fold ili žetoni.
@@ -1833,20 +1856,20 @@ class _TableViewState extends State<_TableView> {
       final type = (acts.last as Json)['type'] as String?;
       switch (type) {
         case 'check':
-          Sounds.play('check', volume: 0.6);
+          _play('check', volume: 0.6);
         case 'fold':
-          Sounds.play('fold', volume: 0.5);
+          _play('fold', volume: 0.5);
         case 'call' || 'bet' || 'raise' || 'allin' || 'straddle':
-          Sounds.play('chips', volume: 0.6);
+          _play('chips', volume: 0.6);
       }
     }
     // Nove karte na stolu.
     final oldBoard = (a['board'] as List?)?.length ?? 0;
     final board = (b['board'] as List?)?.length ?? 0;
-    if (sameHand && board > oldBoard) Future.delayed(const Duration(milliseconds: 250), () => Sounds.play('card', volume: 0.6));
+    if (sameHand && board > oldBoard) Future.delayed(const Duration(milliseconds: 250), () => _play('card', volume: 0.6));
     // Na potezu sam.
     if (mySeat >= 0 && b['toAct'] == mySeat && (a['toAct'] != mySeat || !sameHand)) {
-      Future.delayed(const Duration(milliseconds: 300), () => Sounds.play('turn'));
+      Future.delayed(const Duration(milliseconds: 300), () => _play('turn'));
     }
   }
 

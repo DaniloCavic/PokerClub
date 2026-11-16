@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -232,6 +233,45 @@ class AppState extends ChangeNotifier {
   /// Otvara sto (postavlja glavni okvir aplikacije posle prijave).
   void Function(String tableId)? openTable;
 
+  /// Prelazak na stranu glavnog menija (Poker, Istorija, Blagajna, Moj profil) iz stola.
+  void Function(int tab)? goHome;
+
+  /// Stolovi otvoreni u tabovima (igra se na više stolova odjednom) i koji je prikazan.
+  final List<String> openTables = [];
+  String? activeTable;
+  static const maxTables = 4;
+
+  /// Prikaži sto (otvori mu tab ako ga nema).
+  void showTable(String id) {
+    if (!openTables.contains(id)) {
+      if (openTables.length >= maxTables) {
+        toast('Možete igrati najviše $maxTables stola odjednom. Zatvorite neki sto.');
+        return;
+      }
+      openTables.add(id);
+    }
+    activeTable = id;
+    openChat = null;
+    notifyListeners();
+  }
+
+  /// Lobi; otvoreni stolovi ostaju u svojim tabovima.
+  void showLobby() {
+    if (activeTable == null) return;
+    activeTable = null;
+    openChat = null;
+    notifyListeners();
+  }
+
+  /// Zatvara tab stola (posle napuštanja stola ili ako igrač samo gleda).
+  void closeTable(String id) {
+    final i = openTables.indexOf(id);
+    if (i < 0) return;
+    openTables.removeAt(i);
+    if (activeTable == id) activeTable = openTables.isEmpty ? null : openTables[min(i, openTables.length - 1)];
+    notifyListeners();
+  }
+
   /// Važno obaveštenje sa dugmetom (npr. "Sto se otvorio" → IGRAJ).
   void notify(String msg, {String? action, String? tableId, Duration duration = const Duration(seconds: 10)}) {
     Sounds.play('turn', volume: 0.5);
@@ -286,14 +326,32 @@ class AppState extends ChangeNotifier {
     _refreshPush();
     notifyListeners();
     _connect();
+    if (u['seatedAt'] == null) {
+      refreshMe(openSeated: true);
+    } else {
+      _openSeated(u);
+    }
   }
 
-  Future<void> refreshMe() async {
+  /// Posle prijave: svaki sto za kojim igrač sedi dobija tab, a prikazuje se prvi.
+  void _openSeated(Map<String, dynamic> u) {
+    final seated = ((u['seatedAt'] as List?) ?? const []).cast<String>();
+    if (seated.isEmpty) return;
+    final wasEmpty = openTables.isEmpty;
+    for (final id in seated) {
+      if (!openTables.contains(id) && openTables.length < maxTables) openTables.add(id);
+    }
+    if (wasEmpty && activeTable == null) activeTable = openTables.first;
+    notifyListeners();
+  }
+
+  Future<void> refreshMe({bool openSeated = false}) async {
     try {
       final u = await api.get('/me');
       user = u;
       balance = (u['balance'] as num).toInt();
       notifyListeners();
+      if (openSeated) _openSeated(Map<String, dynamic>.from(u as Map));
     } catch (_) {}
   }
 
@@ -313,6 +371,8 @@ class AppState extends ChangeNotifier {
     lobby = [];
     tables.clear();
     _watching.clear();
+    openTables.clear();
+    activeTable = null;
     _inLobby = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');

@@ -45,25 +45,59 @@ class _HomeShellState extends State<HomeShell> {
     // Obaveštenja (sto se otvorio, mesto sa liste čekanja) otvaraju sto jednim dodirom.
     final app = context.read<AppState>();
     app.openTable = (tableId) {
-      final nav = app.navigatorKey.currentState;
-      if (nav == null) return;
-      nav.popUntil((r) => r.isFirst);
-      nav.push(MaterialPageRoute(builder: (_) => TableScreen(tableId: tableId)));
+      app.navigatorKey.currentState?.popUntil((r) => r.isFirst);
+      app.showTable(tableId);
+    };
+    app.goHome = (i) {
+      setState(() => _tab = i);
+      app.showLobby();
     };
     // Dodir na obaveštenje dok je aplikacija otvorena.
     WebPush.onOpenTable((id) => app.openTable?.call(id));
     // Posle ponovnog otvaranja (telefon je ugasio stranicu dok je igrač bio u drugoj aplikaciji)
     // igrač se vraća za sto za kojim sedi, ili za sto iz obaveštenja.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Stolovi za kojima igrač sedi otvaraju se sami (vidi AppState._openSeated); obaveštenje otvara svoj sto.
       final fromPush = WebPush.startTable();
-      final seated = ((app.user?['seatedAt'] as List?) ?? const []).cast<String>();
-      final id = fromPush ?? (seated.isNotEmpty ? seated.first : null);
-      if (id != null) app.openTable?.call(id);
+      if (fromPush != null) app.openTable?.call(fromPush);
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final tables = app.openTables;
+    final active = app.activeTable;
+    // Ista struktura sa tabovima i bez njih, da se lobi (i stolovi) ne prave iznova.
+    // Otvoreni stolovi ostaju živi (IndexedStack): igra teče i dok je igrač na drugom stolu ili u lobiju.
+    final content = IndexedStack(
+      index: active == null || !tables.contains(active) ? 0 : 1 + tables.indexOf(active),
+      children: [
+        KeyedSubtree(key: _homeKey, child: _home(context)),
+        for (final id in tables) TableScreen(key: ValueKey('table-$id'), tableId: id, active: id == active),
+      ],
+    );
+    return PopScope(
+      canPop: active == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) app.showLobby();
+      },
+      child: ColoredBox(
+        color: bg,
+        child: Column(children: [
+          if (tables.isNotEmpty) TableTabs(key: const ValueKey('tabs'), app: app),
+          Expanded(
+            key: const ValueKey('content'),
+            child: MediaQuery.removePadding(context: context, removeTop: tables.isNotEmpty, child: content),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  final _homeKey = GlobalKey();
+
+  Widget _home(BuildContext context) {
     final wide = isWide(context);
     final pages = [
       const LobbyView(),
@@ -87,6 +121,183 @@ class _HomeShellState extends State<HomeShell> {
         _PhoneTabs(selected: _tab, onSelect: (i) => setState(() => _tab = i)),
         Expanded(child: body),
       ]),
+    );
+  }
+}
+
+/// Tabovi otvorenih stolova (iznad svega): Lobby i stolovi; sto na kome ste na potezu svetli.
+class TableTabs extends StatelessWidget {
+  final AppState app;
+  const TableTabs({super.key, required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = isWide(context);
+    final h = wide ? 40.0 : 36.0;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0706),
+        border: Border(bottom: BorderSide(color: gold.withOpacity(0.3))),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: SizedBox(
+          height: h,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            children: [
+              _TabChip(
+                selected: app.activeTable == null,
+                onTap: app.showLobby,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.home_rounded, size: wide ? 18 : 16, color: app.activeTable == null ? Colors.black : goldLight),
+                  const SizedBox(width: 5),
+                  Text('Lobby',
+                      style: TextStyle(
+                          fontSize: wide ? 13 : 12,
+                          fontWeight: FontWeight.w800,
+                          color: app.activeTable == null ? Colors.black : Colors.white)),
+                ]),
+              ),
+              for (final id in app.openTables)
+                ValueListenableBuilder<Map<String, dynamic>?>(
+                  valueListenable: app.tableNotifier(id),
+                  builder: (context, st, _) => _TableTab(app: app, id: id, st: st, wide: wide),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TableTab extends StatelessWidget {
+  final AppState app;
+  final String id;
+  final Map<String, dynamic>? st;
+  final bool wide;
+  const _TableTab({required this.app, required this.id, required this.st, required this.wide});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = st;
+    final selected = app.activeTable == id;
+    final myTurn = s != null && s['legal'] != null;
+    final seated = s != null && (s['mySeat'] as int) >= 0;
+    final omaha = s?['variant'] == 'OMAHA';
+    final title = s == null ? '…' : '${omaha ? 'PLO' : 'NLH'} ${chips(s['smallBlind'])}/${chips(s['bigBlind'])}';
+    final name = (s?['name'] as String?) ?? '';
+    final fg = selected ? Colors.black : Colors.white;
+    return _TabChip(
+      selected: selected,
+      alert: myTurn && !selected,
+      onTap: () => app.showTable(id),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (myTurn)
+          Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(color: selected ? Colors.black : const Color(0xFFE0263F), borderRadius: BorderRadius.circular(6)),
+            child: Text('YOUR TURN', style: TextStyle(fontSize: wide ? 9.5 : 8.5, fontWeight: FontWeight.w900, color: selected ? goldLight : Colors.white)),
+          )
+        else if (seated)
+          Container(
+            width: 7,
+            height: 7,
+            margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(color: selected ? Colors.black54 : const Color(0xFF4CD07A), shape: BoxShape.circle),
+          ),
+        Text(title, style: TextStyle(fontSize: wide ? 13 : 12, fontWeight: FontWeight.w800, color: fg)),
+        if (wide && name.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 140),
+            child: Text(name,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? Colors.black87 : gold)),
+          ),
+        ],
+        const SizedBox(width: 4),
+        InkResponse(
+          radius: 14,
+          onTap: () => leaveTable(context, app, id),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Icon(Icons.close, size: wide ? 16 : 15, color: selected ? Colors.black87 : Colors.white60),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _TabChip extends StatefulWidget {
+  final bool selected;
+  final bool alert;
+  final VoidCallback onTap;
+  final Widget child;
+  const _TabChip({required this.selected, required this.onTap, required this.child, this.alert = false});
+
+  @override
+  State<_TabChip> createState() => _TabChipState();
+}
+
+class _TabChipState extends State<_TabChip> with SingleTickerProviderStateMixin {
+  late final _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.alert) _pulse.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TabChip old) {
+    super.didUpdateWidget(old);
+    if (widget.alert && !_pulse.isAnimating) _pulse.repeat(reverse: true);
+    if (!widget.alert && _pulse.isAnimating) {
+      _pulse
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (_, child) => Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: widget.onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: widget.selected ? goldGradient : null,
+                color: widget.selected ? null : Color.lerp(const Color(0xFF1D1513), const Color(0xFF5A0B16), _pulse.value),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: widget.alert ? Color.lerp(gold, const Color(0xFFFF5A6E), _pulse.value)! : gold.withOpacity(widget.selected ? 0.9 : 0.35),
+                    width: widget.alert ? 1.6 : 1),
+              ),
+              child: child,
+            ),
+          ),
+        ),
+        child: widget.child,
+      ),
     );
   }
 }
@@ -444,7 +655,7 @@ class _TableTile extends StatelessWidget {
         context.read<AppState>().toast('Sto se otvara ${opensLabel(opensAt)}.');
         return;
       }
-      Navigator.push(context, MaterialPageRoute(builder: (_) => TableScreen(tableId: t['id'])));
+      context.read<AppState>().showTable(t['id'] as String);
     }
 
     final narrow = MediaQuery.of(context).size.width < 500;
