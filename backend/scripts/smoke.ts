@@ -11,7 +11,7 @@ const suffix = Date.now().toString(36).slice(-5);
 async function call(method: string, path: string, token?: string, body?: unknown) {
   const res = await fetch(`${API}/api${path}`, {
     method,
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { 'content-type': 'application/json', 'x-lang': 'sr', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => null);
@@ -43,7 +43,7 @@ function emit(s: Socket, ev: string, data?: unknown): Promise<any> {
 }
 
 async function connect(name: string, id: string, token: string): Promise<Bot> {
-  const socket = io(API, { auth: { token }, transports: ['websocket'] });
+  const socket = io(API, { auth: { token, lang: 'sr' }, transports: ['websocket'] });
   const bot: Bot = { name, id, token, socket, state: {}, manual: new Set() };
   await new Promise<void>((resolve, reject) => {
     socket.on('session', () => resolve());
