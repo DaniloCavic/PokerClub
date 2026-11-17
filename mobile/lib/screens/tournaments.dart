@@ -30,15 +30,15 @@ String clockLeft(int? at, int serverNow) {
 ({String label, Color color}) tourStatus(Json t) {
   switch (t['status']) {
     case 'REGISTERING':
-      return (label: 'Prijave otvorene', color: const Color(0xFF2E7BD6));
+      return (label: 'Registering', color: const Color(0xFF2E7BD6));
     case 'RUNNING':
       return t['regOpen'] == true
-          ? (label: 'U toku · kasna prijava', color: const Color(0xFF1E8E4E))
-          : (label: 'U toku', color: const Color(0xFF1E8E4E));
+          ? (label: 'Running · late reg', color: const Color(0xFF1E8E4E))
+          : (label: 'Running', color: const Color(0xFF1E8E4E));
     case 'FINISHED':
-      return (label: 'Završen', color: const Color(0xFF555B66));
+      return (label: 'Finished', color: const Color(0xFF555B66));
     default:
-      return (label: 'Otkazan', color: const Color(0xFF8A2430));
+      return (label: 'Cancelled', color: const Color(0xFF8A2430));
   }
 }
 
@@ -79,7 +79,7 @@ class _TournamentListState extends State<TournamentList> {
       child: list.isEmpty
           ? ListView(children: const [
               SizedBox(height: 120),
-              Center(child: Text('Trenutno nema turnira.', style: TextStyle(color: Colors.white60))),
+              Center(child: Text('No tournaments right now.', style: TextStyle(color: Colors.white60))),
             ])
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
@@ -152,9 +152,9 @@ class _TournamentTile extends StatelessWidget {
                   Flexible(
                     child: Text(
                       running && t['level'] != null
-                          ? 'Level ${t['level']} · ${chips(t['smallBlind'])}/${chips(t['bigBlind'])}${t['onBreak'] == true ? ' · pauza' : ''}'
+                          ? 'Level ${t['level']} · ${chips(t['smallBlind'])}/${chips(t['bigBlind'])}${t['onBreak'] == true ? ' · break' : ''}'
                           : t['status'] == 'REGISTERING' && start.difference(DateTime.now()).inHours < 12
-                              ? 'Počinje ${countdown(start)}'
+                              ? 'Starts ${countdown(start)}'
                               : opensLabel(start),
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12, color: Colors.white70),
@@ -163,15 +163,15 @@ class _TournamentTile extends StatelessWidget {
                 ]),
                 const SizedBox(height: 4),
                 Text(
-                  'Ulaz ${rsd((t['buyIn'] as num) + (t['fee'] as num))}${guarantee > 0 ? ' · Garantovano ${chips(guarantee)}' : ''}',
+                  'Buy-in ${rsd((t['buyIn'] as num) + (t['fee'] as num))}${guarantee > 0 ? ' · GTD ${chips(guarantee)}' : ''}',
                   style: const TextStyle(fontSize: 12.5, color: goldLight),
                 ),
                 Text(
                   running
-                      ? 'U igri ${t['playersLeft']} / ${t['entries']} ulaza'
+                      ? '${t['playersLeft']} left of ${t['entries']} entries'
                       : t['status'] == 'FINISHED' || t['status'] == 'CANCELLED'
-                          ? '${t['entries']} ulaza'
-                      : 'Prijavljeno ${t['entries']}${(t['maxPlayers'] as num? ?? 0) > 0 ? ' / ${t['maxPlayers']}' : ''}'
+                          ? '${t['entries']} entries'
+                      : 'Registered ${t['entries']}${(t['maxPlayers'] as num? ?? 0) > 0 ? ' / ${t['maxPlayers']}' : ''}'
                           '${t['rebuy'] == true ? ' · Rebuy' : ''}${t['reentry'] == true ? ' · Re-entry' : ''}${t['addon'] == true ? ' · Add-on' : ''}',
                   style: const TextStyle(fontSize: 12, color: Colors.white60),
                 ),
@@ -258,7 +258,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0E0B08),
-        title: Text(d?['name'] as String? ?? 'Turnir', style: const TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(d?['name'] as String? ?? 'Tournament', style: const TextStyle(fontWeight: FontWeight.w800)),
       ),
       body: LuxBackground(
         child: d == null
@@ -275,7 +275,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
                         labelColor: goldLight,
                         unselectedLabelColor: Colors.white60,
                         labelStyle: TextStyle(fontWeight: FontWeight.w800),
-                        tabs: [Tab(text: 'Info'), Tab(text: 'Nagrade'), Tab(text: 'Igrači'), Tab(text: 'Stolovi')],
+                        tabs: [Tab(text: 'Info'), Tab(text: 'Prizes'), Tab(text: 'Players'), Tab(text: 'Tables')],
                       ),
                       Expanded(
                         child: TabBarView(children: [
@@ -305,28 +305,28 @@ class _TournamentScreenState extends State<TournamentScreen> {
     if (me != null) {
       if (me['canRegister'] == true) {
         buttons.add(LuxButton(
-          title: me['isReentry'] == true ? 'RE-ENTRY' : 'PRIJAVI SE',
+          title: me['isReentry'] == true ? 'RE-ENTRY' : 'REGISTER',
           subtitle: rsd(total),
           onTap: _busy
               ? null
               : () => _run('tour:register',
-                  confirm: 'Ulaz ${rsd(total)} (${chips(d['buyIn'])} nagradni fond + ${chips(d['fee'])} fee) se skida sa naloga.',
-                  done: 'Prijavljeni ste na turnir.'),
+                  confirm: 'Buy-in ${rsd(total)} (${chips(d['buyIn'])} prize pool + ${chips(d['fee'])} fee) will be taken from your account.',
+                  done: 'You are registered.'),
         ));
       }
       if (me['canUnregister'] == true) {
         buttons.add(LuxButton(
-          title: 'ODJAVI SE',
-          subtitle: 'ulaz se vraća',
+          title: 'UNREGISTER',
+          subtitle: 'buy-in refunded',
           gradient: redGradient,
           textColor: Colors.white,
-          onTap: _busy ? null : () => _run('tour:unregister', confirm: 'Odjaviti se sa turnira? Ulaz se vraća na nalog.', done: 'Odjavljeni ste.'),
+          onTap: _busy ? null : () => _run('tour:unregister', confirm: 'Unregister from the tournament? Your buy-in goes back to your account.', done: 'You are unregistered.'),
         ));
       }
       if (me['tableId'] != null) {
         buttons.add(LuxButton(
-          title: 'IGRAJ',
-          subtitle: me['position'] != null ? '${me['position']}. mesto' : null,
+          title: 'PLAY',
+          subtitle: me['position'] != null ? 'Rank ${me['position']}' : null,
           onTap: () {
             app.showTable(me['tableId'] as String);
             Navigator.of(context).popUntil((r) => r.isFirst);
@@ -338,7 +338,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
         buttons.add(LuxButton(
           title: 'REBUY',
           subtitle: '${rsd((r['price'] as num) + (r['fee'] as num))} → ${chips(r['chips'])}',
-          onTap: _busy ? null : () => _run('tour:rebuy', done: 'Rebuy je kupljen.'),
+          onTap: _busy ? null : () => _run('tour:rebuy', done: 'Rebuy done.'),
         ));
       }
       if (me['canAddon'] == true) {
@@ -346,7 +346,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
         buttons.add(LuxButton(
           title: 'ADD-ON',
           subtitle: '${rsd((r['price'] as num) + (r['fee'] as num))} → ${chips(r['chips'])}',
-          onTap: _busy ? null : () => _run('tour:addon', done: 'Add-on je kupljen.'),
+          onTap: _busy ? null : () => _run('tour:addon', done: 'Add-on done.'),
         ));
       }
     }
@@ -367,21 +367,21 @@ class _TournamentScreenState extends State<TournamentScreen> {
           ]),
           const SizedBox(height: 10),
           Wrap(spacing: 18, runSpacing: 8, children: [
-            _stat('Nagradni fond', chips(d['prizePool']), big: true),
-            if ((d['guarantee'] as num? ?? 0) > 0) _stat('Garantovano', chips(d['guarantee'])),
-            _stat('Ulaz', rsd(total)),
-            _stat(running ? 'U igri' : 'Prijavljeno', running ? '${d['playersLeft']} / ${d['entries']}' : '${d['entries']}'),
-            if (d['status'] == 'REGISTERING') _stat('Počinje', '${opensLabel(start)}\n${countdown(start)}'),
+            _stat('Prize pool', chips(d['prizePool']), big: true),
+            if ((d['guarantee'] as num? ?? 0) > 0) _stat('Guaranteed', chips(d['guarantee'])),
+            _stat('Buy-in', rsd(total)),
+            _stat(running ? 'Players left' : 'Registered', running ? '${d['playersLeft']} / ${d['entries']}' : '${d['entries']}'),
+            if (d['status'] == 'REGISTERING') _stat('Starts', '${opensLabel(start)}\n${countdown(start)}'),
             if (running && clock != null)
               clock['onBreak'] == true
-                  ? _stat('Pauza', 'još ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
+                  ? _stat('Break', 'ends in ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
                   : _stat('Level ${d['level']}', '${chips(d['smallBlind'])}/${chips(d['bigBlind'])} · ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
-            if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat('Traje oko', durationLabel((d['estimatedMinutes'] as num).toInt())),
+            if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat('Duration', '~${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
           ]),
           if (fin != null) ...[
             const SizedBox(height: 10),
             GoldText(
-              'Završili ste na ${fin['position']}. mestu${(fin['prize'] as num? ?? 0) > 0 ? ' · nagrada ${rsd(fin['prize'])}' : ''}',
+              'You finished #${fin['position']}${(fin['prize'] as num? ?? 0) > 0 ? ' · prize ${rsd(fin['prize'])}' : ''}',
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
             ),
           ],
@@ -432,35 +432,35 @@ class _TournamentScreenState extends State<TournamentScreen> {
     final ad = d['addonRules'] as Json?;
     final cur = d['level'] as int?;
     final breaks = switch (d['breakMode']) {
-      'HOURLY' => 'Svakog sata, ${d['breakMinutes']} min (od ${60 - (d['breakMinutes'] as num)}. minuta)',
-      'LEVELS' => 'Posle svakih ${d['breakEvery']} nivoa, ${d['breakMinutes']} min',
-      _ => 'Bez pauza',
+      'HOURLY' => 'Every hour, ${d['breakMinutes']} min (at :${60 - (d['breakMinutes'] as num)})',
+      'LEVELS' => 'After every ${d['breakEvery']} levels, ${d['breakMinutes']} min',
+      _ => 'No breaks',
     };
     return ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 20), children: [
-      _section('Pravila', [
-        _kv('Početni stek', chips(d['startingStack'])),
-        _kv('Ulaz', '${chips(d['buyIn'])} + ${chips(d['fee'])} fee'),
-        _kv('Igrača za stolom', '${d['tableSize'] ?? 9}'),
-        if (d['actionSeconds'] != null) _kv('Vreme za potez', '${d['actionSeconds']} s'),
-        _kv('Pauze', breaks),
-        _kv('Kasna prijava', (d['lateRegLevels'] as num? ?? 0) > 0 ? 'do kraja nivoa ${d['lateRegLevels']}' : 'samo pre početka'),
-        if ((d['reentryMax'] as num? ?? 0) > 0) _kv('Re-entry', 'do ${d['reentryMax']}× (tokom kasne prijave)'),
+      _section('Rules', [
+        _kv('Starting stack', chips(d['startingStack'])),
+        _kv('Buy-in', '${chips(d['buyIn'])} + ${chips(d['fee'])} fee'),
+        _kv('Players per table', '${d['tableSize'] ?? 9}'),
+        if (d['actionSeconds'] != null) _kv('Time to act', '${d['actionSeconds']} s'),
+        _kv('Breaks', breaks),
+        _kv('Late registration', (d['lateRegLevels'] as num? ?? 0) > 0 ? 'until the end of level ${d['lateRegLevels']}' : 'only before the start'),
+        if ((d['reentryMax'] as num? ?? 0) > 0) _kv('Re-entry', 'up to ${d['reentryMax']}× (during late registration)'),
         if (rb != null && (rb['levels'] as num) > 0)
           _kv(
             'Rebuy',
-            '${rsd((rb['price'] as num) + (rb['fee'] as num))} → ${chips(rb['chips'])} žetona, do kraja nivoa ${rb['levels']}'
-                '${(rb['max'] as num) > 0 ? ', najviše ${rb['max']}×' : ''}'
-                '${(rb['below'] as num) > 0 ? ', kad imate ${chips(rb['below'])} ili manje' : ', kad ostanete bez žetona'}',
+            '${rsd((rb['price'] as num) + (rb['fee'] as num))} → ${chips(rb['chips'])} chips, until the end of level ${rb['levels']}'
+                '${(rb['max'] as num) > 0 ? ', up to ${rb['max']}×' : ''}'
+                '${(rb['below'] as num) > 0 ? ', when you have ${chips(rb['below'])} or less' : ', when you run out of chips'}',
           ),
         if (ad != null && (ad['level'] as num) > 0)
-          _kv('Add-on', '${rsd((ad['price'] as num) + (ad['fee'] as num))} → ${chips(ad['chips'])} žetona, jednom, do kraja nivoa ${ad['level']}'),
-        if (d['minPlayers'] != null) _kv('Najmanje igrača', '${d['minPlayers']} (inače se turnir otkazuje i ulaz vraća)'),
-        if (d['estimatedMinutes'] != null) _kv('Trajanje', 'oko ${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
+          _kv('Add-on', '${rsd((ad['price'] as num) + (ad['fee'] as num))} → ${chips(ad['chips'])} chips, once, until the end of level ${ad['level']}'),
+        if (d['minPlayers'] != null) _kv('Minimum players', '${d['minPlayers']} (otherwise the tournament is cancelled and buy-ins refunded)'),
+        if (d['estimatedMinutes'] != null) _kv('Duration', 'about ${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
       ]),
-      _section('Blajndovi', [
+      _section('Blind structure', [
         const Row(children: [
-          SizedBox(width: 50, child: Text('Nivo', style: TextStyle(color: Colors.white60, fontSize: 12))),
-          Expanded(child: Text('Blajndovi', style: TextStyle(color: Colors.white60, fontSize: 12))),
+          SizedBox(width: 50, child: Text('Level', style: TextStyle(color: Colors.white60, fontSize: 12))),
+          Expanded(child: Text('Blinds', style: TextStyle(color: Colors.white60, fontSize: 12))),
           SizedBox(width: 70, child: Text('Ante', style: TextStyle(color: Colors.white60, fontSize: 12))),
           SizedBox(width: 60, child: Text('Min', textAlign: TextAlign.right, style: TextStyle(color: Colors.white60, fontSize: 12))),
         ]),
@@ -486,8 +486,8 @@ class _TournamentScreenState extends State<TournamentScreen> {
   Widget _payouts(Json d) {
     final p = ((d['payouts'] as List?) ?? const []).cast<Map>();
     return ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 20), children: [
-      _section(d['poolFinal'] == true || d['status'] == 'FINISHED' ? 'Nagrade' : 'Nagrade (fond još raste)', [
-        Text('Nagradni fond: ${chips(d['prizePool'])} · plaćeno mesta: ${p.length}', style: const TextStyle(color: Colors.white70)),
+      _section(d['poolFinal'] == true || d['status'] == 'FINISHED' ? 'Prizes' : 'Prizes (pool can still grow)', [
+        Text('Prize pool: ${chips(d['prizePool'])} · paid places: ${p.length}', style: const TextStyle(color: Colors.white70)),
         const SizedBox(height: 8),
         for (final x in p)
           Padding(
@@ -508,7 +508,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
   Widget _players(Json d) {
     final s = ((d['standings'] as List?) ?? const []).cast<Map>();
     final myId = app.user?['id'];
-    if (s.isEmpty) return const Center(child: Text('Još nema prijavljenih igrača.', style: TextStyle(color: Colors.white60)));
+    if (s.isEmpty) return const Center(child: Text('No players registered yet.', style: TextStyle(color: Colors.white60)));
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
       itemCount: s.length,
@@ -532,7 +532,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
             ),
             if (!out) Text(chips(x['chips']), style: const TextStyle(fontWeight: FontWeight.w800, color: goldLight)),
             if (out && (x['prize'] as num? ?? 0) > 0) Text(rsd(x['prize']), style: const TextStyle(fontWeight: FontWeight.w800, color: winGreen)),
-            if (out && (x['prize'] as num? ?? 0) == 0) const Text('ispao', style: TextStyle(color: Colors.white38, fontSize: 12)),
+            if (out && (x['prize'] as num? ?? 0) == 0) const Text('out', style: TextStyle(color: Colors.white38, fontSize: 12)),
           ]),
         );
       },
@@ -541,7 +541,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
 
   Widget _tables(Json d) {
     final ts = ((d['tables'] as List?) ?? const []).cast<Map>();
-    if (ts.isEmpty) return const Center(child: Text('Stolovi se prave kad turnir počne.', style: TextStyle(color: Colors.white60)));
+    if (ts.isEmpty) return const Center(child: Text('Tables are created when the tournament starts.', style: TextStyle(color: Colors.white60)));
     return ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 20), children: [
       for (final x in ts)
         Padding(
@@ -551,8 +551,8 @@ class _TournamentScreenState extends State<TournamentScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: gold.withOpacity(0.3))),
             leading: const Icon(Icons.table_restaurant, color: gold),
             title: Text(x['name'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('${x['players']} igrača'),
-            trailing: const Text('GLEDAJ', style: TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
+            subtitle: Text('${x['players']} players'),
+            trailing: const Text('WATCH', style: TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
             onTap: () {
               app.showTable(x['id'] as String);
               Navigator.of(context).popUntil((r) => r.isFirst);
@@ -583,19 +583,19 @@ class TourResultDialog extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(winner ? Icons.emoji_events : Icons.flag, color: goldLight, size: 46),
             const SizedBox(height: 8),
-            GoldText(winner ? 'Pobedili ste!' : 'Ispali ste sa turnira',
+            GoldText(winner ? 'You won!' : 'You are out',
                 align: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
             Text(r['name'] as String? ?? '', style: const TextStyle(color: Colors.white70)),
             const SizedBox(height: 12),
-            Text('${r['position']}. mesto od ${r['entries']}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            Text('#${r['position']} of ${r['entries']}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
             if (prize > 0) ...[
               const SizedBox(height: 6),
-              Text('Nagrada: ${rsd(prize)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: winGreen)),
+              Text('Prize: ${rsd(prize)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: winGreen)),
             ],
             if (r['pendingPrize'] == true) ...[
               const SizedBox(height: 6),
-              const Text('U nagradama ste — iznos se isplaćuje na kraju turnira.', textAlign: TextAlign.center, style: TextStyle(color: goldLight)),
+              const Text('You are in the money — the prize is paid when the tournament ends.', textAlign: TextAlign.center, style: TextStyle(color: goldLight)),
             ],
             const SizedBox(height: 16),
             if (r['canReenter'] == true) ...[
@@ -610,7 +610,7 @@ class TourResultDialog extends StatelessWidget {
               const SizedBox(height: 8),
             ],
             LuxButton(
-              title: 'ZATVORI',
+              title: 'CLOSE',
               gradient: redGradient,
               textColor: Colors.white,
               height: 46,
@@ -667,11 +667,11 @@ class TourBar extends StatelessWidget {
         child: Flex(direction: vertical ? Axis.vertical : Axis.horizontal, mainAxisSize: MainAxisSize.min, children: [
           item('LEVEL ${tour['level']}', '${chips(tour['sb'])}/${chips(tour['bb'])}${(tour['ante'] as num) > 0 ? ' (${chips(tour['ante'])})' : ''}', color: goldLight),
           if (!onBreak) item('NEXT ${chips(tour['nextSb'])}/${chips(tour['nextBb'])}', clockLeft((tour['levelEndsAt'] as num?)?.toInt(), now)),
-          if (onBreak) item('PAUZA', clockLeft((tour['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
-          if (!onBreak && nextBreak != null) item('PAUZA ZA', clockLeft(nextBreak, now)),
-          item('MESTO', tour['position'] != null ? '${tour['position']}/${tour['playersLeft']}' : '${tour['playersLeft']} igrača'),
-          item('PROSEK', chips(tour['avgStack'])),
-          if (wide) item('FOND', chips(tour['prizePool'])),
+          if (onBreak) item('BREAK', clockLeft((tour['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
+          if (!onBreak && nextBreak != null) item('BREAK IN', clockLeft(nextBreak, now)),
+          item('RANK', tour['position'] != null ? '${tour['position']}/${tour['playersLeft']}' : '${tour['playersLeft']} left'),
+          item('AVG STACK', chips(tour['avgStack'])),
+          if (wide) item('PRIZE POOL', chips(tour['prizePool'])),
         ]),
       ),
     );

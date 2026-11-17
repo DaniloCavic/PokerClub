@@ -125,6 +125,13 @@ export class TournamentsAdminController {
     if (data.rebuyLevels > 0 && data.rebuyChips < 1) throw new BadRequestException('Unesite broj žetona za rebuy.');
     if (data.addonLevel > 0 && data.addonChips < 1) throw new BadRequestException('Unesite broj žetona za add-on.');
     if (data.reentryMax > 0 && data.lateRegLevels < 1) throw new BadRequestException('Re-entry je moguć samo tokom kasne prijave (unesite do kog nivoa).');
+    for (const [v, label] of [
+      [data.lateRegLevels, 'Kasna prijava'],
+      [data.rebuyLevels, 'Rebuy'],
+      [data.addonLevel, 'Add-on'],
+    ] as const) {
+      if (v > levels.length) throw new BadRequestException(`${label}: nivo ne može biti veći od broja nivoa (${levels.length}).`);
+    }
     if (data.maxPlayers > 0 && data.maxPlayers < data.minPlayers) throw new BadRequestException('Najviše igrača je manje od najmanje.');
     return this.tours.create(data);
   }

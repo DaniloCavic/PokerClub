@@ -311,7 +311,8 @@ class _TableScreenState extends State<TableScreen> {
       if (widget.active) app.openChat = widget.tableId;
       return Column(children: [
         LuxTopBar(
-          selected: 0,
+          // Sto turnira pripada stranici Tournaments, cash sto stranici Cash Game.
+          selected: st['tournament'] != null ? tabTournaments : tabCash,
           onSelect: (i) => app.goHome?.call(i),
           leading: IconButton(
             tooltip: 'Back to lobby',

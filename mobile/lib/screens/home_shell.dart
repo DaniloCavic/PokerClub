@@ -23,11 +23,15 @@ class NavItem {
 }
 
 const navItems = [
-  NavItem('Poker', Icons.style),
-  NavItem('Istorija', Icons.history),
-  NavItem('Blagajna', Icons.account_balance_wallet),
-  NavItem('Moj profil', Icons.person),
+  NavItem('Cash Game', Icons.style),
+  NavItem('Tournaments', Icons.emoji_events),
+  NavItem('History', Icons.history),
+  NavItem('Cashier', Icons.account_balance_wallet),
+  NavItem('Profile', Icons.person),
 ];
+
+/// Redni brojevi stranica glavnog menija.
+const tabCash = 0, tabTournaments = 1, tabHistory = 2, tabCashier = 3, tabProfile = 4;
 
 /// Glavni okvir aplikacije posle prijave.
 class HomeShell extends StatefulWidget {
@@ -117,7 +121,8 @@ class _HomeShellState extends State<HomeShell> {
   Widget _home(BuildContext context) {
     final wide = isWide(context);
     final pages = [
-      const LobbyView(),
+      const LobbyView(key: ValueKey('cash')),
+      const LobbyView(key: ValueKey('tournaments'), tournaments: true),
       const _HistoryView(),
       const TransactionsScreen(embedded: true),
       const AccountScreen(embedded: true),
@@ -134,7 +139,7 @@ class _HomeShellState extends State<HomeShell> {
     // Telefon: naslov kluba gore, odmah ispod njega meni (ne dole na dnu ekrana).
     return Scaffold(
       body: Column(children: [
-        _PhoneTopBar(onWallet: () => setState(() => _tab = 2)),
+        _PhoneTopBar(onWallet: () => setState(() => _tab = tabCashier)),
         _PhoneTabs(selected: _tab, onSelect: (i) => setState(() => _tab = i)),
         Expanded(child: body),
       ]),
@@ -355,11 +360,17 @@ class _PhoneTabs extends StatelessWidget {
                 child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(navItems[i].icon, size: 20, color: i == selected ? goldLight : gold.withOpacity(0.8)),
                   const SizedBox(height: 3),
-                  Text(navItems[i].label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11.5, fontWeight: FontWeight.w600, color: i == selected ? Colors.white : Colors.white70)),
+                  // Pet stavki u redu: duži naziv (Tournaments) se malo smanji umesto da se odseče.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(navItems[i].label,
+                          maxLines: 1,
+                          style: TextStyle(
+                              fontSize: 11.5, fontWeight: FontWeight.w600, color: i == selected ? Colors.white : Colors.white70)),
+                    ),
+                  ),
                 ]),
               ),
             ),
@@ -498,7 +509,9 @@ class _PhoneTopBar extends StatelessWidget {
 
 /// Lobi: cash stolovi.
 class LobbyView extends StatefulWidget {
-  const LobbyView({super.key});
+  /// Stranica Tournaments (inače Cash Game).
+  final bool tournaments;
+  const LobbyView({super.key, this.tournaments = false});
 
   @override
   State<LobbyView> createState() => _LobbyViewState();
@@ -506,8 +519,7 @@ class LobbyView extends StatefulWidget {
 
 class _LobbyViewState extends State<LobbyView> {
   String _filter = 'ALL';
-  /// Cash stolovi ili turniri.
-  bool _tours = false;
+  bool get _tours => widget.tournaments;
   Timer? _clock;
 
   @override
@@ -540,26 +552,14 @@ class _LobbyViewState extends State<LobbyView> {
               width: double.infinity,
               color: accentDark,
               padding: const EdgeInsets.all(6),
-              child: const Text('Povezivanje sa serverom…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
+              child: const Text('Connecting to the server…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
             ),
           const _PushBanner(),
           Builder(builder: (context) {
-            // Cash stolovi / Turniri
-            Widget tab(String label, bool tours) => GestureDetector(
-                  onTap: () => setState(() => _tours = tours),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: _tours == tours ? gold : Colors.transparent, width: 2)),
-                    ),
-                    child: _tours == tours
-                        ? GoldText(label, style: const TextStyle(fontFamily: 'Cinzel', fontSize: 21, fontWeight: FontWeight.w800))
-                        : Text(label, style: const TextStyle(fontFamily: 'Cinzel', fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white38)),
-                  ),
-                );
-            final title = Row(mainAxisSize: MainAxisSize.min, children: [tab('Cash stolovi', false), const SizedBox(width: 18), tab('Turniri', true)]);
+            final title = GoldText(_tours ? 'Tournaments' : 'Cash Game',
+                style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
             final chips = [
-              for (final f in const [('ALL', 'Svi'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
+              for (final f in const [('ALL', 'All'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 3),
                   child: ChoiceChip(
@@ -599,7 +599,7 @@ class _LobbyViewState extends State<LobbyView> {
               child: tables.isEmpty
                   ? ListView(children: const [
                       SizedBox(height: 120),
-                      Center(child: Text('Trenutno nema otvorenih stolova.', style: TextStyle(color: Colors.white60))),
+                      Center(child: Text('No open tables right now.', style: TextStyle(color: Colors.white60))),
                     ])
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
@@ -647,8 +647,8 @@ class _PushBannerState extends State<_PushBanner> {
         Expanded(
           child: Text(
             ios
-                ? 'Za obaveštenja na iPhone-u: dodirnite Deli (□↑) → „Dodaj na početni ekran“, pa otvorite Triling sa početnog ekrana.'
-                : 'Uključite obaveštenja: novi i zakazani stolovi, i kad ste na potezu dok ste u drugoj aplikaciji.',
+                ? 'For notifications on iPhone: tap Share (□↑) → “Add to Home Screen”, then open Triling from the home screen.'
+                : 'Turn on notifications: new and scheduled tables and tournaments, and your turn while you are in another app.',
             style: const TextStyle(fontSize: 12.5),
           ),
         ),
@@ -661,12 +661,12 @@ class _PushBannerState extends State<_PushBanner> {
                     final ok = await app.enablePush();
                     if (!mounted) return;
                     setState(() => _busy = false);
-                    app.toast(ok ? 'Obaveštenja su uključena.' : (app.pushError ?? 'Obaveštenja nisu uključena.'));
+                    app.toast(ok ? 'Notifications are on.' : (app.pushError ?? 'Notifications are not on.'));
                   },
-            child: const Text('UKLJUČI', style: TextStyle(fontWeight: FontWeight.w900)),
+            child: const Text('TURN ON', style: TextStyle(fontWeight: FontWeight.w900)),
           ),
         IconButton(
-          tooltip: 'Sakrij',
+          tooltip: 'Hide',
           onPressed: () => setState(() => _hidden = true),
           icon: const Icon(Icons.close, size: 18, color: Colors.white54),
         ),
@@ -690,7 +690,7 @@ class _TableTile extends StatelessWidget {
     final locked = opensAt != null && opensAt.isAfter(DateTime.now());
     void open() {
       if (locked) {
-        context.read<AppState>().toast('Sto se otvara ${opensLabel(opensAt)}.');
+        context.read<AppState>().toast('The table opens ${opensLabel(opensAt)}.');
         return;
       }
       context.read<AppState>().showTable(t['id'] as String);
@@ -744,7 +744,7 @@ class _TableTile extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(gradient: goldGradient, borderRadius: BorderRadius.circular(6)),
                       child:
-                          const Text('SEDITE', style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900)),
+                          const Text('SEATED', style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ]),
@@ -753,7 +753,7 @@ class _TableTile extends StatelessWidget {
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
                 const SizedBox(height: 3),
-                Text('Ulaz ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}',
+                Text('Buy-in ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}',
                     style: const TextStyle(fontSize: 12.5, color: goldLight)),
                 if (tableExtras(t) != null)
                   Text(tableExtras(t)!, style: const TextStyle(fontSize: 11.5, color: Colors.white54, fontWeight: FontWeight.w600)),
@@ -764,7 +764,7 @@ class _TableTile extends StatelessWidget {
                       const Icon(Icons.lock_clock, size: 14, color: gold),
                       const SizedBox(width: 4),
                       Flexible(
-                        child: Text('Otvara se ${opensLabel(opensAt)} (${countdown(opensAt)})',
+                        child: Text('Opens ${opensLabel(opensAt)} (${countdown(opensAt)})',
                             style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                       ),
                     ]),
@@ -781,7 +781,7 @@ class _TableTile extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('$players/$max', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                   if (((t['waiting'] as int?) ?? 0) > 0)
-                    Text(' · ${t['waiting']} čeka', style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
+                    Text(' · ${t['waiting']} waiting', style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                 ]),
               ]),
             ),
@@ -789,7 +789,7 @@ class _TableTile extends StatelessWidget {
             SizedBox(
               width: narrow ? 80 : 92,
               child: LuxButton(
-                title: locked ? 'USKORO' : (seated ? 'NASTAVI' : 'IGRAJ'),
+                title: locked ? 'SOON' : (seated ? 'RESUME' : 'PLAY'),
                 icon: locked ? Icons.lock : null,
                 height: 42,
                 gradient: locked ? const LinearGradient(colors: [Color(0xFF3A332B), Color(0xFF221D18)]) : buttonGoldGradient,

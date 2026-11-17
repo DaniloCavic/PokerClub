@@ -495,13 +495,13 @@ class AppState extends ChangeNotifier {
         activeTable = to;
       }
       notifyListeners();
-      if (m['moved'] == true) toast('Premešteni ste za drugi sto turnira „${m['name']}“.');
+      if (m['moved'] == true) toast('You were moved to another table in “${m['name']}”.');
       if (from == null && m['moved'] != true) Sounds.play('turn', volume: 0.6);
     });
     s.on('tournament:busted', (data) => tourResult.value = Map<String, dynamic>.from(data as Map));
     s.on('tournament:prize', (data) {
       final m = data as Map;
-      notify('Turnir „${m['name']}“: ${m['position']}. mesto, nagrada ${m['prize']} je uplaćena na nalog!');
+      notify('“${m['name']}”: you finished #${m['position']}, prize ${m['prize']} was added to your account!');
     });
     s.on('tournament:closed', (data) => notify((data as Map)['message'].toString()));
     s.connect();

@@ -56,25 +56,25 @@ String bbNumber(double x) {
   return '${chips(whole)},$dec';
 }
 
-const _days = ['ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja'];
+const _days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-/// "četvrtak 12.11. u 18:00" (danas/sutra se pišu rečima).
+/// "Thursday 12.11. at 18:00" (danas/sutra: "today/tomorrow at 18:00").
 String opensLabel(DateTime d) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final day = DateTime(d.year, d.month, d.day);
   final diff = day.difference(today).inDays;
   final time = '${two(d.hour)}:${two(d.minute)}';
-  if (diff == 0) return 'danas u $time';
-  if (diff == 1) return 'sutra u $time';
-  return '${_days[d.weekday - 1]} ${d.day}.${d.month}. u $time';
+  if (diff == 0) return 'today at $time';
+  if (diff == 1) return 'tomorrow at $time';
+  return '${_days[d.weekday - 1]} ${d.day}.${d.month}. at $time';
 }
 
-/// Koliko je ostalo do otvaranja: "za 2 d 4 h", "za 3 h 15 min", "za 5 min", "za manje od minuta".
+/// Koliko je ostalo do otvaranja: "in 2 d 4 h", "in 3 h 15 min", "in 5 min", "in less than a minute".
 String countdown(DateTime d) {
   final left = d.difference(DateTime.now());
-  if (left.inMinutes < 1) return 'za manje od minuta';
-  if (left.inDays >= 1) return 'za ${left.inDays} d ${left.inHours % 24} h';
-  if (left.inHours >= 1) return 'za ${left.inHours} h ${left.inMinutes % 60} min';
-  return 'za ${left.inMinutes} min';
+  if (left.inMinutes < 1) return 'in less than a minute';
+  if (left.inDays >= 1) return 'in ${left.inDays} d ${left.inHours % 24} h';
+  if (left.inHours >= 1) return 'in ${left.inHours} h ${left.inMinutes % 60} min';
+  return 'in ${left.inMinutes} min';
 }

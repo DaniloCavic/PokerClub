@@ -138,7 +138,11 @@ export class TournamentsService implements OnModuleInit {
 
   private clock(tr: TourRt, now = Date.now()): ClockState | null {
     if (!tr.t.startedAt) return null;
-    return clockAt(tr.t.startedAt.getTime(), tr.levels, tr.rule, now);
+    const c = clockAt(tr.t.startedAt.getTime(), tr.levels, tr.rule, now);
+    // Posle poslednjeg nivoa blajndovi se više ne menjaju: ostaje poslednji nivo, bez odbrojavanja.
+    const last = tr.levels.length - 1;
+    if (c.level >= last) return { ...c, level: last, levelEndsAt: null };
+    return c;
   }
 
   /** Igrači mogu da se prijave (pre početka, ili tokom kasne prijave). */

@@ -25,8 +25,8 @@ export interface ClockState {
   level: number;
   onBreak: boolean;
   breakEndsAt: number | null;
-  /** Kada se završava trenutni nivo (pauza u međuvremenu je uračunata). */
-  levelEndsAt: number;
+  /** Kada se završava trenutni nivo (pauza u međuvremenu je uračunata); null na poslednjem nivou. */
+  levelEndsAt: number | null;
   /** Početak sledeće pauze (null ako pauza nema). */
   nextBreakAt: number | null;
 }
