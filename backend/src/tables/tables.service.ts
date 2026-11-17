@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
+import { trUser } from '../common/i18n';
 import { Card, cardToString } from '../poker/engine/cards';
 import { equityAsync } from '../poker/engine/equity';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
@@ -652,7 +653,7 @@ export class TablesService implements OnModuleInit {
         await this.afterChange(rt);
         return { sittingOut: true };
       }
-      if (reason) this.server?.to(`user:${userId}`).emit('kicked', { tableId, reason });
+      if (reason) this.server?.to(`user:${userId}`).emit('kicked', { tableId, reason: trUser(reason, userId) });
       if (rt.game.inProgress && s.inHand) {
         s.leaving = true;
         const result = rt.game.forceFold(i);
@@ -813,7 +814,7 @@ export class TablesService implements OnModuleInit {
     rt.waitlist = [];
     for (let i = 0; i < rt.game.seats.length; i++) {
       if (rt.game.seats[i] && !rt.tour) {
-        this.server?.to(`user:${rt.game.seats[i]!.userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Sto je zatvoren.' });
+        this.server?.to(`user:${rt.game.seats[i]!.userId}`).emit('kicked', { tableId: rt.table.id, reason: trUser('Sto je zatvoren.', rt.game.seats[i]!.userId) });
         await this.standUp(rt, i);
       }
     }
@@ -1085,7 +1086,7 @@ export class TablesService implements OnModuleInit {
       if (!s) continue;
       const since = rt.sitOutSince.get(s.userId);
       if ((s.sittingOut || s.stack === 0) && since && now - since > SIT_OUT_LIMIT_MS) {
-        this.server?.to(`user:${s.userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Predugo niste igrali, žetoni su vraćeni na nalog.' });
+        this.server?.to(`user:${s.userId}`).emit('kicked', { tableId: rt.table.id, reason: trUser('Predugo niste igrali, žetoni su vraćeni na nalog.', s.userId) });
         await this.standUp(rt, i);
         changed = true;
       }
@@ -1119,7 +1120,7 @@ export class TablesService implements OnModuleInit {
         const i = rt.game.seatOf(userId);
         const s = i >= 0 ? rt.game.seats[i] : null;
         if (!s || s.stack > 0 || (rt.game.inProgress && s.inHand)) return;
-        this.server?.to(`user:${userId}`).emit('kicked', { tableId: rt.table.id, reason: 'Vreme za rebuy je isteklo, mesto je oslobođeno.' });
+        this.server?.to(`user:${userId}`).emit('kicked', { tableId: rt.table.id, reason: trUser('Vreme za rebuy je isteklo, mesto je oslobođeno.', userId) });
         await this.standUp(rt, i);
         await this.broadcast(rt);
       }).catch((e) => this.log.error(e));

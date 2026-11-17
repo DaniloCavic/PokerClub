@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
+import '../i18n.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -47,12 +48,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     const Center(child: TrilingLogo(size: 46, horizontal: false)),
                     const SizedBox(height: 10),
-                    Text("Texas Hold'em i Omaha · cash stolovi",
+                    Text(tr("Texas Hold'em & Omaha · cash games & tournaments", "Texas Hold'em i Omaha · cash stolovi i turniri"),
                         textAlign: TextAlign.center, style: TextStyle(color: gold.withOpacity(0.8), letterSpacing: 1)),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _username,
-                      decoration: const InputDecoration(labelText: 'Korisničko ime', prefixIcon: Icon(Icons.person)),
+                      decoration: InputDecoration(labelText: tr('Username', 'Korisničko ime'), prefixIcon: const Icon(Icons.person)),
                       autocorrect: false,
                       textInputAction: TextInputAction.next,
                     ),
@@ -61,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _password,
                       obscureText: _hide,
                       decoration: InputDecoration(
-                        labelText: 'Lozinka',
+                        labelText: tr('Password', 'Lozinka'),
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(_hide ? Icons.visibility : Icons.visibility_off),
@@ -75,10 +76,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80))),
                     ],
                     const SizedBox(height: 20),
-                    LuxButton(title: _busy ? 'Prijava…' : 'PRIJAVA', onTap: _busy ? null : _submit),
+                    LuxButton(title: _busy ? tr('Signing in…', 'Prijava…') : tr('SIGN IN', 'PRIJAVA'), onTap: _busy ? null : _submit),
                     const SizedBox(height: 24),
-                    const Text(
-                      'Nalog vam otvara vaš agent.',
+                    Text(
+                      tr('Your agent opens your account.', 'Nalog vam otvara vaš agent.'),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white54, fontSize: 13),
                     ),

@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { LangExceptionFilter } from './common/lang.filter';
 import { ensureAdmin } from './seed-admin';
 import { PrismaService } from './prisma/prisma.service';
 
@@ -30,6 +31,7 @@ async function bootstrap() {
   app.enableShutdownHooks();
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('api');
+  app.useGlobalFilters(new LangExceptionFilter(app.getHttpAdapter()));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
+import { trUser } from '../common/i18n';
 import { GameError } from '../poker/engine/game';
 import { TablesService, TourTableCtx } from '../tables/tables.service';
 import {
@@ -469,7 +470,7 @@ export class TournamentsService implements OnModuleInit {
       await this.prisma.tournament.update({ where: { id }, data: { status: 'CANCELLED', finishedAt: new Date() } });
       tr.t.status = 'CANCELLED';
       await this.teardown(tr);
-      for (const p of tr.players.values()) this.emitUser(p.userId, 'tournament:closed', { tournamentId: id, message: `Turnir „${tr.t.name}“ je otkazan, ulaz je vraćen.` });
+      for (const p of tr.players.values()) this.emitUser(p.userId, 'tournament:closed', { tournamentId: id, message: trUser(`Turnir „${tr.t.name}“ je otkazan, ulaz je vraćen.`, p.userId) });
       this.server?.to('tours').emit('tours', null);
       return {};
     });
@@ -650,7 +651,7 @@ export class TournamentsService implements OnModuleInit {
       await this.refundAll(tr, 'Nedovoljno igrača');
       await this.prisma.tournament.update({ where: { id: tr.t.id }, data: { status: 'CANCELLED', finishedAt: new Date() } });
       tr.t.status = 'CANCELLED';
-      for (const p of players) this.emitUser(p.userId, 'tournament:closed', { tournamentId: tr.t.id, message: `Turnir „${tr.t.name}“ je otkazan (premalo igrača), ulaz je vraćen.` });
+      for (const p of players) this.emitUser(p.userId, 'tournament:closed', { tournamentId: tr.t.id, message: trUser(`Turnir „${tr.t.name}“ je otkazan (premalo igrača), ulaz je vraćen.`, p.userId) });
       await this.teardown(tr);
       this.server?.to('tours').emit('tours', null);
       return;

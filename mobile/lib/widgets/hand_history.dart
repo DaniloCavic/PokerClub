@@ -4,6 +4,7 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'playing_card.dart';
+import '../i18n.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -58,12 +59,12 @@ class HandHistoryTabs extends StatelessWidget {
       length: 2,
       child: Column(
         children: [
-          const TabBar(
+          TabBar(
             indicatorColor: accent,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,
             labelStyle: TextStyle(fontWeight: FontWeight.w800),
-            tabs: [Tab(text: 'Ova ruka'), Tab(text: 'Prethodne ruke')],
+            tabs: [Tab(text: tr('This hand', 'Ova ruka')), Tab(text: tr('Previous hands', 'Prethodne ruke'))],
           ),
           Expanded(
             child: TabBarView(children: [
@@ -75,7 +76,7 @@ class HandHistoryTabs extends StatelessWidget {
                   final money = Money(st['bigBlind'] as int, context.select<AppState, bool>((a) => a.showBB));
                   final actions = ((st['actions'] as List?) ?? []).cast<Json>();
                   if (actions.isEmpty) {
-                    return const Center(child: Text('Ruka još nije počela.', style: TextStyle(color: Colors.white54)));
+                    return Center(child: Text(tr('The hand has not started yet.', 'Ruka još nije počela.'), style: const TextStyle(color: Colors.white54)));
                   }
                   return ListView(
                     padding: const EdgeInsets.all(16),
@@ -146,7 +147,7 @@ class ActionsByStreet extends StatelessWidget {
       children.add(Padding(
         padding: const EdgeInsets.only(top: 12),
         child: Row(children: [
-          const Text('STO', style: TextStyle(color: gold, fontWeight: FontWeight.w900)),
+          Text(tr('BOARD', 'STO'), style: const TextStyle(color: gold, fontWeight: FontWeight.w900)),
           const SizedBox(width: 10),
           for (final c in rest) Padding(padding: const EdgeInsets.only(right: 3), child: PlayingCard(code: c, width: 22)),
         ]),
@@ -211,7 +212,9 @@ class _PreviousHandsState extends State<PreviousHands> {
         child: _loading
             ? const CircularProgressIndicator()
             : Text(
-                widget.tableId == null ? 'Još niste odigrali nijednu ruku.' : 'Još niste odigrali nijednu ruku za ovim stolom.',
+                widget.tableId == null
+                    ? tr('You have not played any hands yet.', 'Još niste odigrali nijednu ruku.')
+                    : tr('You have not played any hands at this table yet.', 'Još niste odigrali nijednu ruku za ovim stolom.'),
                 style: const TextStyle(color: Colors.white54)),
       );
     }
@@ -223,7 +226,7 @@ class _PreviousHandsState extends State<PreviousHands> {
         itemBuilder: (_, i) {
           if (i == _items.length) {
             return _items.length < _total
-                ? TextButton(onPressed: _loading ? null : () => _load(), child: const Text('Učitaj još'))
+                ? TextButton(onPressed: _loading ? null : () => _load(), child: Text(tr('Load more', 'Učitaj još')))
                 : const SizedBox(height: 16);
           }
           final bb = ((_items[i]['table'] as Map?)?['bigBlind'] as int?) ?? widget.bigBlind;
@@ -258,7 +261,7 @@ class _HandTile extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(showTable ? '${(hand['table'] as Map?)?['name'] ?? 'Sto'} · #${hand['handNo']}' : 'Ruka #${hand['handNo']}',
+              Text(showTable ? '${(hand['table'] as Map?)?['name'] ?? tr('Table', 'Sto')} · #${hand['handNo']}' : '${tr('Hand', 'Ruka')} #${hand['handNo']}',
                   overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
               Text(dateTime(hand['createdAt']), style: const TextStyle(fontSize: 11, color: Colors.white54)),
             ]),
@@ -273,7 +276,7 @@ class _HandTile extends StatelessWidget {
         children: [
           if (board.isNotEmpty)
             Row(children: [
-              const Text('Sto: ', style: TextStyle(color: Colors.white54)),
+              Text(tr('Board: ', 'Sto: '), style: const TextStyle(color: Colors.white54)),
               for (final c in board) Padding(padding: const EdgeInsets.only(right: 3), child: PlayingCard(code: c, width: 24)),
             ]),
           const SizedBox(height: 8),
@@ -283,7 +286,7 @@ class _HandTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(children: [
                 Expanded(
-                  child: Text(p['name'] + (p['isMe'] == true ? ' (vi)' : ''),
+                  child: Text(p['name'] + (p['isMe'] == true ? tr(' (you)', ' (vi)') : ''),
                       style: TextStyle(fontWeight: p['isMe'] == true ? FontWeight.w800 : FontWeight.w500)),
                 ),
                 if (p['cards'] != null)
@@ -308,7 +311,7 @@ class _HandTile extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                '${(pot['winners'] as List).map((w) => w['name']).join(' i ')} dobija ${money(pot['amount'])}'
+                '${(pot['winners'] as List).map((w) => w['name']).join(tr(' & ', ' i '))} ${tr('wins', 'dobija')} ${money(pot['amount'])}'
                 '${pot['handName'] != null ? ' · ${pot['handName']}' : ''}',
                 style: const TextStyle(color: gold, fontWeight: FontWeight.w700),
               ),

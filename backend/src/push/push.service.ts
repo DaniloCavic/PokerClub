@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as webpush from 'web-push';
 import { PrismaService } from '../prisma/prisma.service';
+import { tr } from '../common/i18n';
 
 /** Sadržaj obaveštenja na telefonu. */
 export interface PushMessage {
@@ -69,17 +70,6 @@ export class PushService implements OnModuleInit {
     return this.publicKey;
   }
 
-  /** Probno obaveštenje na sve uređaje igrača; vraća šta je odgovorio servis za obaveštenja. */
-  async test(userId: string) {
-    const subs = await this.prisma.pushSubscription.findMany({ where: { userId } });
-    const results = await this.send(subs, { title: 'Probno obaveštenje', body: 'Obaveštenja rade! ♠ Poker klub Triling', tag: 'test' });
-    return {
-      devices: subs.length,
-      sent: results.filter((r) => r.ok).length,
-      errors: results.filter((r) => !r.ok).map((r) => `${r.service}: ${r.status ?? ''} ${r.error}`.trim()),
-    };
-  }
-
   async subscribe(userId: string, sub: { endpoint: string; keys: { p256dh: string; auth: string } }) {
     await this.prisma.pushSubscription.upsert({
       where: { endpoint: sub.endpoint },
@@ -92,16 +82,27 @@ export class PushService implements OnModuleInit {
     await this.prisma.pushSubscription.deleteMany({ where: { userId, endpoint } });
   }
 
-  /** Obaveštenje jednom igraču (na sve njegove uređaje). */
+  /** Obaveštenje jednom igraču (na sve njegove uređaje), na jeziku koji je izabrao. */
   async toUser(userId: string, msg: PushMessage) {
-    const subs = await this.prisma.pushSubscription.findMany({ where: { userId } });
-    await this.send(subs, msg);
+    const subs = await this.prisma.pushSubscription.findMany({ where: { userId }, include: { user: { select: { lang: true } } } });
+    await this.sendLocalized(subs, msg);
   }
 
   /** Obaveštenje svim aktivnim igračima (npr. novi sto). */
   async toAllPlayers(msg: PushMessage) {
-    const subs = await this.prisma.pushSubscription.findMany({ where: { user: { role: 'PLAYER', isBlocked: false } } });
-    await this.send(subs, msg);
+    const subs = await this.prisma.pushSubscription.findMany({
+      where: { user: { role: 'PLAYER', isBlocked: false } },
+      include: { user: { select: { lang: true } } },
+    });
+    await this.sendLocalized(subs, msg);
+  }
+
+  /** Svaki uređaj dobija obaveštenje na jeziku svog igrača. */
+  private async sendLocalized(subs: { id: string; endpoint: string; p256dh: string; auth: string; user: { lang: string } }[], msg: PushMessage) {
+    for (const lang of ['en', 'sr']) {
+      const group = subs.filter((s) => (s.user.lang === 'sr' ? 'sr' : 'en') === lang);
+      if (group.length) await this.send(group, { ...msg, title: tr(msg.title, lang), body: tr(msg.body, lang) });
+    }
   }
 
   private async send(subs: { id: string; endpoint: string; p256dh: string; auth: string }[], msg: PushMessage) {

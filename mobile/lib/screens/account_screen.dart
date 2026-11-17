@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/playing_card.dart';
+import '../i18n.dart';
 
 class AccountScreen extends StatefulWidget {
   /// U glavnom okviru aplikacije (bez sopstvene gornje trake).
@@ -33,7 +34,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (file == null) return;
       setState(() => _uploading = true);
       await app.setAvatar(await file.readAsBytes());
-      app.toast('Slika profila je sačuvana.');
+      app.toast(tr('Profile picture saved.', 'Slika profila je sačuvana.'));
     } catch (e) {
       app.toast(e.toString());
     } finally {
@@ -49,7 +50,7 @@ class _AccountScreenState extends State<AccountScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
             leading: const Icon(Icons.photo_library),
-            title: const Text('Izaberi iz galerije'),
+            title: Text(tr('Choose from gallery', 'Izaberi iz galerije')),
             onTap: () {
               Navigator.pop(ctx);
               _pickPhoto(ImageSource.gallery);
@@ -57,7 +58,7 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.photo_camera),
-            title: const Text('Fotografiši se'),
+            title: Text(tr('Take a photo', 'Fotografiši se')),
             onTap: () {
               Navigator.pop(ctx);
               _pickPhoto(ImageSource.camera);
@@ -66,7 +67,7 @@ class _AccountScreenState extends State<AccountScreen> {
           if (hasPhoto)
             ListTile(
               leading: const Icon(Icons.delete, color: accent),
-              title: const Text('Ukloni sliku'),
+              title: Text(tr('Remove picture', 'Ukloni sliku')),
               onTap: () async {
                 Navigator.pop(ctx);
                 final app = context.read<AppState>();
@@ -141,7 +142,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(14)),
                 child: Column(children: [
-                  const Text('Stanje na nalogu', style: TextStyle(color: Colors.white60, fontSize: 13)),
+                  Text(tr('Account balance', 'Stanje na nalogu'), style: const TextStyle(color: Colors.white60, fontSize: 13)),
                   const SizedBox(height: 2),
                   Text(rsd(app.balance), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: gold)),
                 ]),
@@ -152,37 +153,44 @@ class _AccountScreenState extends State<AccountScreen> {
           _MenuCard(children: [
             _MenuItem(
               icon: Icons.style,
-              title: 'Boja karata',
-              subtitle: app.fourColor ? 'U boji (cela karta obojena)' : 'Klasične (bele)',
+              title: tr('Card color', 'Boja karata'),
+              subtitle: app.fourColor ? tr('Colored (whole card)', 'U boji (cela karta obojena)') : tr('Classic (white)', 'Klasične (bele)'),
               onTap: () => showDialog(context: context, builder: (_) => const _CardColorDialog()),
             ),
             const _PushSwitch(),
             _MenuItem(
+              icon: Icons.language,
+              title: tr('Language', 'Jezik'),
+              subtitle: app.lang == 'sr' ? 'Srpski' : 'English',
+              onTap: () => showDialog(context: context, builder: (_) => const _LanguageDialog()),
+            ),
+            _MenuItem(
               icon: Icons.lock,
-              title: 'Promena lozinke',
+              title: tr('Change password', 'Promena lozinke'),
               onTap: () => showDialog(context: context, builder: (_) => const _PasswordDialog()),
             ),
             _MenuItem(
               icon: Icons.photo_camera,
-              title: hasPhoto ? 'Promeni sliku profila' : 'Dodaj sliku profila',
+              title: hasPhoto ? tr('Change profile picture', 'Promeni sliku profila') : tr('Add profile picture', 'Dodaj sliku profila'),
               onTap: () => _photoMenu(hasPhoto),
             ),
           ]),
           const SizedBox(height: 12),
           _MenuCard(children: [
-            _MenuItem(icon: Icons.logout, title: 'Odjava', color: accent, onTap: app.logout),
+            _MenuItem(icon: Icons.logout, title: tr('Sign out', 'Odjava'), color: accent, onTap: app.logout),
           ]),
           const SizedBox(height: 12),
-          const Text(
-            'Uplate i isplate radi vaš agent. Novac koji imate za stolom vraća se na nalog kad ustanete.',
+          Text(
+            tr('Deposits and withdrawals are done by your agent. Chips you have at a table go back to your account when you stand up.',
+                'Uplate i isplate radi vaš agent. Novac koji imate za stolom vraća se na nalog kad ustanete.'),
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white38, fontSize: 12),
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
           ),
         ],
       ),
     );
     if (widget.embedded) return body;
-    return Scaffold(appBar: AppBar(title: const Text('Moj profil')), body: body);
+    return Scaffold(appBar: AppBar(title: Text(tr('Profile', 'Moj profil'))), body: body);
   }
 }
 
@@ -205,20 +213,22 @@ class _PushSwitchState extends State<_PushSwitch> {
     String subtitle;
     bool available = true;
     if (status == 'ios-install') {
-      subtitle = 'Na iPhone-u: Deli → „Dodaj na početni ekran“, pa otvorite Triling odatle';
+      subtitle = tr('On iPhone: Share → “Add to Home Screen”, then open Triling from there', 'Na iPhone-u: Deli → „Dodaj na početni ekran“, pa otvorite Triling odatle');
       available = false;
     } else if (status == 'unsupported') {
-      subtitle = 'Ovaj pregledač ili aplikacija ne podržava obaveštenja';
+      subtitle = tr('This browser or app does not support notifications', 'Ovaj pregledač ili aplikacija ne podržava obaveštenja');
       available = false;
     } else if (status == 'denied') {
-      subtitle = 'Obaveštenja su blokirana u podešavanjima telefona/pregledača';
+      subtitle = tr('Notifications are blocked in the phone/browser settings', 'Obaveštenja su blokirana u podešavanjima telefona/pregledača');
       available = false;
     } else {
-      subtitle = on ? 'Novi stolovi, početak zakazanih stolova, na potezu ste' : 'Isključena na ovom telefonu';
+      subtitle = on
+          ? tr('New tables and tournaments, scheduled starts, your turn', 'Novi stolovi i turniri, početak zakazanih, na potezu ste')
+          : tr('Off on this phone', 'Isključena na ovom telefonu');
     }
     final tile = SwitchListTile(
       secondary: Icon(on ? Icons.notifications_active : Icons.notifications_off, color: Colors.white70),
-      title: const Text('Obaveštenja', style: TextStyle(fontWeight: FontWeight.w700)),
+      title: Text(tr('Notifications', 'Obaveštenja'), style: const TextStyle(fontWeight: FontWeight.w700)),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
       value: on,
       onChanged: !available || _busy
@@ -227,40 +237,15 @@ class _PushSwitchState extends State<_PushSwitch> {
               setState(() => _busy = true);
               if (v) {
                 final ok = await app.enablePush();
-                if (!ok) app.toast(app.pushError ?? 'Obaveštenja nisu uključena.');
+                if (!ok) app.toast(app.pushError ?? tr('Notifications are not on.', 'Obaveštenja nisu uključena.'));
               } else {
                 await app.disablePush();
-                app.toast('Obaveštenja su isključena na ovom telefonu.');
+                app.toast(tr('Notifications are off on this phone.', 'Obaveštenja su isključena na ovom telefonu.'));
               }
               if (mounted) setState(() => _busy = false);
             },
     );
-    if (!on) return tile;
-    return Column(children: [
-      tile,
-      ListTile(
-        leading: const Icon(Icons.send_to_mobile, color: Colors.white70),
-        title: const Text('Pošalji probno obaveštenje', style: TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: const Text('Zaključajte telefon ili izađite iz aplikacije — treba da stigne za par sekundi',
-            style: TextStyle(fontSize: 12)),
-        onTap: _busy
-            ? null
-            : () async {
-                setState(() => _busy = true);
-                final msg = await app.testPush();
-                if (!context.mounted) return;
-                setState(() => _busy = false);
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Probno obaveštenje'),
-                    content: Text(msg),
-                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('U redu'))],
-                  ),
-                );
-              },
-      ),
-    ]);
+    return tile;
   }
 }
 
@@ -343,11 +328,11 @@ class _CardColorDialog extends StatelessWidget {
     }
 
     return AlertDialog(
-      title: const Text('Boja karata'),
+      title: Text(tr('Card color', 'Boja karata')),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
-        option('Klasične', false),
+        option(tr('Classic', 'Klasične'), false),
         const SizedBox(height: 12),
-        option('U boji', true),
+        option(tr('Colored', 'U boji'), true),
       ]),
     );
   }
@@ -369,7 +354,7 @@ class _PasswordDialogState extends State<_PasswordDialog> {
 
   Future<void> _save() async {
     if (_new.text != _confirm.text) {
-      setState(() => _error = 'Nove lozinke se ne poklapaju.');
+      setState(() => _error = tr('The new passwords do not match.', 'Nove lozinke se ne poklapaju.'));
       return;
     }
     setState(() {
@@ -381,7 +366,7 @@ class _PasswordDialogState extends State<_PasswordDialog> {
       await app.api.post('/me/password', {'oldPassword': _old.text, 'newPassword': _new.text});
       if (!mounted) return;
       Navigator.pop(context);
-      app.toast('Lozinka je promenjena.');
+      app.toast(tr('Password changed.', 'Lozinka je promenjena.'));
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -392,25 +377,25 @@ class _PasswordDialogState extends State<_PasswordDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Promena lozinke'),
+      title: Text(tr('Change password', 'Promena lozinke')),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(controller: _old, obscureText: true, decoration: const InputDecoration(labelText: 'Stara lozinka')),
+          TextField(controller: _old, obscureText: true, decoration: InputDecoration(labelText: tr('Old password', 'Stara lozinka'))),
           const SizedBox(height: 12),
           TextField(
-              controller: _new, obscureText: true, decoration: const InputDecoration(labelText: 'Nova lozinka (bar 6 znakova)')),
+              controller: _new, obscureText: true, decoration: InputDecoration(labelText: tr('New password (at least 6 characters)', 'Nova lozinka (bar 6 znakova)'))),
           const SizedBox(height: 12),
           TextField(
-              controller: _confirm, obscureText: true, decoration: const InputDecoration(labelText: 'Ponovite novu lozinku')),
+              controller: _confirm, obscureText: true, decoration: InputDecoration(labelText: tr('Repeat the new password', 'Ponovite novu lozinku'))),
           if (_error != null)
             Padding(
                 padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80)))),
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Otkaži')),
-        FilledButton(onPressed: _busy ? null : _save, child: const Text('Sačuvaj')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Cancel', 'Otkaži'))),
+        FilledButton(onPressed: _busy ? null : _save, child: Text(tr('Save', 'Sačuvaj'))),
       ],
     );
   }
@@ -418,3 +403,28 @@ class _PasswordDialogState extends State<_PasswordDialog> {
 
 /// Dijalog za promenu lozinke (iz profila i podešavanja).
 void showPasswordDialog(BuildContext context) => showDialog(context: context, builder: (_) => const _PasswordDialog());
+
+/// Izbor jezika aplikacije.
+class _LanguageDialog extends StatelessWidget {
+  const _LanguageDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    Widget option(String code, String label) => RadioListTile<String>(
+          value: code,
+          groupValue: app.lang,
+          activeColor: gold,
+          title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          onChanged: (v) {
+            Navigator.pop(context);
+            if (v != null && v != app.lang) app.setLang(v);
+          },
+        );
+    return AlertDialog(
+      backgroundColor: panel,
+      title: Text(tr('Language', 'Jezik')),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [option('en', 'English'), option('sr', 'Srpski')]),
+    );
+  }
+}

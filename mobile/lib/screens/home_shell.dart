@@ -12,6 +12,7 @@ import 'account_screen.dart';
 import 'table_screen.dart';
 import 'tournaments.dart';
 import 'transactions_screen.dart';
+import '../i18n.dart';
 
 /// Široki ekran (računar, tablet): meni gore. Uzak (telefon): meni dole.
 bool isWide(BuildContext context) => MediaQuery.of(context).size.width >= 900;
@@ -22,13 +23,13 @@ class NavItem {
   const NavItem(this.label, this.icon);
 }
 
-const navItems = [
-  NavItem('Cash Game', Icons.style),
-  NavItem('Tournaments', Icons.emoji_events),
-  NavItem('History', Icons.history),
-  NavItem('Cashier', Icons.account_balance_wallet),
-  NavItem('Profile', Icons.person),
-];
+List<NavItem> get navItems => [
+      NavItem('Cash Game', Icons.style),
+      NavItem(tr('Tournaments', 'Turniri'), Icons.emoji_events),
+      NavItem(tr('History', 'Istorija'), Icons.history),
+      NavItem(tr('Cashier', 'Blagajna'), Icons.account_balance_wallet),
+      NavItem(tr('Profile', 'Profil'), Icons.person),
+    ];
 
 /// Redni brojevi stranica glavnog menija.
 const tabCash = 0, tabTournaments = 1, tabHistory = 2, tabCashier = 3, tabProfile = 4;
@@ -228,7 +229,7 @@ class _TableTab extends StatelessWidget {
             margin: const EdgeInsets.only(right: 6),
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
             decoration: BoxDecoration(color: selected ? Colors.black : const Color(0xFFE0263F), borderRadius: BorderRadius.circular(6)),
-            child: Text('YOUR TURN', style: TextStyle(fontSize: wide ? 9.5 : 8.5, fontWeight: FontWeight.w900, color: selected ? goldLight : Colors.white)),
+            child: Text(tr('YOUR TURN', 'NA POTEZU'), style: TextStyle(fontSize: wide ? 9.5 : 8.5, fontWeight: FontWeight.w900, color: selected ? goldLight : Colors.white)),
           )
         else if (seated)
           Container(
@@ -552,14 +553,14 @@ class _LobbyViewState extends State<LobbyView> {
               width: double.infinity,
               color: accentDark,
               padding: const EdgeInsets.all(6),
-              child: const Text('Connecting to the server…', textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
+              child: Text(tr('Connecting to the server…', 'Povezivanje sa serverom…'), textAlign: TextAlign.center, style: const TextStyle(fontSize: 13)),
             ),
           const _PushBanner(),
           Builder(builder: (context) {
-            final title = GoldText(_tours ? 'Tournaments' : 'Cash Game',
+            final title = GoldText(_tours ? tr('Tournaments', 'Turniri') : 'Cash Game',
                 style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
             final chips = [
-              for (final f in const [('ALL', 'All'), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
+              for (final f in [('ALL', tr('All', 'Svi')), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 3),
                   child: ChoiceChip(
@@ -597,9 +598,9 @@ class _LobbyViewState extends State<LobbyView> {
                 await app.refreshMe();
               },
               child: tables.isEmpty
-                  ? ListView(children: const [
-                      SizedBox(height: 120),
-                      Center(child: Text('No open tables right now.', style: TextStyle(color: Colors.white60))),
+                  ? ListView(children: [
+                      const SizedBox(height: 120),
+                      Center(child: Text(tr('No open tables right now.', 'Trenutno nema otvorenih stolova.'), style: const TextStyle(color: Colors.white60))),
                     ])
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
@@ -647,8 +648,10 @@ class _PushBannerState extends State<_PushBanner> {
         Expanded(
           child: Text(
             ios
-                ? 'For notifications on iPhone: tap Share (□↑) → “Add to Home Screen”, then open Triling from the home screen.'
-                : 'Turn on notifications: new and scheduled tables and tournaments, and your turn while you are in another app.',
+                ? tr('For notifications on iPhone: tap Share (□↑) → “Add to Home Screen”, then open Triling from the home screen.',
+                    'Za obaveštenja na iPhone-u: dodirnite Deli (□↑) → „Dodaj na početni ekran“, pa otvorite Triling sa početnog ekrana.')
+                : tr('Turn on notifications: new and scheduled tables and tournaments, and your turn while you are in another app.',
+                    'Uključite obaveštenja: novi i zakazani stolovi i turniri, i kad ste na potezu dok ste u drugoj aplikaciji.'),
             style: const TextStyle(fontSize: 12.5),
           ),
         ),
@@ -661,12 +664,12 @@ class _PushBannerState extends State<_PushBanner> {
                     final ok = await app.enablePush();
                     if (!mounted) return;
                     setState(() => _busy = false);
-                    app.toast(ok ? 'Notifications are on.' : (app.pushError ?? 'Notifications are not on.'));
+                    app.toast(ok ? tr('Notifications are on.', 'Obaveštenja su uključena.') : (app.pushError ?? tr('Notifications are not on.', 'Obaveštenja nisu uključena.')));
                   },
-            child: const Text('TURN ON', style: TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(tr('TURN ON', 'UKLJUČI'), style: const TextStyle(fontWeight: FontWeight.w900)),
           ),
         IconButton(
-          tooltip: 'Hide',
+          tooltip: tr('Hide', 'Sakrij'),
           onPressed: () => setState(() => _hidden = true),
           icon: const Icon(Icons.close, size: 18, color: Colors.white54),
         ),
@@ -690,7 +693,7 @@ class _TableTile extends StatelessWidget {
     final locked = opensAt != null && opensAt.isAfter(DateTime.now());
     void open() {
       if (locked) {
-        context.read<AppState>().toast('The table opens ${opensLabel(opensAt)}.');
+        context.read<AppState>().toast(tr('The table opens ${opensLabel(opensAt)}.', 'Sto se otvara ${opensLabel(opensAt)}.'));
         return;
       }
       context.read<AppState>().showTable(t['id'] as String);
@@ -744,7 +747,7 @@ class _TableTile extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(gradient: goldGradient, borderRadius: BorderRadius.circular(6)),
                       child:
-                          const Text('SEATED', style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900)),
+                          Text(tr('SEATED', 'SEDITE'), style: const TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ]),
@@ -753,7 +756,7 @@ class _TableTile extends StatelessWidget {
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
                 const SizedBox(height: 3),
-                Text('Buy-in ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}',
+                Text('${tr('Buy-in', 'Ulaz')} ${chips(t['minBuyIn'])} – ${rsd(t['maxBuyIn'])}',
                     style: const TextStyle(fontSize: 12.5, color: goldLight)),
                 if (tableExtras(t) != null)
                   Text(tableExtras(t)!, style: const TextStyle(fontSize: 11.5, color: Colors.white54, fontWeight: FontWeight.w600)),
@@ -764,7 +767,7 @@ class _TableTile extends StatelessWidget {
                       const Icon(Icons.lock_clock, size: 14, color: gold),
                       const SizedBox(width: 4),
                       Flexible(
-                        child: Text('Opens ${opensLabel(opensAt)} (${countdown(opensAt)})',
+                        child: Text('${tr('Opens', 'Otvara se')} ${opensLabel(opensAt)} (${countdown(opensAt)})',
                             style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                       ),
                     ]),
@@ -781,7 +784,7 @@ class _TableTile extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('$players/$max', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                   if (((t['waiting'] as int?) ?? 0) > 0)
-                    Text(' · ${t['waiting']} waiting', style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
+                    Text(' · ${t['waiting']} ${tr('waiting', 'čeka')}', style: const TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
                 ]),
               ]),
             ),
@@ -789,7 +792,7 @@ class _TableTile extends StatelessWidget {
             SizedBox(
               width: narrow ? 80 : 92,
               child: LuxButton(
-                title: locked ? 'SOON' : (seated ? 'RESUME' : 'PLAY'),
+                title: locked ? tr('SOON', 'USKORO') : (seated ? tr('RESUME', 'NASTAVI') : tr('PLAY', 'IGRAJ')),
                 icon: locked ? Icons.lock : null,
                 height: 42,
                 gradient: locked ? const LinearGradient(colors: [Color(0xFF3A332B), Color(0xFF221D18)]) : buttonGoldGradient,
@@ -813,12 +816,12 @@ class _HistoryView extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
-        child: const Column(children: [
+        child: Column(children: [
           Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: GoldText('Istorija ruku', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
+              child: GoldText(tr('Hand history', 'Istorija ruku'), style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
             ),
           ),
           Expanded(child: PreviousHands(bigBlind: 0)),

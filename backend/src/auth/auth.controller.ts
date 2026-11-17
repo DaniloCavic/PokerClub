@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
@@ -7,6 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import { blockedMessage, CurrentUser, Public } from '../common/auth.guard';
 import { avatarUrl, publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { normLang, tr, userLang } from '../common/i18n';
 import { playerStats } from '../tables/player-stats';
 import { TablesService } from '../tables/tables.service';
 import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto } from './dto';
@@ -53,6 +54,15 @@ export class MeController {
     return { ...publicUser(user), agentName: agent?.displayName ?? null, seatedAt: this.tables.seatsOf(user.id) };
   }
 
+  /** Jezik aplikacije (en / sr): poruke i obaveštenja na telefonu stižu na tom jeziku. */
+  @Post('lang')
+  async setLang(@CurrentUser() user: User, @Body() body: { lang?: string }) {
+    const lang = normLang(body?.lang);
+    await this.prisma.user.update({ where: { id: user.id }, data: { lang } });
+    userLang.set(user.id, lang);
+    return { lang };
+  }
+
   @Post('password')
   async changePassword(@CurrentUser() user: User, @Body() dto: ChangePasswordDto) {
     if (!(await bcrypt.compare(dto.oldPassword, user.passwordHash))) throw new BadRequestException('Stara lozinka nije tačna.');
@@ -85,10 +95,13 @@ export class MeController {
   }
 
   @Get('transactions')
-  async transactions(@CurrentUser() user: User, @Query('page') page = '1', @Query('type') type?: string) {
+  async transactions(@CurrentUser() user: User, @Query('page') page = '1', @Query('type') type?: string, @Headers('x-lang') lang?: string) {
     const p = Math.max(1, Number(page) || 1);
     // Filter: uplate/isplate kod agenta ili ulazi/izlazi sa stolova.
-    const types: Record<string, TxType[]> = { money: ['DEPOSIT', 'WITHDRAWAL'], tables: ['BUY_IN', 'CASH_OUT'] };
+    const types: Record<string, TxType[]> = {
+      money: ['DEPOSIT', 'WITHDRAWAL'],
+      tables: ['BUY_IN', 'CASH_OUT', 'TOURNAMENT_BUY_IN', 'TOURNAMENT_PRIZE', 'TOURNAMENT_REFUND'],
+    };
     const where = { userId: user.id, ...(type && types[type] ? { type: { in: types[type] } } : {}) };
     const [items, total] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -100,7 +113,8 @@ export class MeController {
       }),
       this.prisma.transaction.count({ where }),
     ]);
-    return { items, total, page: p, pageSize: 30 };
+    // Beleške (npr. „Ulaz: Nedeljni turnir“) na jeziku aplikacije.
+    return { items: items.map((t) => ({ ...t, note: t.note ? tr(t.note, lang ?? 'sr') : t.note })), total, page: p, pageSize: 30 };
   }
 
   /**

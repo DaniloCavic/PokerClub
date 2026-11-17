@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'config.dart';
+import 'i18n.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -23,20 +24,22 @@ class Api {
   Future<dynamic> _send(String method, String path, [Object? body]) async {
     final req = http.Request(method, Uri.parse('$apiBaseUrl/api$path'));
     req.headers['content-type'] = 'application/json';
+    // Jezik poruka o greškama sa servera.
+    req.headers['x-lang'] = Lang.code;
     if (token != null) req.headers['authorization'] = 'Bearer $token';
     if (body != null) req.body = jsonEncode(body);
     http.StreamedResponse streamed;
     try {
       streamed = await req.send().timeout(const Duration(seconds: 15));
     } catch (_) {
-      throw ApiException('Nema veze sa serverom. Proverite internet.', 0);
+      throw ApiException(tr('No connection to the server. Check your internet.', 'Nema veze sa serverom. Proverite internet.'), 0);
     }
     final res = await http.Response.fromStream(streamed);
     final data = res.body.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
     if (res.statusCode >= 400) {
       final msg = data is Map && data['message'] != null
           ? (data['message'] is List ? (data['message'] as List).first : data['message']).toString()
-          : 'Greška (${res.statusCode})';
+          : tr('Error (${res.statusCode})', 'Greška (${res.statusCode})');
       if ((res.statusCode == 401 || res.statusCode == 403) && token != null && path != '/auth/login') {
         onUnauthorized?.call(msg);
       }

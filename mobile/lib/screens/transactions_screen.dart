@@ -4,6 +4,7 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
+import '../i18n.dart';
 
 class TransactionsScreen extends StatefulWidget {
   /// U glavnom okviru aplikacije kao Blagajna (bez sopstvene gornje trake).
@@ -63,11 +64,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         child: Column(
           children: [
             if (widget.embedded)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: GoldText('Blagajna', style: TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
+                  child: GoldText(tr('Cashier', 'Blagajna'), style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800)),
                 ),
               ),
             Padding(
@@ -78,13 +79,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   Row(children: [
                     const Icon(Icons.account_balance_wallet, color: gold),
                     const SizedBox(width: 8),
-                    const Text('Stanje na nalogu', style: TextStyle(color: Colors.white70)),
+                    Text(tr('Account balance', 'Stanje na nalogu'), style: const TextStyle(color: Colors.white70)),
                     const Spacer(),
                     GoldText(rsd(app.balance), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                   ]),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Uplate i isplate radi vaš agent. Javite mu se za uplatu ili isplatu; promena se ovde vidi odmah.',
+                  Text(
+                    tr('Deposits and withdrawals are done by your agent. Contact your agent; the change shows here right away.',
+                        'Uplate i isplate radi vaš agent. Javite mu se za uplatu ili isplatu; promena se ovde vidi odmah.'),
                     style: TextStyle(color: Colors.white54, fontSize: 12.5),
                   ),
                 ]),
@@ -94,7 +96,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(children: [
-                for (final f in const [('', 'Sve'), ('money', 'Uplate i isplate'), ('tables', 'Stolovi')])
+                for (final f in [('', tr('All', 'Sve')), ('money', tr('Deposits & withdrawals', 'Uplate i isplate')), ('tables', tr('Games', 'Igra'))])
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
@@ -124,13 +126,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
                       }
                       if (_items.isEmpty) {
-                        return const Padding(
+                        return Padding(
                           padding: EdgeInsets.all(32),
-                          child: Center(child: Text('Nema transakcija.', style: TextStyle(color: Colors.white60))),
+                          child: Center(child: Text(tr('No transactions.', 'Nema transakcija.'), style: const TextStyle(color: Colors.white60))),
                         );
                       }
                       return _items.length < _total
-                          ? TextButton(onPressed: () => _load(), child: const Text('Učitaj još'))
+                          ? TextButton(onPressed: () => _load(), child: Text(tr('Load more', 'Učitaj još')))
                           : const SizedBox(height: 8);
                     }
                     final t = _items[i];
@@ -151,7 +153,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                             '${amount > 0 ? '+' : ''}${rsd(amount)}',
                             style: TextStyle(fontWeight: FontWeight.w900, color: amount > 0 ? winGreen : const Color(0xFFFF6B6B)),
                           ),
-                          Text('stanje ${rsd(t['balanceAfter'])}', style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                          Text('${tr('balance', 'stanje')} ${rsd(t['balanceAfter'])}', style: const TextStyle(fontSize: 11, color: Colors.white54)),
                         ],
                       ),
                     );
@@ -164,6 +166,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ),
     );
     if (widget.embedded) return body;
-    return Scaffold(appBar: AppBar(title: const Text('Transakcije')), body: body);
+    return Scaffold(appBar: AppBar(title: Text(tr('Transactions', 'Transakcije'))), body: body);
   }
 }

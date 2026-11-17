@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../i18n.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -59,9 +60,9 @@ class _ChatSheetState extends State<TableChatView> {
       if (!widget.compact) ...[
         const SizedBox(height: 8),
         Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-        const Padding(
+        Padding(
           padding: EdgeInsets.all(10),
-          child: Text('Table chat', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          child: Text(tr('Table chat', 'Chat stola'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         ),
       ],
       Expanded(
@@ -69,7 +70,7 @@ class _ChatSheetState extends State<TableChatView> {
           valueListenable: app.chatOf(widget.tableId),
           builder: (_, msgs, __) {
             if (msgs.isEmpty) {
-              return const Center(child: Text('No messages yet. Say hi!', style: TextStyle(color: Colors.white54)));
+              return Center(child: Text(tr('No messages yet. Say hi!', 'Još nema poruka. Pozdravite!'), style: const TextStyle(color: Colors.white54)));
             }
             return ListView.builder(
               reverse: true,
@@ -141,7 +142,7 @@ class _ChatSheetState extends State<TableChatView> {
                 maxLength: 200,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _send(),
-                decoration: const InputDecoration(hintText: 'Message…', counterText: ''),
+                decoration: InputDecoration(hintText: tr('Message…', 'Poruka…'), counterText: ''),
               ),
             ),
             IconButton(onPressed: _sending ? null : _send, icon: const Icon(Icons.send, color: accent)),

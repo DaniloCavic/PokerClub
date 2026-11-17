@@ -6,6 +6,7 @@ import 'state/app_state.dart';
 import 'theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
+import 'i18n.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,13 +29,14 @@ class PokerApp extends StatelessWidget {
       navigatorKey: app.navigatorKey,
       scaffoldMessengerKey: app.messengerKey,
       builder: (context, child) => _PortraitOnly(child: child!),
-      home: Selector<AppState, AuthStatus>(
-        selector: (_, s) => s.status,
-        builder: (_, status, __) => switch (status) {
+      // Promena jezika: cela aplikacija se iscrta ponovo.
+      home: Selector<AppState, (AuthStatus, String)>(
+        selector: (_, s) => (s.status, s.lang),
+        builder: (_, v, __) => KeyedSubtree(key: ValueKey(v.$2), child: switch (v.$1) {
           AuthStatus.loading => const Scaffold(body: Center(child: CircularProgressIndicator(color: gold))),
           AuthStatus.loggedOut => const LoginScreen(),
           AuthStatus.loggedIn => const HomeShell(),
-        },
+        }),
       ),
     );
   }
@@ -55,15 +57,15 @@ class _PortraitOnly extends StatelessWidget {
     return Stack(children: [
       child,
       if (phoneLandscape)
-        const Positioned.fill(
+        Positioned.fill(
           child: Material(
-            color: Color(0xFF0C0A08),
+            color: const Color(0xFF0C0A08),
             child: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.screen_rotation, color: gold, size: 48),
-                SizedBox(height: 14),
-                Text('Okrenite telefon uspravno',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                const Icon(Icons.screen_rotation, color: gold, size: 48),
+                const SizedBox(height: 14),
+                Text(tr('Turn your phone upright', 'Okrenite telefon uspravno'),
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
               ]),
             ),
           ),

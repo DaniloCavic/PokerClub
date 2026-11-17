@@ -28,10 +28,6 @@ export class PushController {
   }
 
   /** Probno obaveštenje na sve uređaje prijavljenog igrača (sa odgovorom servisa, za proveru). */
-  @Post('test')
-  test(@CurrentUser() user: User) {
-    return this.push.test(user.id);
-  }
 
   @Post('unsubscribe')
   async unsubscribe(@CurrentUser() user: User, @Body() body: { endpoint?: string }) {

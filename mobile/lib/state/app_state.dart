@@ -8,6 +8,7 @@ import '../config.dart';
 import '../push/push.dart';
 import '../sound.dart';
 import '../widgets/playing_card.dart';
+import '../i18n.dart';
 
 enum AuthStatus { loading, loggedOut, loggedIn }
 
@@ -71,6 +72,22 @@ class AppState extends ChangeNotifier {
   /// Zvukovi za stolom.
   bool soundOn = true;
 
+  /// Jezik aplikacije (en / sr).
+  String lang = 'en';
+
+  /// Promena jezika: čuva se na uređaju i na serveru (poruke i obaveštenja na tom jeziku).
+  Future<void> setLang(String v) async {
+    lang = v == 'sr' ? 'sr' : 'en';
+    Lang.code = lang;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('lang', lang);
+    _socket?.emit('lang', {'lang': lang});
+    try {
+      await api.post('/me/lang', {'lang': lang});
+    } catch (_) {}
+  }
+
   Future<void> setSound(bool v) async {
     soundOn = v;
     Sounds.enabled = v;
@@ -121,6 +138,8 @@ class AppState extends ChangeNotifier {
     fourColor = prefs.getBool('fourColor') ?? false;
     CardStyle.fourColor = fourColor;
     soundOn = prefs.getBool('sound') ?? true;
+    lang = prefs.getString('lang') ?? 'en';
+    Lang.code = lang;
     autoSwitch = prefs.getBool('autoSwitch') ?? false;
     Sounds.enabled = soundOn;
     final token = prefs.getString('token');
@@ -172,16 +191,16 @@ class AppState extends ChangeNotifier {
     final permission = WebPush.requestPermission();
     try {
       final perm = await permission;
-      pushError = perm == 'granted' ? null : 'Dozvola za obaveštenja nije data ($perm).';
+      pushError = perm == 'granted' ? null : tr('Notifications were not allowed ($perm).', 'Dozvola za obaveštenja nije data ($perm).');
       if (perm != 'granted') return false;
       final key = _pushKey ?? (await api.get('/push/key'))['key'] as String? ?? '';
       if (key.isEmpty) {
-        pushError = 'Server nema ključ za obaveštenja.';
+        pushError = tr('The server has no notification key.', 'Server nema ključ za obaveštenja.');
         return false;
       }
       final sub = await WebPush.subscribe(key);
       if (sub.isEmpty) {
-        pushError = 'Telefon nije napravio pretplatu za obaveštenja.';
+        pushError = tr('The phone did not create a notification subscription.', 'Telefon nije napravio pretplatu za obaveštenja.');
         return false;
       }
       await api.post('/push/subscribe', jsonDecode(sub) as Map<String, dynamic>);
@@ -203,20 +222,6 @@ class AppState extends ChangeNotifier {
   /// Ključ za obaveštenja, učitan unapred (da pitanje za dozvolu ne čeka server).
   String? _pushKey;
 
-  /// Probno obaveštenje na sve uređaje igrača; vraća tekst sa rezultatom.
-  Future<String> testPush() async {
-    try {
-      final r = await api.post('/push/test', {});
-      final devices = r['devices'] as int? ?? 0;
-      final sent = r['sent'] as int? ?? 0;
-      final errors = ((r['errors'] as List?) ?? const []).join('\n');
-      if (devices == 0) return 'Nema uređaja prijavljenog za obaveštenja. Uključite obaveštenja ponovo.';
-      if (errors.isEmpty) return 'Poslato na $sent ${sent == 1 ? 'uređaj' : 'uređaja'}. Obaveštenje treba da stigne za par sekundi.';
-      return 'Poslato: $sent od $devices.\n$errors';
-    } catch (e) {
-      return 'Greška: $e';
-    }
-  }
 
   /// Posle prijave: ako su obaveštenja uključena na ovom uređaju, osveži pretplatu na serveru
   /// (ako ih je igrač isključio, ne uključuju se ponovo sama).
@@ -260,7 +265,7 @@ class AppState extends ChangeNotifier {
   void showTable(String id) {
     if (!openTables.contains(id)) {
       if (openTables.length >= maxTables) {
-        toast('Možete igrati najviše $maxTables stola odjednom. Zatvorite neki sto.');
+        toast(tr('You can play at most $maxTables tables at once. Close a table first.', 'Možete igrati najviše $maxTables stola odjednom. Zatvorite neki sto.'));
         return;
       }
       openTables.add(id);
@@ -325,7 +330,7 @@ class AppState extends ChangeNotifier {
   Future<void> login(String username, String password) async {
     final res = await api.post('/auth/login', {'username': username, 'password': password});
     if (res['user']['role'] != 'PLAYER') {
-      throw ApiException('Ovo je nalog agenta. Agenti rade u admin panelu.', 403);
+      throw ApiException(tr('This is an agent account. Agents work in the admin panel.', 'Ovo je nalog agenta. Agenti rade u admin panelu.'), 403);
     }
     api.token = res['accessToken'];
     final prefs = await SharedPreferences.getInstance();
@@ -335,6 +340,8 @@ class AppState extends ChangeNotifier {
 
   void _onUser(Map<String, dynamic> u) {
     user = u;
+    // Jezik izabran na ovom uređaju važi i za poruke sa servera.
+    if (u['lang'] != null && u['lang'] != lang) api.post('/me/lang', {'lang': lang}).catchError((_) => null);
     balance = (u['balance'] as num?)?.toInt() ?? 0;
     status = AuthStatus.loggedIn;
     loadNotes();
@@ -405,7 +412,7 @@ class AppState extends ChangeNotifier {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setPath('/socket.io')
-          .setAuth({'token': api.token})
+          .setAuth({'token': api.token, 'lang': Lang.code})
           .disableAutoConnect()
           // Nova veza za svaku prijavu: inače biblioteka ponovo koristi staru vezu
           // (sa tokenom prethodnog naloga) i server misli da je to prethodni igrač.
@@ -464,14 +471,14 @@ class AppState extends ChangeNotifier {
     s.on('table:opened', (data) {
       final m = data as Map;
       final blinds = '${m['smallBlind']}/${m['bigBlind']}';
-      notify('Sto „${m['name']}“ (${m['variant'] == 'OMAHA' ? 'PLO' : 'NLH'} $blinds) se otvorio!',
-          action: 'IGRAJ', tableId: m['tableId'] as String);
+      notify(tr('Table “${m['name']}” (${m['variant'] == 'OMAHA' ? 'PLO' : 'NLH'} $blinds) is open!', 'Sto „${m['name']}“ (${m['variant'] == 'OMAHA' ? 'PLO' : 'NLH'} $blinds) se otvorio!'),
+          action: tr('PLAY', 'IGRAJ'), tableId: m['tableId'] as String);
     });
     // Lista čekanja: oslobodilo se mesto za ovog igrača.
     s.on('waitlist:offer', (data) {
       final m = data as Map;
-      notify('Mesto za stolom „${m['name']}“ je slobodno! Imate ${m['seconds']} s da sednete.',
-          action: 'SEDI', tableId: m['tableId'] as String, duration: Duration(seconds: (m['seconds'] as num).toInt()));
+      notify(tr('A seat at “${m['name']}” is free! You have ${m['seconds']} s to sit down.', 'Mesto za stolom „${m['name']}“ je slobodno! Imate ${m['seconds']} s da sednete.'),
+          action: tr('SIT', 'SEDI'), tableId: m['tableId'] as String, duration: Duration(seconds: (m['seconds'] as num).toInt()));
     });
     // ---------- Turniri ----------
     s.on('tours', (_) {
@@ -495,13 +502,13 @@ class AppState extends ChangeNotifier {
         activeTable = to;
       }
       notifyListeners();
-      if (m['moved'] == true) toast('You were moved to another table in “${m['name']}”.');
+      if (m['moved'] == true) toast(tr('You were moved to another table in “${m['name']}”.', 'Premešteni ste za drugi sto turnira „${m['name']}“.'));
       if (from == null && m['moved'] != true) Sounds.play('turn', volume: 0.6);
     });
     s.on('tournament:busted', (data) => tourResult.value = Map<String, dynamic>.from(data as Map));
     s.on('tournament:prize', (data) {
       final m = data as Map;
-      notify('“${m['name']}”: you finished #${m['position']}, prize ${m['prize']} was added to your account!');
+      notify(tr('“${m['name']}”: you finished #${m['position']}, prize ${m['prize']} was added to your account!', '„${m['name']}“: ${m['position']}. mesto, nagrada ${m['prize']} je uplaćena na nalog!'));
     });
     s.on('tournament:closed', (data) => notify((data as Map)['message'].toString()));
     s.connect();
@@ -560,12 +567,12 @@ class AppState extends ChangeNotifier {
 
   Future<Map<String, dynamic>> emit(String event, [Map<String, dynamic>? data]) async {
     final s = _socket;
-    if (s == null || !connected) return {'ok': false, 'error': 'Nema veze sa serverom.'};
+    if (s == null || !connected) return {'ok': false, 'error': tr('No connection to the server.', 'Nema veze sa serverom.')};
     try {
       final res = await s.emitWithAckAsync(event, data ?? {}).timeout(const Duration(seconds: 10));
       return Map<String, dynamic>.from(res as Map);
     } catch (_) {
-      return {'ok': false, 'error': 'Server ne odgovara. Pokušajte ponovo.'};
+      return {'ok': false, 'error': tr('The server is not responding. Try again.', 'Server ne odgovara. Pokušajte ponovo.')};
     }
   }
 

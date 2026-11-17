@@ -15,9 +15,10 @@ import { publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActionType, GameError } from '../poker/engine/game';
 import { TablesService } from './tables.service';
+import { normLang, tr, trUser, userLang } from '../common/i18n';
 import { TournamentsService } from '../tournaments/tournaments.service';
 
-type AuthedSocket = Socket & { data: { userId: string } };
+type AuthedSocket = Socket & { data: { userId: string; lang?: string } };
 
 interface TableMsg {
   tableId: string;
@@ -49,19 +50,32 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       const user = await this.auth.userFromToken(String(token || ''));
       socket.data.userId = user.id;
+      // Jezik aplikacije (en/sr): poruke i obaveštenja ovom igraču stižu na tom jeziku.
+      const lang = normLang(socket.handshake.auth?.lang ?? user.lang);
+      socket.data.lang = lang;
+      userLang.set(user.id, lang);
       await socket.join(`user:${user.id}`);
       await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
       // Dok klijent ne javi drugačije, smatra se da je aplikacija otvorena.
       this.tables.setPresence(user.id, socket.id, true);
       socket.emit('session', { user: publicUser(user), seatedAt: this.tables.seatsOf(user.id) });
     } catch (e) {
-      socket.emit('auth:error', { error: (e as Error).message });
+      socket.emit('auth:error', { error: tr((e as Error).message, socket.handshake.auth?.lang) });
       socket.disconnect(true);
     }
   }
 
   handleDisconnect(socket: AuthedSocket) {
     if (socket.data?.userId) this.tables.setPresence(socket.data.userId, socket.id, null);
+  }
+
+  /** Igrač je promenio jezik aplikacije. */
+  @SubscribeMessage('lang')
+  setLang(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: { lang: string }) {
+    const lang = normLang(msg?.lang);
+    socket.data.lang = lang;
+    if (socket.data?.userId) userLang.set(socket.data.userId, lang);
+    return { ok: true };
   }
 
   /** Aplikacija je u pozadini (igrač je otišao u drugu aplikaciju) ili ponovo vidljiva. */
@@ -75,7 +89,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   private async assertActive(socket: AuthedSocket) {
     const u = await this.prisma.user.findUnique({ where: { id: socket.data.userId } });
     if (!u || u.isBlocked) {
-      socket.emit('auth:error', { error: u ? blockedMessage(u) : 'Nalog ne postoji.' });
+      socket.emit('auth:error', { error: tr(u ? blockedMessage(u) : 'Nalog ne postoji.', socket.data.lang) });
       socket.disconnect(true);
       throw new GameError('Nalog nije aktivan.');
     }
@@ -89,9 +103,10 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       const res = await fn();
       return { ok: true, ...(res && typeof res === 'object' ? res : {}) };
     } catch (e) {
-      if (e instanceof GameError) return { ok: false, error: e.message };
+      const lang = (socket.data as { lang?: string }).lang;
+      if (e instanceof GameError) return { ok: false, error: tr(e.message, lang) };
       this.log.error(e);
-      return { ok: false, error: 'Greška na serveru. Pokušajte ponovo.' };
+      return { ok: false, error: tr('Greška na serveru. Pokušajte ponovo.', lang) };
     }
   }
 
@@ -237,7 +252,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   /** Prekida sve veze korisnika (posle blokade). */
   async disconnectUser(userId: string, reason: string) {
-    this.server.to(`user:${userId}`).emit('auth:error', { error: reason });
+    this.server.to(`user:${userId}`).emit('auth:error', { error: trUser(reason, userId) });
     this.server.in(`user:${userId}`).disconnectSockets(true);
   }
 }

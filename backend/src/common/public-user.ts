@@ -18,5 +18,6 @@ export function publicUser(u: User) {
     agentId: u.agentId,
     createdAt: u.createdAt,
     lastSeenAt: u.lastSeenAt,
+    lang: u.lang,
   };
 }

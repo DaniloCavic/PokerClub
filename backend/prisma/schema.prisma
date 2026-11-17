@@ -64,6 +64,8 @@ model User {
   avatar        Bytes?
   avatarType    String?
   avatarAt      DateTime?
+  /// Jezik aplikacije igrača (en / sr): poruke i obaveštenja stižu na tom jeziku.
+  lang          String    @default("en")
 
   transactions Transaction[]      @relation("TxUser")
   actions      Transaction[]      @relation("TxActor")

@@ -1,3 +1,5 @@
+import 'i18n.dart';
+
 /// 12500 → "12.500"
 String chips(num? n) {
   final v = (n ?? 0).round();
@@ -23,15 +25,16 @@ String dateTime(String iso) {
   return '${two(d.day)}.${two(d.month)}.${d.year}. ${two(d.hour)}:${two(d.minute)}';
 }
 
-const txLabels = {
-  'DEPOSIT': 'Uplata',
-  'WITHDRAWAL': 'Isplata',
-  'BUY_IN': 'Ulaz za sto',
-  'CASH_OUT': 'Povratak sa stola',
-  'TOURNAMENT_BUY_IN': 'Ulaz na turnir',
-  'TOURNAMENT_PRIZE': 'Nagrada sa turnira',
-  'TOURNAMENT_REFUND': 'Povraćaj (turnir)',
-};
+/// Nazivi vrsta transakcija.
+Map<String, String> get txLabels => {
+      'DEPOSIT': tr('Deposit', 'Uplata'),
+      'WITHDRAWAL': tr('Withdrawal', 'Isplata'),
+      'BUY_IN': tr('Table buy-in', 'Ulaz za sto'),
+      'CASH_OUT': tr('Cash-out', 'Povratak sa stola'),
+      'TOURNAMENT_BUY_IN': tr('Tournament buy-in', 'Ulaz na turnir'),
+      'TOURNAMENT_PRIZE': tr('Tournament prize', 'Nagrada sa turnira'),
+      'TOURNAMENT_REFUND': tr('Tournament refund', 'Povraćaj (turnir)'),
+    };
 
 /// Iznos u žetonima ili u velikim blajndovima (BB), po izboru igrača.
 class Money {
@@ -56,7 +59,9 @@ String bbNumber(double x) {
   return '${chips(whole)},$dec';
 }
 
-const _days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+List<String> get _days => Lang.sr
+    ? ['ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja']
+    : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /// "Thursday 12.11. at 18:00" (danas/sutra: "today/tomorrow at 18:00").
 String opensLabel(DateTime d) {
@@ -65,16 +70,17 @@ String opensLabel(DateTime d) {
   final day = DateTime(d.year, d.month, d.day);
   final diff = day.difference(today).inDays;
   final time = '${two(d.hour)}:${two(d.minute)}';
-  if (diff == 0) return 'today at $time';
-  if (diff == 1) return 'tomorrow at $time';
-  return '${_days[d.weekday - 1]} ${d.day}.${d.month}. at $time';
+  if (diff == 0) return tr('today at $time', 'danas u $time');
+  if (diff == 1) return tr('tomorrow at $time', 'sutra u $time');
+  return '${_days[d.weekday - 1]} ${d.day}.${d.month}. ${tr('at', 'u')} $time';
 }
 
 /// Koliko je ostalo do otvaranja: "in 2 d 4 h", "in 3 h 15 min", "in 5 min", "in less than a minute".
 String countdown(DateTime d) {
   final left = d.difference(DateTime.now());
-  if (left.inMinutes < 1) return 'in less than a minute';
-  if (left.inDays >= 1) return 'in ${left.inDays} d ${left.inHours % 24} h';
-  if (left.inHours >= 1) return 'in ${left.inHours} h ${left.inMinutes % 60} min';
-  return 'in ${left.inMinutes} min';
+  final za = tr('in', 'za');
+  if (left.inMinutes < 1) return tr('in less than a minute', 'za manje od minuta');
+  if (left.inDays >= 1) return '$za ${left.inDays} d ${left.inHours % 24} h';
+  if (left.inHours >= 1) return '$za ${left.inHours} h ${left.inMinutes % 60} min';
+  return '$za ${left.inMinutes} min';
 }
