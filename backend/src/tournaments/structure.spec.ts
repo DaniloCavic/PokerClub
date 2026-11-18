@@ -1,4 +1,5 @@
 import { clockAt, defaultLevels, estimateMinutes, payoutAmounts, payoutPercents, prizePool, validateLevels } from './structure';
+import { levelReachedAt } from './structure';
 
 const MIN = 60_000;
 const lv = (minutes: number, n = 10) => Array.from({ length: n }, (_, i) => ({ sb: 10 * (i + 1), bb: 20 * (i + 1), ante: 0, minutes }));
@@ -77,5 +78,18 @@ describe('struktura', () => {
     const m = estimateMinutes(l, { mode: 'HOURLY', every: 0, minutes: 5 }, 50, 10_000);
     expect(m).toBeGreaterThan(60);
     expect(m).toBeLessThan(600);
+  });
+});
+
+describe('levelReachedAt', () => {
+  const lv = [1, 2, 3, 4, 5, 6].map((k) => ({ sb: k, bb: 2 * k, ante: 0, minutes: 10 }));
+  const MIN = 60_000;
+  it('bez pauza: kraj 3. nivoa posle 30 min', () => {
+    expect(levelReachedAt(0, lv, { mode: 'NONE', every: 0, minutes: 0 }, 3)).toBe(30 * MIN);
+    expect(levelReachedAt(0, lv, { mode: 'NONE', every: 0, minutes: 0 }, 3)).toBeGreaterThanOrEqual(30 * MIN);
+  });
+  it('pauza svakog sata (5 min) pomera kraj 6. nivoa', () => {
+    const t = levelReachedAt(0, lv, { mode: 'HOURLY', every: 0, minutes: 5 }, 6);
+    expect(Math.round(t / MIN)).toBe(65);
   });
 });

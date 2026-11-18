@@ -20,6 +20,23 @@ String durationLabel(int minutes) {
   return '$minutes min';
 }
 
+/// Stek u velikim blajndovima: " (31 BB)".
+String inBb(num? stack, num? bb) => (bb ?? 0) > 0 ? ' (${bbNumber((stack ?? 0) / bb!)} BB)' : '';
+
+/// Blajndovi sa ante-om: "100/200 (ante 25)".
+String blindsLabel(num? sb, num? bb, num? ante) => '${chips(sb)}/${chips(bb)}${(ante ?? 0) > 0 ? ' (ante ${chips(ante)})' : ''}';
+
+/// Kraj kasne prijave ili rebuy-a: odbrojavanje dok turnir traje, a pre početka okvirno vreme.
+String untilLabel(Json d, int? at, int serverNow) {
+  if (at == null) return '';
+  if (d['status'] == 'REGISTERING') {
+    final t = DateTime.fromMillisecondsSinceEpoch(at).toLocal();
+    return tr('until about ${two(t.hour)}:${two(t.minute)}', 'do oko ${two(t.hour)}:${two(t.minute)}');
+  }
+  if (at <= serverNow) return tr('closed', 'zatvoreno');
+  return '${tr('ends in', 'još')} ${clockLeft(at, serverNow)}';
+}
+
 /// "04:12" (ili "1:04:12") do trenutka `at` (ms, vreme servera).
 String clockLeft(int? at, int serverNow) {
   if (at == null) return '--:--';
@@ -396,9 +413,15 @@ class _TournamentScreenState extends State<TournamentScreen> {
             if (running && clock != null)
               clock['onBreak'] == true
                   ? _stat('Break', '${tr('ends in', 'još')} ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
-                  : _stat('Level ${d['level']}', '${chips(d['smallBlind'])}/${chips(d['bigBlind'])} · ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
-            if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat('Duration', '~${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
+                  : _stat('${tr('Level', 'Nivo')} ${d['level']}', '${tr('next in', 'sledeći za')} ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
+            if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat(tr('Duration', 'Trajanje'), '~${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
           ]),
+          if (running || d['status'] == 'REGISTERING') ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Colors.white12),
+            const SizedBox(height: 10),
+            _stacks(d, now),
+          ],
           if (fin != null) ...[
             const SizedBox(height: 10),
             GoldText(
@@ -419,6 +442,40 @@ class _TournamentScreenState extends State<TournamentScreen> {
         ]),
       ),
     );
+  }
+
+  /// Blajndovi, kasna prijava, rebuy i stekovi (sa vrednošću u velikim blajndovima).
+  Widget _stacks(Json d, int now) {
+    final running = d['status'] == 'RUNNING';
+    final bb = d['bigBlind'] as num?;
+    final lateAt = (d['lateRegEndsAt'] as num?)?.toInt();
+    final rebuyAt = (d['rebuyEndsAt'] as num?)?.toInt();
+    final lateOpen = lateAt != null && (!running || d['regOpen'] == true);
+    final rows = <(String, String, Color?)>[
+      (running ? tr('Blinds', 'Blajndovi') : tr('Starting blinds', 'Početni blajndovi'), blindsLabel(d['smallBlind'], bb, d['ante']), goldLight),
+      (
+        tr('Late registration', 'Kasna prijava'),
+        lateAt == null ? tr('only before the start', 'samo pre početka') : (lateOpen ? untilLabel(d, lateAt, now) : tr('closed', 'zatvorena')),
+        lateOpen ? winGreen : Colors.white54,
+      ),
+      if (rebuyAt != null) ('Rebuy', untilLabel(d, rebuyAt, now), running && rebuyAt <= now ? Colors.white54 : null),
+      (tr('Starting stack', 'Početni stek'), '${chips(d['startingStack'])}${inBb(d['startingStack'], bb)}', null),
+      if (running) ...[
+        (tr('Average stack', 'Prosečan stek'), '${chips(d['avgStack'])}${inBb(d['avgStack'], bb)}', null),
+        (tr('Largest stack', 'Najveći stek'), '${chips(d['maxStack'])}${inBb(d['maxStack'], bb)}', null),
+        (tr('Smallest stack', 'Najmanji stek'), '${chips(d['minStack'])}${inBb(d['minStack'], bb)}', null),
+      ],
+    ];
+    return Column(children: [
+      for (final r in rows)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2.5),
+          child: Row(children: [
+            Expanded(child: Text(r.$1, style: const TextStyle(color: Colors.white60, fontSize: 13))),
+            Text(r.$2, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: r.$3 ?? Colors.white)),
+          ]),
+        ),
+    ]);
   }
 
   Widget _stat(String label, String value, {bool big = false}) => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
@@ -535,12 +592,26 @@ class _TournamentScreenState extends State<TournamentScreen> {
   Widget _players(Json d) {
     final s = ((d['standings'] as List?) ?? const []).cast<Map>();
     final myId = app.user?['id'];
+    final bounty = (d['bounty'] as num? ?? 0) > 0;
     if (s.isEmpty) return Center(child: Text(tr('No players registered yet.', 'Još nema prijavljenih igrača.'), style: TextStyle(color: Colors.white60)));
+    const head = TextStyle(fontSize: 11.5, color: Colors.white54, fontWeight: FontWeight.w700);
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
-      itemCount: s.length,
-      itemBuilder: (_, i) {
-        final x = s[i];
+      itemCount: s.length + 1,
+      itemBuilder: (_, row) {
+        if (row == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+            child: Row(children: [
+              const SizedBox(width: 44, child: Text('#', style: head)),
+              Expanded(child: Text(tr('Player', 'Igrač'), style: head)),
+              if (bounty) const SizedBox(width: 44, child: Text('KO', textAlign: TextAlign.right, style: head)),
+              SizedBox(width: 92, child: Text(tr('Chips / prize', 'Žetoni / nagrada'), textAlign: TextAlign.right, style: head)),
+              if (bounty) const SizedBox(width: 80, child: Text('Bounty', textAlign: TextAlign.right, style: head)),
+            ]),
+          );
+        }
+        final x = s[row - 1];
         final mine = x['userId'] == myId;
         final out = x['status'] == 'BUSTED';
         return Container(
@@ -557,14 +628,37 @@ class _TournamentScreenState extends State<TournamentScreen> {
               child: Text(x['name'] as String,
                   overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: out ? Colors.white54 : Colors.white)),
             ),
-            if ((x['knockouts'] as num? ?? 0) > 0)
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Text('${x['knockouts']} KO', style: const TextStyle(fontSize: 12, color: Color(0xFFFF8A65), fontWeight: FontWeight.w800)),
+            if (bounty)
+              SizedBox(
+                width: 44,
+                child: Text('${x['knockouts'] ?? 0}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, color: Color(0xFFFF8A65), fontWeight: FontWeight.w800)),
               ),
-            if (!out) Text(chips(x['chips']), style: const TextStyle(fontWeight: FontWeight.w800, color: goldLight)),
-            if (out && (x['prize'] as num? ?? 0) > 0) Text(rsd(x['prize']), style: const TextStyle(fontWeight: FontWeight.w800, color: winGreen)),
-            if (out && (x['prize'] as num? ?? 0) == 0) Text(tr('out', 'ispao'), style: TextStyle(color: Colors.white38, fontSize: 12)),
+            SizedBox(
+              width: 92,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: !out
+                      ? Text(chips(x['chips']), style: const TextStyle(fontWeight: FontWeight.w800, color: goldLight))
+                      : (x['prize'] as num? ?? 0) > 0
+                          ? Text(rsd(x['prize']), style: const TextStyle(fontWeight: FontWeight.w800, color: winGreen))
+                          : Text(tr('out', 'ispao'), style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                ),
+              ),
+            ),
+            if (bounty)
+              SizedBox(
+                width: 80,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text((x['bountyWon'] as num? ?? 0) > 0 ? rsd(x['bountyWon']) : '—',
+                        style: TextStyle(fontWeight: FontWeight.w800, color: (x['bountyWon'] as num? ?? 0) > 0 ? const Color(0xFFFF8A65) : Colors.white38)),
+                  ),
+                ),
+              ),
           ]),
         );
       },
@@ -702,7 +796,14 @@ class TourBar extends StatelessWidget {
           if (onBreak) item(tr('BREAK', 'PAUZA'), clockLeft((tour['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
           if (!onBreak && nextBreak != null) item(tr('BREAK IN', 'PAUZA ZA'), clockLeft(nextBreak, now)),
           item(tr('RANK', 'MESTO'), tour['position'] != null ? '${tour['position']}/${tour['playersLeft']}' : tr('${tour['playersLeft']} left', '${tour['playersLeft']} igrača')),
-          item(tr('AVG STACK', 'PROSEK'), chips(tour['avgStack'])),
+          if (tour['lateRegEndsAt'] != null) item(tr('LATE REG', 'KASNA PRIJAVA'), clockLeft((tour['lateRegEndsAt'] as num).toInt(), now), color: winGreen),
+          if (tour['rebuyEndsAt'] != null && (wide || vertical)) item('REBUY', clockLeft((tour['rebuyEndsAt'] as num).toInt(), now)),
+          item(tr('AVG STACK', 'PROSEK'), '${chips(tour['avgStack'])}${inBb(tour['avgStack'], tour['bb'] as num?)}'),
+          if (wide || vertical) ...[
+            item(tr('LARGEST', 'NAJVEĆI'), '${chips(tour['maxStack'])}${inBb(tour['maxStack'], tour['bb'] as num?)}'),
+            item(tr('SMALLEST', 'NAJMANJI'), '${chips(tour['minStack'])}${inBb(tour['minStack'], tour['bb'] as num?)}'),
+            item(tr('STARTING STACK', 'POČETNI STEK'), '${chips(tour['startingStack'])}${inBb(tour['startingStack'], tour['bb'] as num?)}'),
+          ],
           if ((tour['bounty'] as num? ?? 0) > 0) item(tr('BOUNTIES', 'BOUNTY'), '${tour['myKnockouts'] ?? 0} KO · ${chips(tour['myBountyWon'] ?? 0)}', color: const Color(0xFFFF8A65)),
           if (wide) item(tr('PRIZE POOL', 'FOND'), chips(tour['prizePool'])),
         ]),

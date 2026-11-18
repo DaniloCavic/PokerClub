@@ -97,6 +97,24 @@ export function clockAt(startedAt: number, levels: Level[], rule: BreakRule, now
   throw new Error('Sat turnira: previše koraka.');
 }
 
+/**
+ * Trenutak kada sat prvi put dođe do nivoa `L` (indeks od 0), tj. kada se završava nivo L
+ * (računajući od 1) — tada se zatvaraju kasna prijava i rebuy. Pauze su uračunate.
+ */
+export function levelReachedAt(startedAt: number, levels: Level[], rule: BreakRule, L: number): number {
+  if (L <= 0) return startedAt;
+  let lo = startedAt;
+  let hi = startedAt + HOUR;
+  while (clockAt(startedAt, levels, rule, hi).level < L) hi = startedAt + (hi - startedAt) * 2;
+  // Do na milisekundu tačno (isto kao kraj nivoa na satu).
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (clockAt(startedAt, levels, rule, mid).level >= L) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
 // ---------- Nagrade ----------
 
 export interface PrizeInput {

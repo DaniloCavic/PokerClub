@@ -19,6 +19,7 @@ import {
   payoutAmounts,
   payoutPercents,
   prizePool,
+  levelReachedAt,
 } from './structure';
 
 /** Koliko vremena igrač koji je ostao bez žetona ima za rebuy (ako je rebuy dozvoljen). */
@@ -216,12 +217,32 @@ export class TournamentsService implements OnModuleInit {
 
   // ---------- Pregled ----------
 
+  /** Prosečan, najveći i najmanji stek igrača koji su još u igri. */
+  private stackStats(tr: TourRt) {
+    const stacks = [...tr.players.values()].filter((p) => p.status === 'PLAYING').map((p) => this.liveChips(tr, p));
+    if (!stacks.length) return { avgStack: 0, maxStack: 0, minStack: 0 };
+    return {
+      avgStack: Math.round(stacks.reduce((a, b) => a + b, 0) / stacks.length),
+      maxStack: Math.max(...stacks),
+      // Igrač na 0 koji čeka odluku o rebuy-u ne računa se kao najmanji stek.
+      minStack: Math.min(...(stacks.some((x) => x > 0) ? stacks.filter((x) => x > 0) : stacks)),
+    };
+  }
+
+  /** Kada se završava nivo `levels` (kasna prijava, rebuy): od stvarnog početka, a pre početka od zakazanog. */
+  private levelEndTime(tr: TourRt, levels: number) {
+    if (levels <= 0 || tr.t.status === 'FINISHED' || tr.t.status === 'CANCELLED') return null;
+    const start = (tr.t.startedAt ?? tr.t.startAt).getTime();
+    return levelReachedAt(start, tr.levels, tr.rule, levels);
+  }
+
   private summary(tr: TourRt) {
     const t = tr.t;
     const c = this.counts(tr);
     const clock = this.clock(tr);
     const lvl = levelAt(tr.levels, clock?.level ?? 0);
     const playing = [...tr.players.values()].filter((p) => p.status === 'PLAYING').length;
+    const rebuyOn = t.rebuyLevels > 0 && t.rebuyChips > 0;
     return {
       id: t.id,
       name: t.name,
@@ -249,7 +270,11 @@ export class TournamentsService implements OnModuleInit {
       level: clock ? clock.level + 1 : null,
       smallBlind: lvl.sb,
       bigBlind: lvl.bb,
+      ante: lvl.ante,
       onBreak: clock?.onBreak ?? false,
+      lateRegEndsAt: this.levelEndTime(tr, t.lateRegLevels),
+      rebuyEndsAt: rebuyOn ? this.levelEndTime(tr, t.rebuyLevels) : null,
+      ...this.stackStats(tr),
       estimatedMinutes: this.estimate(tr),
     };
   }
@@ -415,7 +440,6 @@ export class TournamentsService implements OnModuleInit {
     const lvl = levelAt(tr.levels, clock?.level ?? 0);
     const next = levelAt(tr.levels, (clock?.level ?? 0) + 1);
     const playing = [...tr.players.values()].filter((p) => p.status === 'PLAYING');
-    const totalChips = playing.reduce((a, p) => a + this.liveChips(tr, p), 0);
     const me = userId ? playing.find((p) => p.userId === userId) : undefined;
     let position: number | null = null;
     if (me) {
@@ -438,7 +462,10 @@ export class TournamentsService implements OnModuleInit {
       nextBreakAt: clock?.nextBreakAt ?? null,
       playersLeft: playing.length,
       entries: tr.players.size,
-      avgStack: playing.length ? Math.round(totalChips / playing.length) : 0,
+      ...this.stackStats(tr),
+      startingStack: tr.t.startingStack,
+      lateRegEndsAt: this.regOpen(tr) ? this.levelEndTime(tr, tr.t.lateRegLevels) : null,
+      rebuyEndsAt: this.rebuyOpen(tr) ? this.levelEndTime(tr, tr.t.rebuyLevels) : null,
       position,
       prizePool: pay.pool,
       paidPlaces: pay.amounts.length,
