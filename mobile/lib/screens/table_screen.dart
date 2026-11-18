@@ -2755,7 +2755,7 @@ class _SeatView extends StatelessWidget {
               angle: (k - (cards.length - 1) / 2) * 0.07,
               child: hideCards && won == null
                   ? PlayingCard(width: cw)
-                  : PlayingCard(code: cards[k], width: cw, dim: folded && !isMe, highlight: best.contains(cards[k])),
+                  : PlayingCard(code: cards[k], width: cw, dim: folded, highlight: best.contains(cards[k])),
             ),
           ),
       ]);

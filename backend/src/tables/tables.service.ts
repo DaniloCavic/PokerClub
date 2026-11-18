@@ -93,11 +93,62 @@ interface Runtime {
   /** Run it twice: rok za odgovore igrača. */
   ritTimer?: NodeJS.Timeout;
   ritDeadline: number | null;
+  /** Šta igrači trenutno vide (za kratku pauzu na kraju runde). */
+  shot?: Shot;
+  /** Kraj runde: prvo se vidi potez i ulozi, pa žetoni idu u pot, pa tek onda karta (ili showdown). */
+  hold?: Hold | null;
+  holdTimers?: NodeJS.Timeout[];
+}
+
+interface ShotSeat {
+  stack: number;
+  bet: number;
+  folded: boolean;
+  allIn: boolean;
+  inHand: boolean;
+  lastAction: string | null;
+  lastAct: { type: string; amount: number } | null;
+}
+
+interface Shot {
+  handNo: number;
+  street: string;
+  boardLen: number;
+  pot: number;
+  collected: number;
+  sidePots: number[];
+  actionsLen: number;
+  seats: (ShotSeat | null)[];
+}
+
+interface Hold {
+  started: number;
+  /** Do kada se vidi potez sa ulozima ispred igrača. */
+  collectAt: number;
+  /** Do kada žetoni putuju u pot (karta još nije izašla). */
+  revealAt: number;
+  /** Do kada su otvorene karte na showdown-u, pre proglašenja pobednika. */
+  until: number;
+  street: string;
+  newStreet: string;
+  boardLen: number;
+  pot: number;
+  collected: number;
+  sidePots: number[];
+  seats: (ShotSeat | null)[];
+  showdown: boolean;
+  handNo: number;
+  actionsLen: number;
 }
 
 /** All-in: pauza pre otvaranja prve ulice i između ulica (mora odgovarati aplikaciji). */
 const RUNOUT_START_MS = 1200;
 const RUNOUT_STREET_MS = 2000;
+
+/** Kraj runde: koliko se vidi poslednji potez, koliko žetoni putuju u pot i koliko traje otvaranje karata. */
+const HOLD_ACTION_MS = Number(process.env.HOLD_ACTION_MS ?? 650);
+const HOLD_COLLECT_MS = 550;
+const HOLD_SHOWDOWN_MS = 1500;
 
 /** Koliko dugo svi vide "✗ No" pre nego što se karte podele jednom. */
 const RIT_DECLINE_SHOW_MS = 1500;
@@ -409,6 +460,150 @@ export class TablesService implements OnModuleInit {
   }
 
   private viewOf(rt: Runtime, userId?: string) {
+    const v = this.playerView(rt, userId);
+    const h = rt.hold;
+    if (!h) return v;
+    const now = Date.now();
+    if (now >= h.until) return v;
+    const phase = now < h.collectAt ? 'action' : now < h.revealAt ? 'collect' : 'showdown';
+    const g = rt.game;
+    const mySeat = v.mySeat;
+    const shown = new Map<number, string[]>();
+    if (phase === 'showdown') for (const x of rt.lastResult?.shown ?? []) shown.set(x.seat, x.cards);
+    const bets = h.seats.reduce((a, x) => a + (x?.bet ?? 0), 0);
+    const boardLen = phase === 'showdown' ? g.board.length : h.boardLen;
+    const board = g.board.slice(0, boardLen);
+    const own = mySeat >= 0 ? g.seats[mySeat] : null;
+    const ownHold = mySeat >= 0 ? h.seats[mySeat] : null;
+    let myHand: string | null = null;
+    if (own && ownHold && ownHold.inHand && !ownHold.folded && board.length >= 3) {
+      myHand = (rt.table.variant === 'OMAHA' ? bestOmaha : bestHoldem)(own.hole, board).name;
+    }
+    return {
+      ...v,
+      inProgress: true,
+      street: phase === 'action' ? h.street : h.newStreet,
+      board: board.map(cardToString),
+      pot: h.pot,
+      collected: phase === 'action' ? h.collected : h.collected + bets,
+      sidePots: h.sidePots,
+      toAct: -1,
+      deadline: null,
+      timeBankAt: null,
+      legal: null,
+      result: null,
+      ritPending: false,
+      ritAsk: [],
+      ritYes: [],
+      ritNo: [],
+      ritDeadline: null,
+      myHand,
+      seats: v.seats.map((seat, i) => {
+        const x = h.seats[i];
+        if (!seat || !x) return seat;
+        const cards = i === mySeat ? seat.cards : (shown.get(i) ?? null);
+        return {
+          ...seat,
+          stack: x.stack,
+          bet: phase === 'action' ? x.bet : 0,
+          folded: x.folded,
+          allIn: x.allIn,
+          inHand: x.inHand,
+          lastAction: x.lastAction,
+          lastAct: x.lastAct,
+          cards,
+          cardCount: x.inHand && !x.folded ? g.seats[i]!.hole.length : 0,
+        };
+      }),
+    };
+  }
+
+  /** Šta igrači vide posle poteza (pamti se, da se na kraju runde zna šta je bilo pre). */
+  private takeShot(rt: Runtime) {
+    const g = rt.game;
+    if (!g.inProgress) {
+      rt.shot = undefined;
+      return;
+    }
+    rt.shot = {
+      handNo: g.handNo,
+      street: g.street,
+      boardLen: g.board.length,
+      pot: g.potTotal(),
+      collected: g.collected,
+      sidePots: g.pots(true).map((p) => p.amount),
+      actionsLen: g.actions.length,
+      seats: g.seats.map((x) =>
+        x
+          ? { stack: x.stack, bet: x.bet, folded: x.folded, allIn: x.allIn, inHand: x.inHand, lastAction: x.lastAction, lastAct: x.lastAct ? { ...x.lastAct } : null }
+          : null,
+      ),
+    };
+  }
+
+  /**
+   * Runda se upravo završila (nova ulica, all-in ili kraj ruke): kratka pauza da se vidi poslednji potez,
+   * pa žetoni u pot, pa karta. Kod showdown-a se karte prvo otvore, a pobednik se proglasi posle.
+   */
+  private makeHold(rt: Runtime, result: HandResult | null): Hold | null {
+    const g = rt.game;
+    const shot = rt.shot;
+    if (!shot || shot.handNo !== g.handNo) return null;
+    const ended = !g.inProgress || g.street !== shot.street || g.board.length !== shot.boardLen || g.ritPending;
+    if (!ended) return null;
+    const acts = g.actions.slice(shot.actionsLen).filter((a) => a.street === shot.street);
+    if (!acts.length) return null;
+    const seats = shot.seats.map((x) => (x ? { ...x, lastAct: x.lastAct ? { ...x.lastAct } : null } : null));
+    let pot = shot.pot;
+    for (const a of acts) {
+      const x = seats[a.seat];
+      if (!x) continue;
+      x.lastAct = { type: a.type, amount: a.amount };
+      if (a.type === 'fold') {
+        x.folded = true;
+        x.lastAction = 'Fold';
+      } else if (a.type === 'check') {
+        x.lastAction = 'Check';
+      } else if (a.amount > x.bet) {
+        const add = Math.min(a.amount - x.bet, x.stack);
+        x.stack -= add;
+        x.bet += add;
+        pot += add;
+        x.allIn = x.stack === 0;
+        x.lastAction = a.type === 'call' ? `Call ${add}` : a.type === 'allin' ? 'All-in' : `${a.type === 'bet' ? 'Bet' : 'Raise'} ${a.amount}`;
+      }
+    }
+    const bets = seats.some((x) => (x?.bet ?? 0) > 0);
+    const showdown = !!result && result.runoutFrom === undefined && result.shown.length >= 2;
+    const now = Date.now();
+    const collectAt = now + HOLD_ACTION_MS;
+    const revealAt = collectAt + (bets ? HOLD_COLLECT_MS : 0);
+    const until = revealAt + (showdown ? HOLD_SHOWDOWN_MS : 0);
+    return {
+      started: now,
+      collectAt,
+      revealAt,
+      until,
+      street: shot.street,
+      newStreet: g.inProgress && !g.ritPending ? g.street : 'showdown',
+      boardLen: shot.boardLen,
+      pot,
+      collected: shot.collected,
+      sidePots: shot.sidePots,
+      seats,
+      showdown,
+      handNo: g.handNo,
+      actionsLen: g.actions.length,
+    };
+  }
+
+  private clearHold(rt: Runtime) {
+    for (const t of rt.holdTimers ?? []) clearTimeout(t);
+    rt.holdTimers = [];
+    rt.hold = null;
+  }
+
+  private playerView(rt: Runtime, userId?: string) {
     const g = rt.game;
     const mySeat = userId ? g.seatOf(userId) : -1;
     const shown = new Map<number, string[]>();
@@ -661,6 +856,7 @@ export class TablesService implements OnModuleInit {
     return this.exclusive(rt, async () => {
       const i = rt.game.seatOf(userId);
       if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
+      if (rt.hold) throw new GameError('Sačekajte sledeću kartu.');
       const result = rt.game.act(i, action, amount);
       rt.sitOutSince.delete(userId);
       await this.afterChange(rt, result);
@@ -873,8 +1069,54 @@ export class TablesService implements OnModuleInit {
 
   /** Posle svake promene: obrada kraja ruke, tajmer, slanje stanja, sledeća ruka. */
   private async afterChange(rt: Runtime, result: HandResult | null = null) {
+    if (rt.hold) {
+      // Sitnica tokom pauze (npr. igrač ode na pauzu): pauza se nastavlja.
+      if (!result && rt.game.inProgress && rt.game.handNo === rt.hold.handNo && rt.game.actions.length === rt.hold.actionsLen) {
+        await this.broadcast(rt);
+        return;
+      }
+      // Nova promena u ruci dok traje pauza: pauza se prekida (vidi se pravo stanje).
+      this.clearHold(rt);
+    }
+    const hold = this.makeHold(rt, result);
     if (result) await this.handFinished(rt, result);
+    if (hold) {
+      const ms = hold.until - hold.started;
+      rt.hold = hold;
+      if (result) {
+        // Rezultat (i sledeća ruka) tek posle pauze.
+        rt.runoutMs = (rt.runoutMs ?? 0) + ms;
+        rt.lastResultAt = hold.until;
+      }
+      clearTimeout(rt.turnTimer);
+      rt.turnKey = undefined;
+      rt.deadline = null;
+      rt.timeBankAt = null;
+      rt.holdTimers = [];
+      const at = (t: number, f: () => Promise<void>) =>
+        rt.holdTimers!.push(
+          setTimeout(() => {
+            void this.exclusive(rt, async () => {
+              if (rt.hold !== hold) return;
+              await f();
+            }).catch((e) => this.log.error(e));
+          }, Math.max(0, t - Date.now())),
+        );
+      if (hold.revealAt > hold.collectAt) at(hold.collectAt, () => this.broadcast(rt));
+      if (hold.until > hold.revealAt) at(hold.revealAt, () => this.broadcast(rt));
+      at(hold.until, async () => {
+        rt.hold = null;
+        rt.holdTimers = [];
+        this.armTurnTimer(rt);
+        this.takeShot(rt);
+        await this.broadcast(rt);
+      });
+      await this.broadcast(rt);
+      if (!rt.game.inProgress) this.scheduleNextHand(rt);
+      return;
+    }
     this.armTurnTimer(rt);
+    this.takeShot(rt);
     await this.broadcast(rt);
     if (!rt.game.inProgress) this.scheduleNextHand(rt);
   }
