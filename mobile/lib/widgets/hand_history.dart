@@ -64,7 +64,8 @@ class HandHistoryTabs extends StatelessWidget {
             indicatorColor: accent,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,
-            labelStyle: TextStyle(fontWeight: FontWeight.w800),
+            labelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w800, fontSize: 14),
+                        unselectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, fontSize: 14),
             tabs: [Tab(text: tr('This hand', 'Ova ruka')), Tab(text: tr('Previous hands', 'Prethodne ruke'))],
           ),
           Expanded(

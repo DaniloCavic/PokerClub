@@ -227,7 +227,9 @@ void openTournament(BuildContext context, String id) {
 /// Detalji turnira: prijava, struktura, nagrade, igrači i stolovi.
 class TournamentScreen extends StatefulWidget {
   final String id;
-  const TournamentScreen({super.key, required this.id});
+  /// Otvoren kao prozor preko stola (X umesto strelice nazad).
+  final bool closeIcon;
+  const TournamentScreen({super.key, required this.id, this.closeIcon = false});
 
   @override
   State<TournamentScreen> createState() => _TournamentScreenState();
@@ -292,6 +294,10 @@ class _TournamentScreenState extends State<TournamentScreen> {
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: const Color(0xFF0E0B08),
+        automaticallyImplyLeading: !widget.closeIcon,
+        actions: [
+          if (widget.closeIcon) IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
+        ],
         title: Text(d?['name'] as String? ?? tr('Tournament', 'Turnir'), style: const TextStyle(fontWeight: FontWeight.w800)),
       ),
       body: LuxBackground(
@@ -308,7 +314,8 @@ class _TournamentScreenState extends State<TournamentScreen> {
                         indicatorColor: gold,
                         labelColor: goldLight,
                         unselectedLabelColor: Colors.white60,
-                        labelStyle: TextStyle(fontWeight: FontWeight.w800),
+                        labelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w800, fontSize: 14),
+                        unselectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, fontSize: 14),
                         tabs: [Tab(text: 'Info'), Tab(text: tr('Prizes', 'Nagrade')), Tab(text: tr('Players', 'Igrači')), Tab(text: tr('Tables', 'Stolovi'))],
                       ),
                       Expanded(
@@ -409,10 +416,10 @@ class _TournamentScreenState extends State<TournamentScreen> {
             if ((d['guarantee'] as num? ?? 0) > 0) _stat(tr('Guaranteed', 'Garantovano'), chips(d['guarantee'])),
             _stat(tr('Buy-in', 'Ulaz'), rsd(total)),
             _stat(running ? tr('Players left', 'U igri') : tr('Registered', 'Prijavljeno'), running ? '${d['playersLeft']} / ${d['entries']}' : '${d['entries']}'),
-            if (d['status'] == 'REGISTERING') _stat('Starts', '${opensLabel(start)}\n${countdown(start)}'),
+            if (d['status'] == 'REGISTERING') _stat(tr('Starts', 'Počinje'), '${opensLabel(start)}\n${countdown(start)}'),
             if (running && clock != null)
               clock['onBreak'] == true
-                  ? _stat('Break', '${tr('ends in', 'još')} ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
+                  ? _stat(tr('Break', 'Pauza'), '${tr('ends in', 'još')} ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
                   : _stat('${tr('Level', 'Nivo')} ${d['level']}', '${tr('next in', 'sledeći za')} ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
             if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat(tr('Duration', 'Trajanje'), '~${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
           ]),

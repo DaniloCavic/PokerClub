@@ -787,8 +787,9 @@ export class AdminController {
   @Roles('ADMIN')
   @Get('tables/:id/live')
   async live(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.table(actor, id);
-    const t = await this.prisma.pokerTable.findUniqueOrThrow({ where: { id }, include: { createdBy: { select: { displayName: true } } } });
+    // Super agent gleda i stolove turnira (oni se ne vide na stranici Stolovi).
+    const t = await this.prisma.pokerTable.findUnique({ where: { id }, include: { createdBy: { select: { displayName: true } } } });
+    if (!t) throw new NotFoundException('Sto nije pronađen.');
     const view = this.tables.liveView(id);
     if (!view) return { live: false, table: this.tableView(t) };
     const key = `${actor.id}:${id}`;

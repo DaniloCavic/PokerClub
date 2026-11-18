@@ -14,7 +14,7 @@ import '../widgets/table_chat.dart';
 import '../widgets/brand.dart';
 import '../widgets/chips.dart';
 import 'home_shell.dart';
-import 'tournaments.dart' show TourBar, clockLeft;
+import 'tournaments.dart' show TourBar, TournamentScreen, clockLeft;
 import '../i18n.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -328,7 +328,7 @@ class _TableScreenState extends State<TableScreen> {
               child: Stack(children: [
                 Positioned.fill(
                     child: Padding(padding: const EdgeInsets.fromLTRB(8, 4, 8, 0), child: _tableArea(st, money, true))),
-                Positioned(left: 14, top: 12, child: _TableInfoCard(st: st)),
+                Positioned(left: 14, top: 12, child: _TableInfoCard(st: st, now: app.serverNow)),
 
                 // Snaga moje ruke: donji levi ugao prostora sa stolom (iznad trake sa potezima).
                 if (st['myHand'] != null && (st['mySeat'] as int) >= 0 && !_TableViewState.waitingForPlayers(st))
@@ -355,7 +355,7 @@ class _TableScreenState extends State<TableScreen> {
                 // Turnir: nivo, pauza, mesto i fond iznad liste igrača (ne prekriva sto).
                 child: Column(children: [
                   if (st['tournament'] != null) ...[
-                    TourBar(tour: st['tournament'] as Json, now: app.serverNow, wide: true, vertical: true),
+                    _TourInfoButton(tour: st['tournament'] as Json),
                     const SizedBox(height: 10),
                   ],
                   Expanded(child: TableSidePanel(st: st, table: app.tableNotifier(widget.tableId), money: money, wide: true)),
@@ -1148,9 +1148,104 @@ class _UnitToggle extends StatelessWidget {
 }
 
 /// Kartica gore levo: igra, blajndovi i naziv stola.
+/// Računar: dugme koje otvara prozor sa svim o turniru (info, rang lista, nagrade, stolovi).
+class _TourInfoButton extends StatelessWidget {
+  final Json tour;
+  const _TourInfoButton({required this.tour});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: LuxButton(
+        title: tr('TOURNAMENT INFO', 'INFORMACIJE O TURNIRU'),
+        subtitle: tour['name'] as String?,
+        onTap: () => showDialog(
+          context: context,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                width: 860,
+                height: MediaQuery.of(ctx).size.height * 0.88,
+                child: TournamentScreen(id: tour['id'] as String, closeIcon: true),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Poruka iz chata iznad igrača: beli oblačić sa repom ka igraču.
+class _ChatBubble extends StatelessWidget {
+  final String text;
+  final bool tailRight;
+  final bool wide;
+  const _ChatBubble({required this.text, required this.tailRight, required this.wide});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: tailRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: wide ? 12 : 9, vertical: wide ? 8 : 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFDF8EC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: gold, width: 1.2),
+            boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 3))],
+          ),
+          child: Text(text,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: const Color(0xFF1A1208), fontSize: wide ? 14.5 : 12.5, fontWeight: FontWeight.w600, height: 1.25)),
+        ),
+        Padding(
+          padding: EdgeInsets.only(left: tailRight ? 0 : 10, right: tailRight ? 10 : 0),
+          child: CustomPaint(size: const Size(14, 9), painter: _TailPainter(tailRight)),
+        ),
+      ],
+    );
+  }
+}
+
+class _TailPainter extends CustomPainter {
+  final bool right;
+  _TailPainter(this.right);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = right
+        ? (Path()
+          ..moveTo(0, 0)
+          ..lineTo(size.width, 0)
+          ..lineTo(size.width, size.height)
+          ..close())
+        : (Path()
+          ..moveTo(0, 0)
+          ..lineTo(size.width, 0)
+          ..lineTo(0, size.height)
+          ..close());
+    canvas.drawPath(path, Paint()..color = const Color(0xFFFDF8EC));
+    canvas.drawPath(path, Paint()
+      ..color = gold
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2);
+  }
+
+  @override
+  bool shouldRepaint(_TailPainter old) => old.right != right;
+}
+
 class _TableInfoCard extends StatelessWidget {
   final Json st;
-  const _TableInfoCard({required this.st});
+  final int now;
+  const _TableInfoCard({required this.st, this.now = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -1172,9 +1267,37 @@ class _TableInfoCard extends StatelessWidget {
           Text(st['name'] as String, style: const TextStyle(color: gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
           if (tableExtras(st) != null)
             Text(tableExtras(st)!, style: const TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w600)),
+          if (st['tournament'] != null) ..._tourLines(st['tournament'] as Json, now),
         ]),
       ]),
     );
+  }
+
+  /// Turnir: nivo, blajndovi, sledeći blajndovi i za koliko, pauza i mesto.
+  static List<Widget> _tourLines(Json t, int now) {
+    const k = TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w600);
+    const v = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800);
+    Widget line(String a, String b, {Color? color}) => Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('$a  ', style: k),
+            Text(b, style: color == null ? v : v.copyWith(color: color)),
+          ]),
+        );
+    final onBreak = t['onBreak'] == true;
+    final ante = (t['ante'] as num? ?? 0) > 0 ? ' (${chips(t['ante'])})' : '';
+    return [
+      const SizedBox(height: 6),
+      Container(height: 1, width: 180, color: Colors.white12),
+      const SizedBox(height: 4),
+      line(tr('Level ${t['level']}', 'Nivo ${t['level']}'), '${chips(t['sb'])}/${chips(t['bb'])}$ante', color: goldLight),
+      if (onBreak) line(tr('Break', 'Pauza'), clockLeft((t['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
+      if (!onBreak)
+        line(tr('Next ${chips(t['nextSb'])}/${chips(t['nextBb'])} in', 'Sledeći ${chips(t['nextSb'])}/${chips(t['nextBb'])} za'),
+            clockLeft((t['levelEndsAt'] as num?)?.toInt(), now)),
+      if (!onBreak && t['nextBreakAt'] != null) line(tr('Break in', 'Pauza za'), clockLeft((t['nextBreakAt'] as num).toInt(), now)),
+      line(tr('Rank', 'Mesto'), t['position'] != null ? '${t['position']}/${t['playersLeft']}' : '${t['playersLeft']}'),
+    ];
   }
 }
 
@@ -1300,7 +1423,7 @@ class TableSidePanel extends StatelessWidget {
       // Kao u dizajnu: gore igrači / ruke, dole chat.
       return Column(children: [
         Expanded(
-          flex: 5,
+          flex: 3,
           child: LuxPanel(
             padding: EdgeInsets.zero,
             child: DefaultTabController(
@@ -1316,7 +1439,7 @@ class TableSidePanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Expanded(
-          flex: 4,
+          flex: 5,
           child: LuxPanel(
             padding: EdgeInsets.zero,
             child: Column(children: [
@@ -2370,16 +2493,20 @@ class _TableViewState extends State<_TableView> {
         orElse: () => const {},
       );
       if (recent.isNotEmpty) {
+        // Oblačić iznad i sa strane karata igrača (ka sredini stola), da ne prekriva karte.
+        final av = widget.wide ? (isMe ? 87.0 : 54.0) : (isMe ? 67.0 : 41.0);
+        final toLeft = p.dx > w * 0.62;
+        final bw = widget.wide ? 230.0 : 160.0;
+        final cardsTop = p.dy - av / 2 - (isMe ? av * 0.75 : av * 0.45);
         overlays.add(Positioned(
-          left: p.dx - 70,
-          top: p.dy - 62,
-          width: 140,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
-              child: Text(recent['text'] as String,
-                  maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black, fontSize: 11)),
+          left: toLeft ? null : (p.dx + av * 0.55).clamp(4.0, w - bw - 4),
+          right: toLeft ? (w - (p.dx - av * 0.55)).clamp(4.0, w - bw - 4) : null,
+          bottom: h - max(cardsTop + 14, 40.0),
+          width: bw,
+          child: IgnorePointer(
+            child: Align(
+              alignment: toLeft ? Alignment.bottomRight : Alignment.bottomLeft,
+              child: _ChatBubble(text: recent['text'] as String, tailRight: toLeft, wide: widget.wide),
             ),
           ),
         ));
@@ -2729,7 +2856,7 @@ class _SeatView extends StatelessWidget {
     Widget? cardsWidget;
     final scale = a / 50;
     // Tuđe karte otvorene licem (all-in, kraj ruke): velike kao moje, preko slike igrača.
-    final bigFace = !isMe && !folded && cards != null && cards.any((c) => c != null) && faceCardW != null;
+    final bigFace = !isMe && cards != null && cards.any((c) => c != null) && faceCardW != null;
     if (bigFace) {
       final cw = faceCardW!(cards.length);
       cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -2841,7 +2968,7 @@ class _SeatView extends StatelessWidget {
     );
 
     return Opacity(
-      opacity: (folded && !isMe) || away || (seat['stack'] == 0 && seat['inHand'] != true) ? 0.5 : 1,
+      opacity: (folded && !isMe && !bigFace) || away || (seat['stack'] == 0 && seat['inHand'] != true) ? 0.5 : 1,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Avatar i karte preko njega
         GestureDetector(
@@ -3018,6 +3145,10 @@ class _MyPanel extends StatelessWidget {
       );
     } else if (me['stack'] == 0 && me['inHand'] != true) {
       bottom = null; // umesto dugmeta iskače prozor Rebuy / Leave table (vidi _RebuyDialog)
+    } else if (showableCards(st) case final cards?) {
+      // Posle fold-a ili na kraju ruke: dugmad za pokazivanje karata (jedna po jedna ili sve).
+      bottom = _ShowBar(cards: cards, shown: ((me['myShown'] as List?) ?? const []).cast<int>(), height: h, wide: wide,
+          onShow: (idx) => app.run('table:show', {'tableId': tableId, 'cards': idx}));
     } else if (inHand && me['allIn'] != true) {
       // Potez unapred, kao na GG: zavisi od toga da li ima uloga za dorovnavanje.
       final toCall = toCallOf(st);
@@ -3062,6 +3193,57 @@ class _MyPanel extends StatelessWidget {
       // (Snaga ruke na računaru stoji u donjem levom uglu stola, ne ovde.)
       child: SizedBox(height: 112, child: Align(alignment: Alignment.bottomCenter, child: bottom)),
     );
+  }
+}
+
+/// Traka "Pokaži karte": dodir na kartu pokazuje samo nju, dugme desno pokazuje sve.
+class _ShowBar extends StatelessWidget {
+  final List<String> cards;
+  final List<int> shown;
+  final double height;
+  final bool wide;
+  final void Function(List<int> idx) onShow;
+  const _ShowBar({required this.cards, required this.shown, required this.height, required this.wide, required this.onShow});
+
+  @override
+  Widget build(BuildContext context) {
+    final cw = wide ? 38.0 : 30.0;
+    return Row(children: [
+      Icon(Icons.visibility, color: goldLight, size: wide ? 24 : 20),
+      const SizedBox(width: 8),
+      Flexible(
+        child: Text(tr('Show:', 'Pokaži:'), style: TextStyle(fontWeight: FontWeight.w800, fontSize: wide ? 15 : 13.5)),
+      ),
+      const SizedBox(width: 8),
+      for (var k = 0; k < cards.length; k++)
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: Opacity(
+            opacity: shown.contains(k) ? 0.35 : 1,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: shown.contains(k) ? null : () => onShow([k]),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), border: Border.all(color: gold.withOpacity(0.7))),
+                  child: PlayingCard(code: cards[k], width: cw),
+                ),
+              ),
+            ),
+          ),
+        ),
+      const SizedBox(width: 6),
+      Expanded(
+        child: LuxButton(
+          title: cards.length > 2 ? tr('SHOW ALL', 'POKAŽI SVE') : tr('SHOW BOTH', 'POKAŽI OBE'),
+          icon: Icons.visibility,
+          height: height,
+          onTap: () => onShow([for (var k = 0; k < cards.length; k++) k]),
+        ),
+      ),
+    ]);
   }
 }
 

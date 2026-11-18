@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, fmt, Me } from '../api';
 import { Drawer, useLoad } from './common';
+import { LiveGame } from './Tables';
 
 interface Level {
   sb: number;
@@ -509,6 +510,7 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
   const { data: t, error, reload } = useLoad<any>(() => api('GET', `/admin/tournaments/${id}`), [id]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [liveId, setLiveId] = useState<string | null>(null);
 
   useEffect(() => {
     const x = setInterval(reload, 4000);
@@ -577,6 +579,23 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
             ) : null}
           </div>
           {msg && <div className="success">{msg}</div>}
+          {isSuper && t.status === 'RUNNING' && t.tables?.length > 0 && (
+            <>
+              <h3>Stolovi uživo</h3>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                {t.tables.map((x: any) => (
+                  <button key={x.id} className={liveId === x.id ? '' : 'secondary'} onClick={() => setLiveId(liveId === x.id ? null : x.id)}>
+                    {x.name} · {x.players} igr.
+                  </button>
+                ))}
+              </div>
+              {liveId && t.tables.some((x: any) => x.id === liveId) && (
+                <div style={{ marginTop: 12 }}>
+                  <LiveGame id={liveId} />
+                </div>
+              )}
+            </>
+          )}
           {isSuper && (t.status === 'FINISHED' || t.status === 'CANCELLED') && (
             <div className="row" style={{ marginTop: 12 }}>
               <button

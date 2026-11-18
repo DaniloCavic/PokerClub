@@ -454,7 +454,7 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
 const STREETS: Record<string, string> = { preflop: 'Pre flopa', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Otvaranje karata' };
 
 /** Super agent: igra uživo sa kartama svih igrača (osvežava se svake sekunde). */
-function LiveGame({ id }: { id: string }) {
+export function LiveGame({ id }: { id: string }) {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {

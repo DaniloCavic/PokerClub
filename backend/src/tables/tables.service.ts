@@ -157,7 +157,7 @@ const RIT_DECLINE_SHOW_MS = 1500;
 const RIT_MS = Number(process.env.RIT_MS || 10_000);
 
 /** Kad igrač pokaže karte posle kraja ruke, sledeća ruka čeka bar ovoliko. */
-const SHOW_MS = Number(process.env.SHOW_MS || 4000);
+const SHOW_MS = Number(process.env.SHOW_MS || 5000);
 
 /** Koliko vremena igrač bez žetona ima za rebuy pre nego što ustane. */
 const REBUY_MS = Number(process.env.REBUY_MS || 120_000);
@@ -633,6 +633,8 @@ export class TablesService implements OnModuleInit {
       seats: g.seats.map((s, i) => {
         if (!s) return null;
         const own = i === mySeat;
+        // Turnir: igrač bez žetona koji čeka odluku o rebuy-u (ili ispada) ne stoji ostalima za stolom kao "duh".
+        if (rt.tour && !own && s.stack === 0 && !(g.inProgress && s.inHand) && !this.freshResult(rt)) return null;
         // Tuđe karte: otvorene na kraju ruke, ili one koje je igrač sam pokazao (ostale su poleđine).
         const vol = rt.voluntaryShow.get(i);
         const visible = own
