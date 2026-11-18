@@ -379,6 +379,13 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Nova prijava (posle promene lozinke).
+  Future<void> setToken(String token) async {
+    api.token = token;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token);
+  }
+
   /// Zaboravljena lozinka: kod stiže na e-poštu.
   Future<void> forgotPassword(String email) => api.post('/auth/forgot', {'email': email});
 

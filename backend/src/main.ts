@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { allowedOrigins } from './common/origins';
 import { LangExceptionFilter } from './common/lang.filter';
 import { ensureAdmin } from './seed-admin';
 import { ensureAgentCodes } from './common/agent-code';
@@ -27,8 +28,20 @@ function serveSpa(app: NestExpressApplication, dir: string, prefix: string) {
 
 async function bootstrap() {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET nije podešen.');
+  if (process.env.JWT_SECRET.length < 32) Logger.warn('JWT_SECRET je kratak: postavite nasumičan niz od bar 32 znaka.', 'Bezbednost');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.enableCors();
+  // Zahtevi samo sa adrese aplikacije (ALLOWED_ORIGINS ili javna adresa na Railway-u).
+  app.enableCors({ origin: allowedOrigins() ?? true });
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  // Sigurnosna zaglavlja: zabrana ugrađivanja u tuđe sajtove, samo HTTPS, bez otkrivanja tipa.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(self)');
+    if (process.env.RAILWAY_PUBLIC_DOMAIN || process.env.PUBLIC_DOMAIN) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+  });
   app.enableShutdownHooks();
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('api');

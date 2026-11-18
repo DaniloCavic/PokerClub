@@ -23,6 +23,20 @@ export const Staff = () => Roles('AGENT', 'ADMIN');
 export interface JwtPayload {
   sub: string;
   role: Role;
+  /** Verzija prijave: posle promene lozinke ili „odjave sa svih uređaja“ stari tokeni ne važe. */
+  v?: number;
+}
+
+/** Token prijave: super agent i agenti 12 h, igrači koliko je podešeno (podrazumevano 30 dana). */
+export function signToken(jwt: JwtService, user: Pick<User, 'id' | 'role' | 'tokenVersion'>) {
+  const payload: JwtPayload = { sub: user.id, role: user.role, v: user.tokenVersion };
+  return user.role === 'PLAYER' ? jwt.signAsync(payload) : jwt.signAsync(payload, { expiresIn: (process.env.STAFF_JWT_EXPIRES_IN || '12h') as never });
+}
+
+/** IP adresa klijenta (iza Railway proksija prva adresa iz X-Forwarded-For). */
+export function clientIp(req: { headers: Record<string, unknown>; ip?: string; socket?: { remoteAddress?: string } }) {
+  const fwd = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+  return (fwd || req.ip || req.socket?.remoteAddress || '').slice(0, 64);
 }
 
 export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionContext): User => {
@@ -72,6 +86,7 @@ export class AuthGuard implements CanActivate {
     }
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException('Nalog ne postoji.');
+    if ((payload.v ?? 0) !== user.tokenVersion) throw new UnauthorizedException('Sesija je istekla. Prijavite se ponovo.');
     if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
     // Blokiran agent blokira i pristup njegovim igračima.
     if (user.agentId) {

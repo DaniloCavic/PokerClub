@@ -55,7 +55,8 @@ export function Agents() {
                 </td>
                 <td>{a.displayName}</td>
                 <td>
-                  <code style={{ fontSize: 15, fontWeight: 700, letterSpacing: 1 }}>{a.agentCode ?? '—'}</code>
+                  <code style={{ fontSize: 15, fontWeight: 700, letterSpacing: 1 }}>{a.agentCode ?? '—'}</code>{' '}
+                  {a.totpEnabled ? <span className="badge green">2FA</span> : <span className="badge red">bez 2FA</span>}
                 </td>
                 <td>
                   <b>{a.rakePercent}%</b>
@@ -77,6 +78,17 @@ export function Agents() {
                   >
                     Kod
                   </button>
+                  {a.totpEnabled && (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        if (!window.confirm(`Isključiti 2FA agentu ${a.displayName} (npr. izgubio telefon)? Biće odjavljen sa svih uređaja.`)) return;
+                        void run(() => api('POST', `/admin/agents/${a.id}/reset-2fa`), '2FA je isključena za agenta.');
+                      }}
+                    >
+                      Reset 2FA
+                    </button>
+                  )}
                   <button
                     className="secondary"
                     onClick={() => {

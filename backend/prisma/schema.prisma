@@ -67,6 +67,14 @@ model User {
   avatarAt      DateTime?
   /// Jezik aplikacije igrača (en / sr): poruke i obaveštenja stižu na tom jeziku.
   lang          String    @default("en")
+  /// Dvostepena prijava (2FA, kod iz aplikacije Google Authenticator i sl.) za super agenta i agente.
+  totpSecret    String?
+  totpEnabled   Boolean   @default(false)
+  /// Povećava se pri promeni lozinke ili „odjavi sa svih uređaja“: stare prijave prestaju da važe.
+  tokenVersion  Int       @default(0)
+  /// Zaključavanje posle više pogrešnih lozinki.
+  failedLogins  Int       @default(0)
+  lockedUntil   DateTime?
   /// E-pošta igrača (malim slovima): prijava i povraćaj lozinke.
   email         String?   @unique
   /// Kod za novu lozinku poslat na e-poštu (heš), rok i broj pokušaja.
@@ -95,6 +103,7 @@ model User {
   notesWritten PlayerNote[]       @relation("NoteOwner")
   notesAbout   PlayerNote[]       @relation("NoteTarget")
   pushSubs     PushSubscription[]
+  logins       LoginLog[]
 
   @@index([role, agentId])
 }
@@ -384,4 +393,21 @@ model SecurityAlert {
   seen      Boolean  @default(false)
 
   @@index([createdAt])
+}
+
+/// Svaka prijava (uspešna i neuspešna) sa IP adresom i uređajem.
+model LoginLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  login     String
+  ok        Boolean
+  reason    String?
+  ip        String?
+  agent     String?
+  staff     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }

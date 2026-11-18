@@ -9,8 +9,9 @@ import { Tournaments } from './pages/Tournaments';
 import { Reports } from './pages/Reports';
 import { Security } from './pages/Security';
 import { Welcome } from './pages/Welcome';
+import { Account } from './pages/Account';
 
-type Page = 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'reports' | 'agents' | 'security' | 'welcome';
+type Page = 'account' | 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'reports' | 'agents' | 'security' | 'welcome';
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -45,6 +46,7 @@ export function App() {
     { id: 'players', label: 'Igrači' },
     { id: 'transactions', label: 'Transakcije' },
     { id: 'reports', label: 'Izveštaji' },
+    { id: 'account', label: 'Moj nalog i 2FA' },
     ...(me.role === 'ADMIN'
       ? [
           { id: 'agents' as Page, label: 'Agenti' },
@@ -88,6 +90,7 @@ export function App() {
         {current === 'transactions' && <Transactions />}
         {current === 'agents' && <Agents />}
         {current === 'reports' && <Reports me={me} />}
+        {current === 'account' && <Account me={me} />}
         {current === 'security' && <Security />}
         {current === 'welcome' && <Welcome />}
       </main>
@@ -98,6 +101,8 @@ export function App() {
 function Login({ onDone }: { onDone: (me: Me) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
+  const [needTotp, setNeedTotp] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -106,12 +111,16 @@ function Login({ onDone }: { onDone: (me: Me) => void }) {
     setBusy(true);
     setError('');
     try {
-      const res = await api('POST', '/auth/login', { username, password });
+      const res = await api('POST', '/auth/login', { username, password, ...(needTotp ? { totp } : {}) });
       if (res.user.role === 'PLAYER') throw new Error('Ovo je nalog igrača. Igrači igraju u aplikaciji.');
       setToken(res.accessToken);
       onDone(res.user);
     } catch (err) {
-      setError((err as Error).message);
+      const m = (err as Error).message;
+      if (m === 'TOTP_REQUIRED') {
+        setNeedTotp(true);
+        setError('');
+      } else setError(m);
     } finally {
       setBusy(false);
     }
@@ -122,6 +131,16 @@ function Login({ onDone }: { onDone: (me: Me) => void }) {
       <h2>Poker klub Triling — agenti</h2>
       <input placeholder="Korisničko ime" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
       <input placeholder="Lozinka" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {needTotp && (
+        <input
+          placeholder="Kod iz aplikacije (6 cifara)"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={totp}
+          onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          autoFocus
+        />
+      )}
       {error && <div className="error">{error}</div>}
       <button disabled={busy || !username || !password}>Prijava</button>
     </form>

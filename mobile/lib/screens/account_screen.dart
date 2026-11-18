@@ -396,7 +396,9 @@ class _PasswordDialogState extends State<_PasswordDialog> {
     });
     final app = context.read<AppState>();
     try {
-      await app.api.post('/me/password', {'oldPassword': _old.text, 'newPassword': _new.text});
+      final res = await app.api.post('/me/password', {'oldPassword': _old.text, 'newPassword': _new.text});
+      // Nova lozinka: ostali uređaji su odjavljeni, ovaj dobija novu prijavu.
+      if (res['accessToken'] != null) await app.setToken(res['accessToken'] as String);
       if (!mounted) return;
       Navigator.pop(context);
       app.toast(tr('Password changed.', 'Lozinka je promenjena.'));

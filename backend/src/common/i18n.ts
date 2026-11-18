@@ -126,6 +126,8 @@ const EN: [RegExp, string][] = [
   [/^Nalog sa ovom e-poštom već postoji\.$/, 'An account with this email already exists.'],
   [/^Kod ima 6 cifara\.$/, 'The code has 6 digits.'],
   [/^Kod nije tačan ili je istekao\.$/, 'The code is wrong or has expired.'],
+  [/^Previše pogrešnih pokušaja\. Pokušajte ponovo za (\d+) min\.$/, 'Too many wrong attempts. Try again in $1 min.'],
+  [/^Kod za dvostepenu prijavu nije tačan\.$/, 'The two-step verification code is not correct.'],
   // ---------- Beleške uz transakcije ----------
   [/^dopuna$/, 'top-up'],
   [/^Server je ponovo pokrenut$/, 'Server restarted'],

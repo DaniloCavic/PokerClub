@@ -15,6 +15,7 @@ import { publicUser } from '../common/public-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActionType, GameError } from '../poker/engine/game';
 import { TablesService } from './tables.service';
+import { allowedOrigins } from '../common/origins';
 import { normLang, tr, trUser, userLang } from '../common/i18n';
 import { TournamentsService } from '../tournaments/tournaments.service';
 
@@ -28,7 +29,7 @@ interface TableMsg {
  * Socket.IO kanal za stolove. Klijent se povezuje sa { auth: { token } }.
  * Svaki događaj odgovara sa { ok: true, ... } ili { ok: false, error }.
  */
-@WebSocketGateway({ cors: { origin: '*' }, path: '/socket.io' })
+@WebSocketGateway({ cors: { origin: allowedOrigins() ?? '*' }, path: '/socket.io' })
 export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   private readonly log = new Logger(TablesGateway.name);
   @WebSocketServer() server: Server;

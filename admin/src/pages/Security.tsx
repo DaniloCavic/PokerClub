@@ -40,7 +40,9 @@ export function Security() {
               <tr key={a.id} style={a.seen ? undefined : { background: '#fff4e5' }}>
                 <td>{fmtDate(a.createdAt)}</td>
                 <td>
-                  <span className={`badge ${a.kind === 'SAME_DEVICE' ? 'red' : 'blue'}`}>{a.kind === 'SAME_DEVICE' ? 'Isti uređaj' : 'Ista IP adresa'}</span>
+                  <span className={`badge ${a.kind === 'SAME_IP' ? 'blue' : 'red'}`}>
+                    {({ SAME_DEVICE: 'Isti uređaj', SAME_IP: 'Ista IP adresa', STAFF_NEW_IP: 'Admin: nova IP', STAFF_LOCKED: 'Admin: zaključan' } as Record<string, string>)[a.kind] ?? a.kind}
+                  </span>
                 </td>
                 <td>
                   <b>{a.names}</b>
@@ -54,6 +56,31 @@ export function Security() {
                 <td colSpan={5} className="muted">Nema upozorenja.</td>
               </tr>
             )}
+          </tbody>
+        </table>
+      </div>
+      <h3>Prijave super agenta i agenata</h3>
+      <div className="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Vreme</th>
+              <th>Nalog</th>
+              <th>Uspeh</th>
+              <th>IP adresa</th>
+              <th>Uređaj</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.staffLogins?.map((l: any) => (
+              <tr key={l.id}>
+                <td>{fmtDate(l.createdAt)}</td>
+                <td>{l.user?.displayName ?? l.login}</td>
+                <td>{l.ok ? <span className="badge green">da</span> : <span className="badge red">{l.reason ?? 'ne'}</span>}</td>
+                <td>{l.ip}</td>
+                <td className="small muted">{(l.agent ?? '').slice(0, 60)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

@@ -12,6 +12,11 @@ export class LoginDto {
   @IsString({ message: 'Unesite lozinku.' })
   @MinLength(1, { message: 'Unesite lozinku.' })
   password: string;
+
+  /** Kod za dvostepenu prijavu (samo ako je uključena). */
+  @IsOptional()
+  @IsString()
+  totp?: string;
 }
 
 /** Registracija igrača: e-pošta, korisničko ime (ime za stolom), lozinka; kod agenta je opcioni. */

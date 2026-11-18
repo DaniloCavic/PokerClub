@@ -1,5 +1,5 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
-import type { Response } from 'express';
+import { BadRequestException, Body, ConflictException, Req, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
 import { TxType, User } from '@prisma/client';
@@ -12,6 +12,8 @@ import { playerStats } from '../tables/player-stats';
 import { TablesService } from '../tables/tables.service';
 import { AvatarDto, ChangePasswordDto, EmailDto, ForgotDto, LoginDto, NoteDto, RegisterDto, ResetDto } from './dto';
 import { sendMail } from '../common/mail';
+import { verifyTotp } from '../common/totp';
+import { clientIp, signToken } from '../common/auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -23,24 +25,68 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
-  async login(@Body() dto: LoginDto) {
+  async login(@Body() dto: LoginDto, @Req() req: Request) {
+    const ip = clientIp(req);
+    const agent = String(req.headers['user-agent'] ?? '').slice(0, 200);
     // Prijava korisničkim imenom ili e-poštom.
     const login = dto.username.toLowerCase();
     const user = login.includes('@')
       ? await this.prisma.user.findUnique({ where: { email: login } })
       : await this.prisma.user.findUnique({ where: { usernameLower: login } });
+    const staff = !!user && user.role !== 'PLAYER';
+    const log = (ok: boolean, reason?: string) =>
+      this.prisma.loginLog.create({ data: { userId: user?.id ?? null, login: login.slice(0, 120), ok, reason, ip, agent, staff } }).catch(() => undefined);
+    // Zaključan nalog posle više pogrešnih lozinki.
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      await log(false, 'zaključan');
+      const min = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
+      throw new ForbiddenException(`Previše pogrešnih pokušaja. Pokušajte ponovo za ${min} min.`);
+    }
     // Ista poruka za nepostojeći nalog i pogrešnu lozinku.
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+      if (user) {
+        const failed = user.failedLogins + 1;
+        // Posle 5 pogrešnih: 15 min zaključano (super agent i agenti: posle 5, isto, ali se upisuje upozorenje).
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: failed >= 5 ? { failedLogins: 0, lockedUntil: new Date(Date.now() + 15 * 60_000) } : { failedLogins: failed },
+        });
+        if (failed >= 5 && staff) {
+          await this.prisma.securityAlert.create({
+            data: { kind: 'STAFF_LOCKED', userIds: [user.id], names: user.displayName, detail: `5 pogrešnih lozinki, IP ${ip}. Nalog zaključan 15 min.` },
+          });
+        }
+      }
+      await log(false, 'pogrešna lozinka');
       throw new UnauthorizedException('Pogrešno korisničko ime ili lozinka.');
+    }
+    // Dvostepena prijava: posle lozinke i kod iz aplikacije za autentifikaciju.
+    if (user.totpEnabled && user.totpSecret) {
+      if (!dto.totp) throw new UnauthorizedException('TOTP_REQUIRED');
+      if (!verifyTotp(user.totpSecret, dto.totp)) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { failedLogins: { increment: 1 } } });
+        await log(false, 'pogrešan 2FA kod');
+        throw new UnauthorizedException('Kod za dvostepenu prijavu nije tačan.');
+      }
     }
     if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
     if (user.agentId) {
-      const agent = await this.prisma.user.findUnique({ where: { id: user.agentId }, select: { isBlocked: true } });
-      if (agent?.isBlocked) throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
+      const ag = await this.prisma.user.findUnique({ where: { id: user.agentId }, select: { isBlocked: true } });
+      if (ag?.isBlocked) throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
     }
-    const fresh = await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
-    return { accessToken, user: publicUser(fresh) };
+    // Super agent / agent sa nove IP adrese: upozorenje u Bezbednosti.
+    if (staff) {
+      const seen = await this.prisma.loginLog.findFirst({ where: { userId: user.id, ok: true, ip } });
+      const any = await this.prisma.loginLog.findFirst({ where: { userId: user.id, ok: true } });
+      if (any && !seen) {
+        await this.prisma.securityAlert.create({
+          data: { kind: 'STAFF_NEW_IP', userIds: [user.id], names: user.displayName, detail: `Prijava sa nove IP adrese ${ip} (${agent.slice(0, 80)})` },
+        });
+      }
+    }
+    await log(true);
+    const fresh = await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date(), failedLogins: 0, lockedUntil: null } });
+    return { accessToken: await signToken(this.jwt, fresh), user: publicUser(fresh) };
   }
 
   /**
@@ -76,8 +122,7 @@ export class AuthController {
         lastSeenAt: new Date(),
       },
     });
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
-    return { accessToken, user: publicUser(user) };
+    return { accessToken: await signToken(this.jwt, user), user: publicUser(user) };
   }
 
   /** Zaboravljena lozinka: na e-poštu stiže kod od 6 cifara (važi 15 minuta). */
@@ -120,10 +165,9 @@ export class AuthController {
     if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
     const fresh = await this.prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(dto.password, 12), resetCodeHash: null, resetExpires: null, resetTries: 0, lastSeenAt: new Date() },
+      data: { passwordHash: await bcrypt.hash(dto.password, 12), resetCodeHash: null, resetExpires: null, resetTries: 0, lastSeenAt: new Date(), failedLogins: 0, lockedUntil: null, tokenVersion: { increment: 1 } },
     });
-    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
-    return { accessToken, user: publicUser(fresh) };
+    return { accessToken: await signToken(this.jwt, fresh), user: publicUser(fresh) };
   }
 }
 
@@ -132,7 +176,15 @@ export class MeController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tables: TablesService,
+    private readonly jwt: JwtService,
   ) {}
+
+  /** Odjava sa svih uređaja: sve postojeće prijave prestaju da važe; ovaj uređaj dobija novu. */
+  @Post('logout-all')
+  async logoutAll(@CurrentUser() user: User) {
+    const fresh = await this.prisma.user.update({ where: { id: user.id }, data: { tokenVersion: { increment: 1 } } });
+    return { ok: true, accessToken: await signToken(this.jwt, fresh) };
+  }
 
   @Get()
   async me(@CurrentUser() user: User) {
@@ -180,8 +232,12 @@ export class MeController {
   @Post('password')
   async changePassword(@CurrentUser() user: User, @Body() dto: ChangePasswordDto) {
     if (!(await bcrypt.compare(dto.oldPassword, user.passwordHash))) throw new BadRequestException('Stara lozinka nije tačna.');
-    await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(dto.newPassword, 12) } });
-    return { ok: true };
+    // Nova lozinka: sve ostale prijave (drugi uređaji) prestaju da važe; ovaj uređaj dobija novu prijavu.
+    const fresh = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, 12), tokenVersion: { increment: 1 } },
+    });
+    return { ok: true, accessToken: await signToken(this.jwt, fresh) };
   }
 
   /** Nova slika profila (base64). Aplikacija je pre slanja smanji na ~256 px. */

@@ -21,6 +21,7 @@ import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
+import { newTotpSecret, totpUrl, verifyTotp } from '../common/totp';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -186,6 +187,48 @@ export class AdminController {
     };
   }
 
+  // ---------- Moj nalog: dvostepena prijava (2FA) i prijave ----------
+
+  @Get('account')
+  async account(@CurrentUser() actor: User) {
+    const logins = await this.prisma.loginLog.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' }, take: 20 });
+    return { totpEnabled: actor.totpEnabled, logins };
+  }
+
+  /** Novi tajni ključ za aplikaciju za autentifikaciju (važi tek kad se potvrdi kodom). */
+  @Post('2fa/setup')
+  async setup2fa(@CurrentUser() actor: User) {
+    if (actor.totpEnabled) throw new BadRequestException('Dvostepena prijava je već uključena.');
+    const secret = newTotpSecret();
+    await this.prisma.user.update({ where: { id: actor.id }, data: { totpSecret: secret } });
+    return { secret, url: totpUrl(secret, actor.username) };
+  }
+
+  @Post('2fa/enable')
+  async enable2fa(@CurrentUser() actor: User, @Body() b: { code?: string }) {
+    if (!actor.totpSecret || !verifyTotp(actor.totpSecret, String(b?.code ?? ''))) throw new BadRequestException('Kod nije tačan. Proverite vreme na telefonu i pokušajte ponovo.');
+    await this.prisma.user.update({ where: { id: actor.id }, data: { totpEnabled: true } });
+    return { ok: true };
+  }
+
+  @Post('2fa/disable')
+  async disable2fa(@CurrentUser() actor: User, @Body() b: { code?: string; password?: string }) {
+    if (!actor.totpEnabled || !actor.totpSecret) return { ok: true };
+    if (!(await bcrypt.compare(String(b?.password ?? ''), actor.passwordHash)) || !verifyTotp(actor.totpSecret, String(b?.code ?? ''))) {
+      throw new BadRequestException('Lozinka ili kod nisu tačni.');
+    }
+    await this.prisma.user.update({ where: { id: actor.id }, data: { totpEnabled: false, totpSecret: null } });
+    return { ok: true };
+  }
+
+  /** Super agent isključuje 2FA agentu koji je izgubio telefon (agent ga posle ponovo uključuje). */
+  @Roles('ADMIN')
+  @Post('agents/:id/reset-2fa')
+  async reset2fa(@Param('id') id: string) {
+    await this.prisma.user.updateMany({ where: { id, role: 'AGENT' }, data: { totpEnabled: false, totpSecret: null, tokenVersion: { increment: 1 } } });
+    return { ok: true };
+  }
+
   // ---------- Bezbednost ----------
 
   /**
@@ -208,8 +251,16 @@ export class AdminController {
     const ids = [...new Set(pairs.flatMap((p) => [p.a, p.b]))];
     const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, lastIp: true } });
     const u = (id: string) => users.find((x) => x.id === id);
+    // Prijave super agenta i agenata (i neuspešne) — da se vidi ko je i odakle ulazio.
+    const staffLogins = await this.prisma.loginLog.findMany({
+      where: { staff: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { user: { select: { displayName: true, role: true } } },
+    });
     return {
       alerts,
+      staffLogins,
       pairs: pairs.map((p) => ({
         ...p,
         nameA: u(p.a)?.displayName ?? '?',
@@ -494,6 +545,7 @@ export class AdminController {
   @Roles('ADMIN')
   @Get('agents')
   async agents() {
+    // (2FA status se vidi u listi agenata)
     const agents = await this.prisma.user.findMany({
       where: { role: 'AGENT' },
       orderBy: { createdAt: 'desc' },
@@ -510,6 +562,7 @@ export class AdminController {
       return {
         ...publicUser(a),
         rakePercent: a.rakeShareBps / 100,
+        totpEnabled: a.totpEnabled,
         players: a._count.players,
         playersBalance: balances.find((b) => b.agentId === a.id)?._sum.balance ?? 0,
         playersRake: r?.amount ?? 0,
