@@ -83,6 +83,33 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  Future<void> _emailDialog(String? current) async {
+    final c = TextEditingController(text: current ?? '');
+    final app = context.read<AppState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Email', 'E-pošta')),
+        content: TextField(
+          controller: c,
+          keyboardType: TextInputType.emailAddress,
+          decoration: InputDecoration(hintText: 'name@example.com', helperText: tr('Used to sign in and reset your password.', 'Za prijavu i povraćaj lozinke.')),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Cancel', 'Otkaži'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Save', 'Sačuvaj'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await app.setEmail(c.text.trim());
+      app.toast(tr('Email saved.', 'E-pošta je sačuvana.'));
+    } catch (e) {
+      app.toast(e.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -163,6 +190,12 @@ class _AccountScreenState extends State<AccountScreen> {
               title: tr('Language', 'Jezik'),
               subtitle: app.lang == 'sr' ? 'Srpski' : 'English',
               onTap: () => showDialog(context: context, builder: (_) => const _LanguageDialog()),
+            ),
+            _MenuItem(
+              icon: Icons.email,
+              title: tr('Email', 'E-pošta'),
+              subtitle: (u['email'] as String?) ?? tr('Not set — add it so you can reset a forgotten password', 'Nije uneta — dodajte je da biste mogli da vratite lozinku'),
+              onTap: () => _emailDialog(u['email'] as String?),
             ),
             _MenuItem(
               icon: Icons.lock,

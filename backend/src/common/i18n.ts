@@ -122,6 +122,10 @@ const EN: [RegExp, string][] = [
   [/^Ime za prikaz može imati najviše 30 znakova\.$/, 'The display name can have at most 30 characters.'],
   [/^Kod agenta ne postoji\.$/, 'That agent code does not exist.'],
   [/^Agent sa ovim kodom trenutno nije aktivan\.$/, 'The agent with this code is not active right now.'],
+  [/^Unesite ispravnu e-poštu\.$/, 'Enter a valid email.'],
+  [/^Nalog sa ovom e-poštom već postoji\.$/, 'An account with this email already exists.'],
+  [/^Kod ima 6 cifara\.$/, 'The code has 6 digits.'],
+  [/^Kod nije tačan ili je istekao\.$/, 'The code is wrong or has expired.'],
   // ---------- Beleške uz transakcije ----------
   [/^dopuna$/, 'top-up'],
   [/^Server je ponovo pokrenut$/, 'Server restarted'],

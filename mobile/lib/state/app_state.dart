@@ -351,10 +351,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// Novi nalog igrača (kod agenta je opcioni).
-  Future<void> register(String username, String displayName, String password, String agentCode) async {
+  Future<void> register(String email, String username, String password, String agentCode) async {
     final res = await api.post('/auth/register', {
+      'email': email,
       'username': username,
-      'displayName': displayName,
       'password': password,
       if (agentCode.trim().isNotEmpty) 'agentCode': agentCode.trim(),
     });
@@ -377,6 +377,24 @@ class AppState extends ChangeNotifier {
     try {
       await api.post('/me/welcome/seen', {});
     } catch (_) {}
+  }
+
+  /// Zaboravljena lozinka: kod stiže na e-poštu.
+  Future<void> forgotPassword(String email) => api.post('/auth/forgot', {'email': email});
+
+  /// Nova lozinka uz kod iz e-pošte (posle toga je igrač prijavljen).
+  Future<void> resetPassword(String email, String code, String password) async {
+    final res = await api.post('/auth/reset', {'email': email, 'code': code, 'password': password});
+    api.token = res['accessToken'];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', api.token!);
+    _onUser(res['user']);
+  }
+
+  Future<void> setEmail(String email) async {
+    final u = await api.post('/me/email', {'email': email});
+    user = {...?user, 'email': u['email']};
+    notifyListeners();
   }
 
   void _onUser(Map<String, dynamic> u) {

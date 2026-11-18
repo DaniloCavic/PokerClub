@@ -67,6 +67,12 @@ model User {
   avatarAt      DateTime?
   /// Jezik aplikacije igrača (en / sr): poruke i obaveštenja stižu na tom jeziku.
   lang          String    @default("en")
+  /// E-pošta igrača (malim slovima): prijava i povraćaj lozinke.
+  email         String?   @unique
+  /// Kod za novu lozinku poslat na e-poštu (heš), rok i broj pokušaja.
+  resetCodeHash String?
+  resetExpires  DateTime?
+  resetTries    Int       @default(0)
   /// Za agente: kod koji igrač unosi pri registraciji da bi pripao ovom agentu.
   agentCode     String?   @unique
   /// Poslednja IP adresa i uređaj (zaštita od igre sa više naloga za istim stolom).

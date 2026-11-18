@@ -4,7 +4,7 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'playing_card.dart';
-import 'hand_replay.dart';
+import '../screens/table_screen.dart' show openHandReplay;
 import '../i18n.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -321,7 +321,7 @@ class _HandTile extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
-              onPressed: () => showHandReplay(context, hand, money),
+              onPressed: () => openHandReplay(context, hand),
               icon: const Icon(Icons.play_circle, color: goldLight),
               label: Text(tr('Replay hand', 'Odigraj ruku ponovo'), style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
               style: OutlinedButton.styleFrom(side: BorderSide(color: gold.withOpacity(0.6))),

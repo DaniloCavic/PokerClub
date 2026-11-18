@@ -70,6 +70,16 @@ export function Agents() {
                   <button
                     className="secondary"
                     onClick={() => {
+                      const v = prompt(`Novi kod za agenta ${a.displayName} (slova i brojevi, npr. LIVERPOOL123). Stari kod prestaje da važi za nove igrače:`, a.agentCode ?? '');
+                      if (v === null) return;
+                      void run(() => api('PATCH', `/admin/agents/${a.id}`, { agentCode: v }), 'Kod je promenjen.');
+                    }}
+                  >
+                    Kod
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => {
                       const v = prompt(`Procenat rake-a za agenta ${a.displayName} (0–100). Važi za ruke od sada:`, String(a.rakePercent));
                       if (v === null) return;
                       const n = Number(v.replace(',', '.'));

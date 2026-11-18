@@ -10,7 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normLang, tr, userLang } from '../common/i18n';
 import { playerStats } from '../tables/player-stats';
 import { TablesService } from '../tables/tables.service';
-import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto, RegisterDto } from './dto';
+import { AvatarDto, ChangePasswordDto, EmailDto, ForgotDto, LoginDto, NoteDto, RegisterDto, ResetDto } from './dto';
+import { sendMail } from '../common/mail';
 
 @Controller('auth')
 export class AuthController {
@@ -23,7 +24,11 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   async login(@Body() dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { usernameLower: dto.username.toLowerCase() } });
+    // Prijava korisničkim imenom ili e-poštom.
+    const login = dto.username.toLowerCase();
+    const user = login.includes('@')
+      ? await this.prisma.user.findUnique({ where: { email: login } })
+      : await this.prisma.user.findUnique({ where: { usernameLower: login } });
     // Ista poruka za nepostojeći nalog i pogrešnu lozinku.
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Pogrešno korisničko ime ili lozinka.');
@@ -39,16 +44,18 @@ export class AuthController {
   }
 
   /**
-   * Igrač sam pravi nalog. Sa kodom agenta pripada tom agentu; bez koda ostaje bez agenta,
-   * a super agent ga kasnije može dodeliti nekom agentu.
+   * Igrač sam pravi nalog: e-pošta, korisničko ime (ono je i ime za stolom) i lozinka.
+   * Sa kodom agenta pripada tom agentu; bez koda ostaje bez agenta, a super agent ga kasnije dodeljuje.
    */
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto) {
+    const email = dto.email.toLowerCase();
     if (await this.prisma.user.findUnique({ where: { usernameLower: dto.username.toLowerCase() } })) {
       throw new ConflictException('Korisničko ime je zauzeto.');
     }
+    if (await this.prisma.user.findUnique({ where: { email } })) throw new ConflictException('Nalog sa ovom e-poštom već postoji.');
     let agentId: string | null = null;
     const code = dto.agentCode?.trim().toUpperCase();
     if (code) {
@@ -61,7 +68,8 @@ export class AuthController {
       data: {
         username: dto.username,
         usernameLower: dto.username.toLowerCase(),
-        displayName: dto.displayName,
+        displayName: dto.username,
+        email,
         passwordHash: await bcrypt.hash(dto.password, 12),
         role: 'PLAYER',
         agentId,
@@ -70,6 +78,52 @@ export class AuthController {
     });
     const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
     return { accessToken, user: publicUser(user) };
+  }
+
+  /** Zaboravljena lozinka: na e-poštu stiže kod od 6 cifara (važi 15 minuta). */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('forgot')
+  async forgot(@Body() dto: ForgotDto, @Headers('x-lang') lang?: string) {
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    // Isti odgovor i kad nalog ne postoji (da se ne otkriva čija je e-pošta).
+    if (user && !user.isBlocked) {
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { resetCodeHash: await bcrypt.hash(code, 10), resetExpires: new Date(Date.now() + 15 * 60_000), resetTries: 0 },
+      });
+      const sr = (lang ?? user.lang) === 'sr';
+      await sendMail(
+        user.email!,
+        sr ? 'Poker klub Triling — nova lozinka' : 'Poker klub Triling — reset your password',
+        sr
+          ? `Zdravo ${user.displayName},\n\nVaš kod za novu lozinku je: ${code}\n\nKod važi 15 minuta. Ako niste tražili novu lozinku, zanemarite ovu poruku.`
+          : `Hi ${user.displayName},\n\nYour password reset code is: ${code}\n\nThe code is valid for 15 minutes. If you did not ask for a new password, ignore this email.`,
+      ).catch(() => undefined);
+    }
+    return { ok: true };
+  }
+
+  /** Nova lozinka uz kod iz e-pošte (najviše 5 pokušaja po kodu). */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('reset')
+  async reset(@Body() dto: ResetDto) {
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const bad = () => new BadRequestException('Kod nije tačan ili je istekao.');
+    if (!user?.resetCodeHash || !user.resetExpires || user.resetExpires < new Date() || user.resetTries >= 5) throw bad();
+    if (!(await bcrypt.compare(dto.code, user.resetCodeHash))) {
+      await this.prisma.user.update({ where: { id: user.id }, data: { resetTries: { increment: 1 } } });
+      throw bad();
+    }
+    if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
+    const fresh = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(dto.password, 12), resetCodeHash: null, resetExpires: null, resetTries: 0, lastSeenAt: new Date() },
+    });
+    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
+    return { accessToken, user: publicUser(fresh) };
   }
 }
 
@@ -103,6 +157,15 @@ export class MeController {
   async welcomeSeen(@CurrentUser() user: User) {
     await this.prisma.user.update({ where: { id: user.id }, data: { welcomeSeenAt: new Date() } });
     return { ok: true };
+  }
+
+  /** E-pošta za prijavu i povraćaj lozinke (igrači koje je napravio agent mogu je dodati). */
+  @Post('email')
+  async setEmail(@CurrentUser() user: User, @Body() dto: EmailDto) {
+    const email = dto.email.toLowerCase();
+    const other = await this.prisma.user.findUnique({ where: { email } });
+    if (other && other.id !== user.id) throw new ConflictException('Nalog sa ovom e-poštom već postoji.');
+    return publicUser(await this.prisma.user.update({ where: { id: user.id }, data: { email } }));
   }
 
   /** Jezik aplikacije (en / sr): poruke i obaveštenja na telefonu stižu na tom jeziku. */
@@ -182,7 +245,7 @@ export class MeController {
         orderBy: { createdAt: 'desc' },
         skip: (p - 1) * 20,
         take: 20,
-        include: { table: { select: { name: true, variant: true, smallBlind: true, bigBlind: true } } },
+        include: { table: { select: { name: true, variant: true, smallBlind: true, bigBlind: true, maxSeats: true } } },
       }),
       this.prisma.hand.count({ where }),
     ]);
@@ -194,7 +257,7 @@ export class MeController {
         const d = h.details as {
           players: { seat: number; userId: string; name: string; startStack: number; endStack: number; cards: string }[];
           pots: unknown[];
-          shown: { seat: number }[];
+          shown: { seat: number; cards: string[]; best: string[]; handName: string }[];
           actions?: unknown[];
         };
         const shown = new Set((d.shown ?? []).map((x) => x.seat));
@@ -206,6 +269,8 @@ export class MeController {
           board: h.board ? h.board.split(' ') : [],
           pot: h.pot,
           pots: d.pots,
+          // Karte otvorene na kraju ruke (za replay).
+          shown: d.shown ?? [],
           actions: d.actions ?? [],
           players: d.players.map((pl) => ({
             seat: pl.seat,

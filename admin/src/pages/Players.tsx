@@ -129,7 +129,7 @@ export function CreateAccount({
   onClose: () => void;
   onSaved: (u: any) => void;
 }) {
-  const [f, setF] = useState({ username: '', displayName: '', password: '', note: '', agentId: '', rakePercent: '' });
+  const [f, setF] = useState({ username: '', displayName: '', password: '', note: '', agentId: '', rakePercent: '', agentCode: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const isPlayer = path === '/admin/players';
@@ -140,12 +140,12 @@ export function CreateAccount({
     setBusy(true);
     setError('');
     try {
-      const { rakePercent, ...rest } = f;
+      const { rakePercent, agentCode, ...rest } = f;
       onSaved(
         await api('POST', path, {
           ...rest,
           agentId: f.agentId || undefined,
-          ...(isPlayer ? {} : { rakePercent: Number(rakePercent.replace(',', '.')) || 0 }),
+          ...(isPlayer ? {} : { rakePercent: Number(rakePercent.replace(',', '.')) || 0, agentCode }),
         }),
       );
     } catch (err) {
@@ -172,6 +172,17 @@ export function CreateAccount({
             Lozinka (bar 6 znakova)
             <input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
           </label>
+          {!isPlayer && (
+            <label>
+              Kod agenta (igrači ga upisuju pri registraciji)
+              <input
+                placeholder="npr. LIVERPOOL123"
+                value={f.agentCode}
+                onChange={(e) => setF({ ...f, agentCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                maxLength={20}
+              />
+            </label>
+          )}
           {!isPlayer && (
             <label>
               Procenat rake-a njegovih igrača (%)

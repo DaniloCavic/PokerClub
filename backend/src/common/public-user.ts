@@ -20,5 +20,6 @@ export function publicUser(u: User) {
     lastSeenAt: u.lastSeenAt,
     lang: u.lang,
     agentCode: u.agentCode,
+    email: u.email,
   };
 }

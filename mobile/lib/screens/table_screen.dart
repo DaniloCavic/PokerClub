@@ -1730,6 +1730,7 @@ class _TableView extends StatefulWidget {
   /// Dodir na drugog igrača: beleška o njemu.
   final void Function(Json seat) onTapPlayer;
   const _TableView({
+    super.key,
     required this.st,
     required this.size,
     required this.money,
@@ -2585,7 +2586,9 @@ class _FeltInfo extends StatelessWidget {
                   ? '${omaha ? 'PLO' : 'NLH'} · Level ${tour['level']} · Blinds ${chips(tour['sb'])}/${chips(tour['bb'])} · Ante ${chips(tour['ante'])}'
                   : '${omaha ? 'PLO' : 'NLH'} · Blinds ${chips(st['smallBlind'])}/${chips(st['bigBlind'])} · Ante ${chips(st['ante'] ?? 0)}',
               style: faint.copyWith(fontWeight: FontWeight.w700)),
-          Text(tour != null ? '${tour['name']} · ${tour['playersLeft']} ${tr('left', 'u igri')}' : '${tr('Buy-in', 'Ulaz')} ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
+          if (st['replay'] != true)
+            Text(tour != null ? '${tour['name']} · ${tour['playersLeft']} ${tr('left', 'u igri')}' : '${tr('Buy-in', 'Ulaz')} ${chips(st['minBuyIn'])} – ${chips(st['maxBuyIn'])}', style: faint),
+          if (st['replay'] != true)
           Text(
               [
                 'Players ${(st['seats'] as List).where((x) => x != null && x['sittingOut'] != true).length}/${(st['seats'] as List).length}',
@@ -3266,6 +3269,353 @@ class _ChipsDialogState extends State<ChipsDialog> {
           child: Text(widget.confirm),
         ),
       ],
+    );
+  }
+}
+
+// ---------- Replay ruke preko celog ekrana ----------
+
+/// Otvara ponovno odigravanje ruke iz istorije: isti sto i iste animacije kao uživo.
+void openHandReplay(BuildContext context, Json hand) {
+  Navigator.of(context).push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => HandReplayScreen(hand: hand)));
+}
+
+class HandReplayScreen extends StatefulWidget {
+  final Json hand;
+  const HandReplayScreen({super.key, required this.hand});
+
+  @override
+  State<HandReplayScreen> createState() => _HandReplayScreenState();
+}
+
+class _HandReplayScreenState extends State<HandReplayScreen> {
+  late final List<Json> frames;
+  late final int bigBlind;
+  int step = 0;
+  /// Promena ključa: sto se iscrta iznova bez animacije (kad se ide unazad ili skače).
+  int _epoch = 0;
+  bool _playing = true;
+  double _speed = 1;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    frames = _buildFrames();
+    _schedule();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// Koliko dugo se vidi kadar pre sledećeg (otvaranje karata i kraj ruke traju duže).
+  int _durationOf(Json f) {
+    final base = switch (f['_kind']) { 'deal' => 1400, 'street' => 1500, 'end' => 0, _ => 1100 };
+    return (base / _speed).round();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (!_playing || step >= frames.length - 1) return;
+    _timer = Timer(Duration(milliseconds: _durationOf(frames[step])), () {
+      if (!mounted) return;
+      setState(() => step++);
+      _schedule();
+    });
+  }
+
+  void _go(int to, {bool animate = false}) {
+    setState(() {
+      step = to.clamp(0, frames.length - 1);
+      if (!animate) _epoch++;
+    });
+    _schedule();
+  }
+
+  List<Json> _buildFrames() {
+    final h = widget.hand;
+    final table = (h['table'] as Map?) ?? const {};
+    final players = (h['players'] as List).cast<Json>().toList()..sort((a, b) => (a['seat'] as int).compareTo(b['seat'] as int));
+    final actions = ((h['actions'] as List?) ?? const []).cast<Json>();
+    final board = (h['board'] as List).cast<String>();
+    final shownList = ((h['shown'] as List?) ?? const []).cast<Json>();
+    final maxSeats = max((table['maxSeats'] as int?) ?? 9, players.map((p) => p['seat'] as int).fold(0, max) + 1);
+    final variant = (table['variant'] as String?) ?? 'HOLDEM';
+    final holeCount = variant == 'OMAHA' ? 4 : 2;
+    final me = players.firstWhere((p) => p['isMe'] == true, orElse: () => players.first);
+    final mySeat = me['isMe'] == true ? me['seat'] as int : -1;
+    int amountOf(String type) => ((actions.firstWhere((a) => a['type'] == type, orElse: () => const {})['amount']) as num?)?.toInt() ?? 0;
+    final sb = actions.firstWhere((a) => a['type'] == 'sb', orElse: () => const {})['seat'] as int? ?? -1;
+    final bbSeat = actions.firstWhere((a) => a['type'] == 'bb', orElse: () => const {})['seat'] as int? ?? -1;
+    bigBlind = max(1, amountOf('bb') > 0 ? amountOf('bb') : ((table['bigBlind'] as int?) ?? 2));
+    final seatsInHand = players.map((p) => p['seat'] as int).toList();
+    var button = -1;
+    if (sb >= 0) {
+      if (seatsInHand.length == 2) {
+        button = sb;
+      } else {
+        final i = seatsInHand.indexOf(sb);
+        button = seatsInHand[(i - 1 + seatsInHand.length) % seatsInHand.length];
+      }
+    }
+
+    final stack = {for (final p in players) p['seat'] as int: p['startStack'] as int};
+    final bet = <int, int>{};
+    final folded = <int>{};
+    final lastAct = <int, Json?>{};
+    var collected = 0;
+    var street = 'preflop';
+    var boardCount = 0;
+    int cardsFor(String s) => switch (s) { 'flop' => 3, 'turn' => 4, 'river' => 5, _ => 0 };
+    final out = <Json>[];
+
+    Json frame(String kind, {int toAct = -1, bool end = false, Json? result, int? boardShown}) {
+      final b = boardShown ?? boardCount;
+      final shownSeats = {for (final s in shownList) s['seat'] as int: (s['cards'] as List).cast<String>()};
+      return {
+        '_kind': kind,
+        'id': 'replay-${h['id']}',
+        'name': table['name'] ?? '',
+        'variant': variant,
+        'smallBlind': bigBlind ~/ 2,
+        'bigBlind': bigBlind,
+        'minBuyIn': 0,
+        'maxBuyIn': 0,
+        'maxSeats': maxSeats,
+        'actionSeconds': 15,
+        'handNo': h['handNo'],
+        'inProgress': !end,
+        'street': end ? null : street,
+        'board': board.take(b).toList(),
+        // Na kraju: tačno ono što je podeljeno (vraćen nepokriven ulog se ne računa).
+        'pot': end
+            ? ((h['pots'] as List?) ?? const []).fold<int>(0, (x, p) => x + ((p as Map)['amount'] as num).toInt())
+            : collected + bet.values.fold(0, (x, y) => x + y),
+        'collected': end ? 0 : collected,
+        'replay': true,
+        'sidePots': const [],
+        'button': button,
+        'sbSeat': sb,
+        'bbSeat': bbSeat,
+        'toAct': toAct,
+        'deadline': null,
+        'timeBankAt': null,
+        'timeBankSeconds': 0,
+        'ante': 0,
+        'serverTime': 0,
+        'mySeat': mySeat,
+        'myHand': null,
+        'legal': null,
+        'actions': const [],
+        'waitlist': const [],
+        'ritPending': false,
+        'ritAsk': const [],
+        'ritYes': const [],
+        'ritNo': const [],
+        'result': result,
+        'tournament': null,
+        'seats': [
+          for (var i = 0; i < maxSeats; i++)
+            if (!stack.containsKey(i))
+              null
+            else
+              () {
+                final p = players.firstWhere((x) => x['seat'] == i);
+                final cards = p['isMe'] == true
+                    ? ((p['cards'] as List?) ?? const []).cast<String>()
+                    : (end ? shownSeats[i] : null);
+                return <String, dynamic>{
+                  'index': i,
+                  'userId': 'replay-$i',
+                  'name': p['name'],
+                  'avatarUrl': null,
+                  'stack': end ? p['endStack'] : stack[i],
+                  'bet': end ? 0 : (bet[i] ?? 0),
+                  'inHand': true,
+                  'folded': folded.contains(i),
+                  'allIn': !end && (stack[i] ?? 0) == 0 && !folded.contains(i),
+                  'sittingOut': false,
+                  'leaving': false,
+                  'lastAction': null,
+                  'lastAct': end ? null : lastAct[i],
+                  'cards': cards != null && cards.isNotEmpty ? cards : null,
+                  'myShown': const [],
+                  'cardCount': folded.contains(i) ? 0 : holeCount,
+                };
+              }(),
+        ],
+      };
+    }
+
+    out.add(frame('deal', toAct: actions.isNotEmpty ? actions.first['seat'] as int : -1));
+    for (var k = 0; k < actions.length; k++) {
+      final a = actions[k];
+      final s = a['street'] as String? ?? 'preflop';
+      if (s != street) {
+        // Nova ulica: ulozi idu u pot, otvaraju se karte stola.
+        collected += bet.values.fold(0, (x, y) => x + y);
+        bet.clear();
+        street = s;
+        boardCount = max(boardCount, min(board.length, cardsFor(s)));
+        for (final i in stack.keys) {
+          if (!folded.contains(i)) lastAct[i] = null;
+        }
+        out.add(frame('street', toAct: a['seat'] as int));
+      }
+      final seat = a['seat'] as int;
+      final amount = (a['amount'] as num?)?.toInt() ?? 0;
+      final type = a['type'] as String;
+      if (type == 'ante' || type == 'bomb') {
+        stack[seat] = (stack[seat] ?? 0) - amount;
+        collected += amount;
+      } else if (type == 'fold') {
+        folded.add(seat);
+        lastAct[seat] = {'type': 'fold', 'amount': 0};
+      } else if (type == 'check') {
+        lastAct[seat] = {'type': 'check', 'amount': 0};
+      } else {
+        // Iznos je ukupan ulog igrača u ovoj ulici.
+        final add = max(0, amount - (bet[seat] ?? 0));
+        stack[seat] = (stack[seat] ?? 0) - add;
+        bet[seat] = amount;
+        lastAct[seat] = {'type': type, 'amount': amount};
+      }
+      final next = k + 1 < actions.length && actions[k + 1]['street'] == s ? actions[k + 1]['seat'] as int : -1;
+      if (type != 'ante' || k + 1 >= actions.length || actions[k + 1]['type'] != 'ante') out.add(frame('act', toAct: next));
+    }
+    // Kraj ruke: ako su igrači all-in pre kraja stola, ostale karte se otkrivaju jedna po jedna (kao uživo).
+    final live = stack.keys.where((i) => !folded.contains(i)).length;
+    final runout = live > 1 && boardCount < board.length;
+    final result = <String, dynamic>{
+      'handNo': h['handNo'],
+      'board2': null,
+      'runoutFrom': runout ? boardCount : null,
+      'equity': null,
+      'pots': h['pots'] ?? const [],
+      'shown': [
+        for (final s in shownList)
+          {'seat': s['seat'], 'cards': s['cards'], 'best': s['best'] ?? const [], 'handName': s['handName']},
+      ],
+    };
+    collected += bet.values.fold(0, (x, y) => x + y);
+    bet.clear();
+    out.add(frame('end', end: true, result: result, boardShown: board.length));
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showBB = context.select<AppState, bool>((a) => a.showBB);
+    final st = frames[step];
+    final money = Money(bigBlind, showBB);
+    final wide = MediaQuery.of(context).size.width >= 900;
+    final h = widget.hand;
+    final table = (h['table'] as Map?) ?? const {};
+    return Scaffold(
+      backgroundColor: bg,
+      body: LuxBackground(
+        child: SafeArea(
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: Row(children: [
+                _RoundIcon(icon: Icons.close, tip: tr('Close', 'Zatvori'), onTap: () => Navigator.pop(context)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    GoldText('REPLAY · #${h['handNo']}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                    Text('${table['name'] ?? ''} · ${dateTime(h['createdAt'] as String)}',
+                        overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Colors.white60)),
+                  ]),
+                ),
+                _UnitToggle(showBB: money.inBB, onToggle: context.read<AppState>().setShowBB),
+              ]),
+            ),
+            Expanded(
+              child: LayoutBuilder(builder: (_, c) {
+                final w = min(c.maxWidth, c.maxHeight * (wide ? 1.95 : 1.6));
+                final hh = min(c.maxHeight, w * 2.0);
+                return Center(
+                  child: SizedBox(
+                    width: w,
+                    height: hh,
+                    child: _TableView(
+                      key: ValueKey('replay-$_epoch'),
+                      st: st,
+                      size: Size(w, hh),
+                      money: money,
+                      chat: const [],
+                      wide: wide,
+                      onSit: (_) {},
+                      onTapMine: () {},
+                      onTapPlayer: (_) {},
+                    ),
+                  ),
+                );
+              }),
+            ),
+            // Kontrole: početak, korak nazad, pusti/pauza, korak napred, kraj, brzina
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                border: Border(top: BorderSide(color: gold.withOpacity(0.3))),
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(trackHeight: 3, overlayShape: SliderComponentShape.noOverlay),
+                  child: Slider(
+                    min: 0,
+                    max: (frames.length - 1).toDouble(),
+                    divisions: max(1, frames.length - 1),
+                    value: step.toDouble(),
+                    onChanged: (v) => _go(v.round()),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  IconButton(onPressed: step > 0 ? () => _go(0) : null, icon: const Icon(Icons.skip_previous, size: 28)),
+                  IconButton(onPressed: step > 0 ? () => _go(step - 1) : null, icon: const Icon(Icons.chevron_left, size: 34)),
+                  const SizedBox(width: 6),
+                  IconButton.filled(
+                    onPressed: () {
+                      setState(() {
+                        if (step >= frames.length - 1) {
+                          step = 0;
+                          _epoch++;
+                        }
+                        _playing = !_playing || step == 0;
+                      });
+                      _schedule();
+                    },
+                    style: IconButton.styleFrom(backgroundColor: gold, foregroundColor: Colors.black, fixedSize: const Size(58, 58)),
+                    icon: Icon(_playing && step < frames.length - 1 ? Icons.pause : Icons.play_arrow, size: 34),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                      onPressed: step < frames.length - 1 ? () => _go(step + 1, animate: true) : null,
+                      icon: const Icon(Icons.chevron_right, size: 34)),
+                  IconButton(
+                      onPressed: step < frames.length - 1 ? () => _go(frames.length - 1) : null,
+                      icon: const Icon(Icons.skip_next, size: 28)),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      setState(() => _speed = _speed >= 2 ? 0.5 : _speed * 2);
+                      _schedule();
+                    },
+                    child: Text('${_speed == 0.5 ? '0.5' : _speed.toStringAsFixed(0)}×',
+                        style: const TextStyle(color: goldLight, fontWeight: FontWeight.w900, fontSize: 16)),
+                  ),
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+      ),
     );
   }
 }

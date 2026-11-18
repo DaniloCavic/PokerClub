@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
@@ -14,19 +14,18 @@ export class LoginDto {
   password: string;
 }
 
-/** Registracija igrača (sam pravi nalog); kod agenta je opcioni. */
+/** Registracija igrača: e-pošta, korisničko ime (ime za stolom), lozinka; kod agenta je opcioni. */
 export class RegisterDto {
+  @Transform(trim)
+  @IsEmail({}, { message: 'Unesite ispravnu e-poštu.' })
+  @MaxLength(120)
+  email: string;
+
   @Transform(trim)
   @Matches(/^[A-Za-z0-9_.]{3,20}$/, {
     message: 'Korisničko ime: 3–20 znakova, samo slova bez kvačica, brojevi, tačka i donja crta.',
   })
   username: string;
-
-  @Transform(trim)
-  @IsString()
-  @MinLength(2, { message: 'Ime za prikaz mora imati bar 2 znaka.' })
-  @MaxLength(30, { message: 'Ime za prikaz može imati najviše 30 znakova.' })
-  displayName: string;
 
   @IsString()
   @MinLength(6, { message: 'Lozinka mora imati bar 6 znakova.' })
@@ -38,6 +37,34 @@ export class RegisterDto {
   @IsString()
   @MaxLength(20)
   agentCode?: string;
+}
+
+export class ForgotDto {
+  @Transform(trim)
+  @IsEmail({}, { message: 'Unesite ispravnu e-poštu.' })
+  email: string;
+}
+
+export class ResetDto {
+  @Transform(trim)
+  @IsEmail({}, { message: 'Unesite ispravnu e-poštu.' })
+  email: string;
+
+  @Transform(trim)
+  @Matches(/^\d{6}$/, { message: 'Kod ima 6 cifara.' })
+  code: string;
+
+  @IsString()
+  @MinLength(6, { message: 'Lozinka mora imati bar 6 znakova.' })
+  @MaxLength(100)
+  password: string;
+}
+
+export class EmailDto {
+  @Transform(trim)
+  @IsEmail({}, { message: 'Unesite ispravnu e-poštu.' })
+  @MaxLength(120)
+  email: string;
 }
 
 export class ChangePasswordDto {
@@ -75,6 +102,12 @@ export class CreateUserDto {
   @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
   rakePercent?: number;
 
+  /** Za agenta: kod preko koga se igrači vezuju za njega (npr. LIVERPOOL123). */
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  agentCode?: string;
+
   /** Samo admin: kom agentu igrač pripada. */
   @IsOptional()
   @IsString()
@@ -110,6 +143,12 @@ export class UpdateUserDto {
   @Min(0, { message: 'Procenat mora biti između 0 i 100.' })
   @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
   rakePercent?: number;
+
+  /** Za agenta: novi kod za igrače. */
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  agentCode?: string;
 
   /** Samo admin: premeštanje igrača drugom agentu. */
   @IsOptional()

@@ -21,7 +21,6 @@ import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
-import { newAgentCode } from '../common/agent-code';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -523,12 +522,22 @@ export class AdminController {
   @Roles('ADMIN')
   @Post('agents')
   async createAgent(@Body() dto: CreateUserDto) {
+    const agentCode = await this.checkAgentCode(dto.agentCode);
     const a = await this.createAccount(dto, 'AGENT', null);
     const u = await this.prisma.user.update({
       where: { id: a.id },
-      data: { rakeShareBps: this.shareBps(dto.rakePercent), agentCode: await newAgentCode(this.prisma) },
+      data: { rakeShareBps: this.shareBps(dto.rakePercent), agentCode },
     });
     return publicUser(u);
+  }
+
+  /** Kod agenta koji upisuje super agent (npr. LIVERPOOL123): slova i brojevi, 3–20 znakova, jedinstven. */
+  private async checkAgentCode(raw?: string, agentId?: string) {
+    const code = (raw ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,20}$/.test(code)) throw new BadRequestException('Kod agenta: 3–20 slova (bez kvačica) i brojeva, npr. LIVERPOOL123.');
+    const other = await this.prisma.user.findUnique({ where: { agentCode: code } });
+    if (other && other.id !== agentId) throw new ConflictException('Taj kod već koristi drugi agent.');
+    return code;
   }
 
   private shareBps(percent?: number) {
@@ -548,6 +557,7 @@ export class AdminController {
     if (dto.note !== undefined) data.note = dto.note || null;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
     if (dto.rakePercent !== undefined) data.rakeShareBps = this.shareBps(dto.rakePercent);
+    if (dto.agentCode !== undefined) data.agentCode = await this.checkAgentCode(dto.agentCode, id);
     return publicUser(await this.prisma.user.update({ where: { id }, data }));
   }
 
