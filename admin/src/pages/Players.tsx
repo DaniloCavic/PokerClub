@@ -129,7 +129,7 @@ export function CreateAccount({
   onClose: () => void;
   onSaved: (u: any) => void;
 }) {
-  const [f, setF] = useState({ username: '', displayName: '', password: '', note: '', agentId: '', rakePercent: '', agentCode: '' });
+  const [f, setF] = useState({ username: '', displayName: '', password: '', email: '', note: '', agentId: '', rakePercent: '', agentCode: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const isPlayer = path === '/admin/players';
@@ -145,6 +145,7 @@ export function CreateAccount({
         await api('POST', path, {
           ...rest,
           agentId: f.agentId || undefined,
+          email: isPlayer && f.email.trim() ? f.email.trim() : undefined,
           ...(isPlayer ? {} : { rakePercent: Number(rakePercent.replace(',', '.')) || 0, agentCode }),
         }),
       );
@@ -172,6 +173,12 @@ export function CreateAccount({
             Lozinka (bar 6 znakova)
             <input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
           </label>
+          {isPlayer && (
+            <label>
+              E-pošta (nije obavezna)
+              <input type="email" placeholder="za povratak lozinke" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+            </label>
+          )}
           {!isPlayer && (
             <label>
               Kod agenta (igrači ga upisuju pri registraciji)
@@ -235,7 +242,7 @@ function PlayerDetails({ me, id, onClose }: { me: Me; id: string; onClose: () =>
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  const [edit, setEdit] = useState<{ displayName: string; password: string; note: string } | null>(null);
+  const [edit, setEdit] = useState<{ displayName: string; password: string; email: string; note: string } | null>(null);
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setMsg(null);
@@ -376,6 +383,10 @@ function PlayerDetails({ me, id, onClose }: { me: Me; id: string; onClose: () =>
                 Nova lozinka (prazno = bez promene)
                 <input value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} />
               </label>
+              <label>
+                E-pošta (prazno = bez e-pošte)
+                <input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} />
+              </label>
             </div>
             <label className="block">
               Beleška
@@ -388,6 +399,7 @@ function PlayerDetails({ me, id, onClose }: { me: Me; id: string; onClose: () =>
                     await api('PATCH', `/admin/players/${id}`, {
                       displayName: edit.displayName,
                       note: edit.note,
+                      email: edit.email.trim(),
                       ...(edit.password ? { password: edit.password } : {}),
                     });
                     setEdit(null);
@@ -410,12 +422,14 @@ function PlayerDetails({ me, id, onClose }: { me: Me; id: string; onClose: () =>
               <b>{fmtDate(u.lastSeenAt)}</b>
               <span>Agent</span>
               <b>{u.agentName ?? '—'}</b>
+              <span>E-pošta</span>
+              <b>{u.email || '—'}</b>
               <span>Beleška</span>
               <b>{u.note || '—'}</b>
             </div>
             <div className="row" style={{ marginTop: 12 }}>
-              <button className="secondary" onClick={() => setEdit({ displayName: u.displayName, password: '', note: u.note ?? '' })}>
-                Izmeni / nova lozinka
+              <button className="secondary" onClick={() => setEdit({ displayName: u.displayName, password: '', email: u.email ?? '', note: u.note ?? '' })}>
+                Izmeni / e-pošta / nova lozinka
               </button>
               {u.isBlocked ? (
                 <button className="ok" onClick={() => run(() => api('POST', `/admin/players/${id}/unblock`), 'Igrač je odblokiran.')}>

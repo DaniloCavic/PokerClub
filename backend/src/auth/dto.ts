@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
@@ -107,6 +107,13 @@ export class CreateUserDto {
   @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
   rakePercent?: number;
 
+  /// E-pošta za povratak lozinke (nije obavezna; prazno = bez e-pošte).
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @ValidateIf((_, v) => v !== '')
+  @IsEmail({}, { message: 'E-pošta nije ispravna.' })
+  email?: string;
+
   /** Za agenta: kod preko koga se igrači vezuju za njega (npr. LIVERPOOL123). */
   @IsOptional()
   @Transform(trim)
@@ -148,6 +155,13 @@ export class UpdateUserDto {
   @Min(0, { message: 'Procenat mora biti između 0 i 100.' })
   @Max(100, { message: 'Procenat mora biti između 0 i 100.' })
   rakePercent?: number;
+
+  /// E-pošta za povratak lozinke (nije obavezna; prazno = bez e-pošte).
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @ValidateIf((_, v) => v !== '')
+  @IsEmail({}, { message: 'E-pošta nije ispravna.' })
+  email?: string;
 
   /** Za agenta: novi kod za igrače. */
   @IsOptional()

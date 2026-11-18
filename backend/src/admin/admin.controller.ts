@@ -91,6 +91,7 @@ export class AdminController {
   private async createAccount(dto: CreateUserDto, role: Role, agentId: string | null) {
     const exists = await this.prisma.user.findUnique({ where: { usernameLower: dto.username.toLowerCase() } });
     if (exists) throw new ConflictException('Korisničko ime je zauzeto.');
+    await this.checkEmail(dto.email);
     return this.prisma.user.create({
       data: {
         username: dto.username,
@@ -100,8 +101,16 @@ export class AdminController {
         role,
         agentId,
         note: dto.note || null,
+        email: dto.email || null,
       },
     });
+  }
+
+  /** E-pošta mora biti jedinstvena (njome se igrač prijavljuje i vraća lozinku). */
+  private async checkEmail(email: string | undefined, exceptId?: string) {
+    if (!email) return;
+    const other = await this.prisma.user.findUnique({ where: { email } });
+    if (other && other.id !== exceptId) throw new ConflictException('Nalog sa ovom e-poštom već postoji.');
   }
 
   private async resolveAgentId(actor: User, agentId?: string) {
@@ -493,6 +502,10 @@ export class AdminController {
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.note !== undefined) data.note = dto.note || null;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
+    if (dto.email !== undefined) {
+      await this.checkEmail(dto.email, id);
+      data.email = dto.email || null;
+    }
     if (dto.agentId !== undefined) {
       if (actor.role !== 'ADMIN') throw new ForbiddenException('Samo administrator premešta igrače.');
       const agentId = await this.resolveAgentId(actor, dto.agentId || undefined);

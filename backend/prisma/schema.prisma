@@ -269,6 +269,8 @@ model AppSetting {
 /// Turnir (Hold'em ili Omaha). Sva podešavanja zadaje administrator.
 model Tournament {
   id               String           @id @default(cuid())
+  /// Uklonjen sa spiskova (završen ili otkazan); novac i istorija ostaju.
+  hidden           Boolean          @default(false)
   name             String
   variant          Variant
   status           TournamentStatus @default(REGISTERING)

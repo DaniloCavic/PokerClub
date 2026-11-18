@@ -577,6 +577,29 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
             ) : null}
           </div>
           {msg && <div className="success">{msg}</div>}
+          {isSuper && (t.status === 'FINISHED' || t.status === 'CANCELLED') && (
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (!window.confirm(`Ukloniti turnir „${t.name}“ sa spiska? Novac i istorija ruku ostaju sačuvani.`)) return;
+                  setBusy(true);
+                  try {
+                    await api('POST', `/admin/tournaments/${id}/hide`);
+                    onChanged();
+                    onClose();
+                  } catch (e) {
+                    setMsg((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Ukloni sa spiska
+              </button>
+            </div>
+          )}
           {isSuper && (t.status === 'REGISTERING' || t.status === 'RUNNING') && (
             <div className="row" style={{ marginTop: 12 }}>
               <button className="danger" disabled={busy} onClick={cancel}>

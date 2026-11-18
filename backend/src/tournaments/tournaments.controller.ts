@@ -23,8 +23,10 @@ export class TournamentsAdminController {
 
   @Get()
   async list(@Query('status') status?: string) {
-    const where: Prisma.TournamentWhereInput =
-      status === 'active' ? { status: { in: ['REGISTERING', 'RUNNING'] } } : status === 'done' ? { status: { in: ['FINISHED', 'CANCELLED'] } } : {};
+    const where: Prisma.TournamentWhereInput = {
+      hidden: false,
+      ...(status === 'active' ? { status: { in: ['REGISTERING', 'RUNNING'] } } : status === 'done' ? { status: { in: ['FINISHED', 'CANCELLED'] } } : {}),
+    };
     const items = await this.prisma.tournament.findMany({
       where,
       orderBy: { startAt: 'desc' },
@@ -142,6 +144,17 @@ export class TournamentsAdminController {
   @Post(':id/stop-repeat')
   async stopRepeat(@Param('id') id: string) {
     await this.tours.stopRepeat(id);
+    return { ok: true };
+  }
+
+  /** Uklanjanje završenog ili otkazanog turnira sa spiskova (novac i istorija ruku ostaju u bazi). */
+  @Roles('ADMIN')
+  @Post(':id/hide')
+  async hide(@Param('id') id: string) {
+    const t = await this.prisma.tournament.findUnique({ where: { id } });
+    if (!t) throw new NotFoundException('Turnir ne postoji.');
+    if (t.status !== 'FINISHED' && t.status !== 'CANCELLED') throw new BadRequestException('Može se ukloniti samo završen ili otkazan turnir.');
+    await this.prisma.tournament.update({ where: { id }, data: { hidden: true } });
     return { ok: true };
   }
 

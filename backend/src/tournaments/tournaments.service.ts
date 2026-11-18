@@ -290,7 +290,7 @@ export class TournamentsService implements OnModuleInit {
   async list() {
     const since = new Date(Date.now() - 2 * 24 * 3600_000);
     const done = await this.prisma.tournament.findMany({
-      where: { status: { in: ['FINISHED', 'CANCELLED'] }, OR: [{ finishedAt: { gte: since } }, { startAt: { gte: since } }] },
+      where: { hidden: false, status: { in: ['FINISHED', 'CANCELLED'] }, OR: [{ finishedAt: { gte: since } }, { startAt: { gte: since } }] },
       orderBy: { startAt: 'desc' },
       take: 20,
       include: { _count: { select: { entries: true } } },
