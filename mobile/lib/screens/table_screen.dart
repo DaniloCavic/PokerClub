@@ -1250,6 +1250,22 @@ class _TableInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final omaha = st['variant'] == 'OMAHA';
+    final tour = st['tournament'] as Json?;
+    if (tour != null) {
+      // Turnir: uska kartica (ne prelazi preko stola), podaci jedan ispod drugog.
+      return SizedBox(
+        width: 168,
+        child: LuxPanel(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          radius: 12,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text('${omaha ? 'PLO' : 'NLH'} · ${omaha ? 'Omaha' : "Hold'em"}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            Text(st['name'] as String, style: const TextStyle(color: gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
+            ..._tourLines(tour, now),
+          ]),
+        ),
+      );
+    }
     return LuxPanel(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       radius: 12,
@@ -1267,7 +1283,6 @@ class _TableInfoCard extends StatelessWidget {
           Text(st['name'] as String, style: const TextStyle(color: gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
           if (tableExtras(st) != null)
             Text(tableExtras(st)!, style: const TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w600)),
-          if (st['tournament'] != null) ..._tourLines(st['tournament'] as Json, now),
         ]),
       ]),
     );
@@ -1278,9 +1293,9 @@ class _TableInfoCard extends StatelessWidget {
     const k = TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w600);
     const v = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800);
     Widget line(String a, String b, {Color? color}) => Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('$a  ', style: k),
+          padding: const EdgeInsets.only(top: 5),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(a, style: k),
             Text(b, style: color == null ? v : v.copyWith(color: color)),
           ]),
         );
@@ -1288,13 +1303,13 @@ class _TableInfoCard extends StatelessWidget {
     final ante = (t['ante'] as num? ?? 0) > 0 ? ' (${chips(t['ante'])})' : '';
     return [
       const SizedBox(height: 6),
-      Container(height: 1, width: 180, color: Colors.white12),
+      Container(height: 1, width: 144, color: Colors.white12),
       const SizedBox(height: 4),
       line(tr('Level ${t['level']}', 'Nivo ${t['level']}'), '${chips(t['sb'])}/${chips(t['bb'])}$ante', color: goldLight),
       if (onBreak) line(tr('Break', 'Pauza'), clockLeft((t['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
-      if (!onBreak)
-        line(tr('Next ${chips(t['nextSb'])}/${chips(t['nextBb'])} in', 'Sledeći ${chips(t['nextSb'])}/${chips(t['nextBb'])} za'),
-            clockLeft((t['levelEndsAt'] as num?)?.toInt(), now)),
+      if (!onBreak && t['levelEndsAt'] != null)
+        line(tr('Next: ${chips(t['nextSb'])}/${chips(t['nextBb'])}', 'Sledeći: ${chips(t['nextSb'])}/${chips(t['nextBb'])}'),
+            '${tr('in', 'za')} ${clockLeft((t['levelEndsAt'] as num?)?.toInt(), now)}'),
       if (!onBreak && t['nextBreakAt'] != null) line(tr('Break in', 'Pauza za'), clockLeft((t['nextBreakAt'] as num).toInt(), now)),
       line(tr('Rank', 'Mesto'), t['position'] != null ? '${t['position']}/${t['playersLeft']}' : '${t['playersLeft']}'),
     ];

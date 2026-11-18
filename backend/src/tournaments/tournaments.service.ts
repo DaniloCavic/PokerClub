@@ -64,10 +64,15 @@ interface TourRt {
   unclaimedBounty?: number;
 }
 
-export const tourRule = (t: Pick<Tournament, 'breakMode' | 'breakEvery' | 'breakMinutes'>): BreakRule => ({
+export const tourRule = (
+  t: Pick<Tournament, 'breakMode' | 'breakEvery' | 'breakMinutes'> & Partial<Pick<Tournament, 'addonLevel' | 'addonBreakMinutes'>>,
+): BreakRule => ({
   mode: (['HOURLY', 'LEVELS', 'NONE'].includes(t.breakMode) ? t.breakMode : 'NONE') as BreakRule['mode'],
   every: t.breakEvery,
   minutes: t.breakMinutes,
+  // Add-on pauza posle nivoa addonLevel (kraj kasne prijave).
+  addonAt: t.addonLevel ?? 0,
+  addonMinutes: t.addonLevel ? (t.addonBreakMinutes ?? 0) : 0,
 });
 
 /**
@@ -339,7 +344,7 @@ export class TournamentsService implements OnModuleInit {
       breakMinutes: tr.rule.minutes,
       clock,
       rebuyRules: { levels: t.rebuyLevels, max: t.rebuyMax, price: t.rebuyPrice, fee: t.rebuyFee, chips: t.rebuyChips, below: t.rebuyBelow },
-      addonRules: { level: t.addonLevel, price: t.addonPrice, fee: t.addonFee, chips: t.addonChips },
+      addonRules: { level: t.addonLevel, price: t.addonPrice, fee: t.addonFee, chips: t.addonChips, breakMinutes: t.addonBreakMinutes },
       reentryMax: t.reentryMax,
       minPlayers: t.minPlayers,
       payoutMode: t.payoutMode,

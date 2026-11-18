@@ -544,7 +544,8 @@ class _TournamentScreenState extends State<TournamentScreen> {
                 '${(rb['below'] as num) > 0 ? tr(', when you have ${chips(rb['below'])} or less', ', kad imate ${chips(rb['below'])} ili manje') : tr(', when you run out of chips', ', kad ostanete bez žetona')}',
           ),
         if (ad != null && (ad['level'] as num) > 0)
-          _kv('Add-on', '${rsd((ad['price'] as num) + (ad['fee'] as num))} → ${chips(ad['chips'])} ${tr('chips, once, until the end of level', 'žetona, jednom, do kraja nivoa')} ${ad['level']}'),
+          _kv('Add-on', '${rsd((ad['price'] as num) + (ad['fee'] as num))} → ${chips(ad['chips'])} ${tr('chips, once, at the end of late registration (level ${ad['level']})', 'žetona, jednom, na kraju kasne prijave (nivo ${ad['level']})')}'
+              '${(ad['breakMinutes'] as num? ?? 0) > 0 ? tr(', during the ${ad['breakMinutes']}-min add-on break', ', tokom add-on pauze od ${ad['breakMinutes']} min') : ''}'),
         if (d['minPlayers'] != null) _kv('Minimum players', tr('${d['minPlayers']} (otherwise the tournament is cancelled and buy-ins refunded)', '${d['minPlayers']} (inače se turnir otkazuje i ulaz vraća)')),
         if (d['estimatedMinutes'] != null) _kv('Duration', '${tr('about', 'oko')} ${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
       ]),

@@ -50,11 +50,11 @@ export class TournamentsAdminController {
   }
 
   @Post('estimate')
-  estimate(@Body() b: { levels: Level[]; breakMode: string; breakEvery: number; breakMinutes: number; players: number; startingStack: number }) {
+  estimate(@Body() b: { levels: Level[]; breakMode: string; breakEvery: number; breakMinutes: number; players: number; startingStack: number; addonLevel?: number; addonBreakMinutes?: number }) {
     const err = validateLevels(b.levels);
     if (err) return { minutes: null, error: err };
     return {
-      minutes: estimateMinutes(b.levels, tourRule({ breakMode: b.breakMode, breakEvery: Number(b.breakEvery), breakMinutes: Number(b.breakMinutes) }), Number(b.players) || 20, Number(b.startingStack) || 10_000),
+      minutes: estimateMinutes(b.levels, tourRule({ breakMode: b.breakMode, breakEvery: Number(b.breakEvery), breakMinutes: Number(b.breakMinutes), addonLevel: Number(b.addonLevel) || 0, addonBreakMinutes: Number(b.addonBreakMinutes) || 0 }), Number(b.players) || 20, Number(b.startingStack) || 10_000),
     };
   }
 
@@ -115,6 +115,7 @@ export class TournamentsAdminController {
       addonPrice: int(b.addonPrice ?? 0, 'Cena add-on-a', 0),
       addonFee: int(b.addonFee ?? 0, 'Fee add-on-a', 0),
       addonChips: int(b.addonChips ?? 0, 'Žetoni za add-on', 0),
+      addonBreakMinutes: int(b.addonBreakMinutes ?? 0, 'Add-on pauza', 0, 59),
       guarantee: int(b.guarantee ?? 0, 'Garancija', 0),
       bounty: int(b.bounty ?? 0, 'Bounty', 0),
       repeat: ['DAILY', 'WEEKLY'].includes(String(b.repeat)) ? String(b.repeat) : 'NONE',
@@ -128,6 +129,11 @@ export class TournamentsAdminController {
     if (data.breakMode !== 'NONE' && data.breakMinutes < 1) throw new BadRequestException('Unesite trajanje pauze.');
     if (data.rebuyLevels > 0 && data.rebuyChips < 1) throw new BadRequestException('Unesite broj žetona za rebuy.');
     if (data.addonLevel > 0 && data.addonChips < 1) throw new BadRequestException('Unesite broj žetona za add-on.');
+    if (data.addonLevel > 0) {
+      // Add-on je na kraju kasne prijave (i u pauzi koja tada počinje).
+      if (data.lateRegLevels < 1) throw new BadRequestException('Add-on je na kraju kasne prijave: unesite do kog nivoa traje kasna prijava.');
+      data.addonLevel = data.lateRegLevels;
+    } else data.addonBreakMinutes = 0;
     if (data.reentryMax > 0 && data.lateRegLevels < 1) throw new BadRequestException('Re-entry je moguć samo tokom kasne prijave (unesite do kog nivoa).');
     for (const [v, label] of [
       [data.lateRegLevels, 'Kasna prijava'],

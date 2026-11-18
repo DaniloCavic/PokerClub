@@ -37,6 +37,7 @@ interface TourForm {
   rebuyChips: number;
   rebuyBelow: number;
   addonLevel: number;
+  addonBreakMinutes: number;
   addonPrice: number;
   addonFee: number;
   addonChips: number;
@@ -197,6 +198,7 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
     rebuyChips: 10_000,
     rebuyBelow: 0,
     addonLevel: 6,
+    addonBreakMinutes: 5,
     addonPrice: 1000,
     addonFee: 100,
     addonChips: 10_000,
@@ -233,6 +235,8 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
         breakMode: f.breakMode,
         breakEvery: f.breakEvery,
         breakMinutes: f.breakMinutes,
+        addonLevel: addonOn ? Math.max(1, f.lateRegLevels) : 0,
+        addonBreakMinutes: addonOn ? f.addonBreakMinutes : 0,
         players: f.maxPlayers > 0 ? Math.min(f.maxPlayers, preview) : preview,
         startingStack: f.startingStack,
       })
@@ -268,7 +272,8 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
         startAt: new Date(f.startAt).toISOString(),
         payouts: parsePayouts(f.payouts),
         rebuyLevels: rebuyOn ? f.rebuyLevels : 0,
-        addonLevel: addonOn ? f.addonLevel : 0,
+        addonLevel: addonOn ? Math.max(1, f.lateRegLevels) : 0,
+        addonBreakMinutes: addonOn ? f.addonBreakMinutes : 0,
       });
       onSaved();
     } catch (e) {
@@ -428,7 +433,11 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
       </h3>
       {addonOn && (
         <div className="form-grid">
-          {n('addonLevel', 'Add-on do kraja nivoa', 'jednom po ulazu, i tokom pauze posle tog nivoa', 1)}
+          <div className="muted small" style={{ gridColumn: '1 / -1' }}>
+            Add-on se kupuje jednom po ulazu, na kraju kasne prijave (posle nivoa {f.lateRegLevels || '—'}). Tada počinje add-on pauza,
+            bez obzira na ostale pauze.
+          </div>
+          {n('addonBreakMinutes', 'Add-on pauza (min)', 'posle kraja kasne prijave', 1)}
           {n('addonPrice', 'Cena (deo za nagrade)')}
           {n('addonFee', 'Fee add-on-a')}
           {n('addonChips', 'Žetoni', undefined, 1)}

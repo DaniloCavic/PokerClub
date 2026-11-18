@@ -18,6 +18,9 @@ export interface BreakRule {
   mode: BreakMode;
   every: number;
   minutes: number;
+  /** Add-on pauza: pre nivoa sa ovim indeksom (= kraj kasne prijave), traje addonMinutes. */
+  addonAt?: number;
+  addonMinutes?: number;
 }
 
 export interface ClockState {
@@ -50,6 +53,23 @@ export function clockAt(startedAt: number, levels: Level[], rule: BreakRule, now
   let rem = levelAt(levels, 0).minutes * MIN;
   const hourly = rule.mode === 'HOURLY' && bm > 0 && bm < HOUR;
   const byLevels = rule.mode === 'LEVELS' && rule.every > 0 && bm > 0;
+  const addonMs = Math.max(0, rule.addonMinutes ?? 0) * MIN;
+  const addonAt = addonMs > 0 && (rule.addonAt ?? 0) > 0 ? rule.addonAt! : -1;
+  // Početak add-on pauze (ako je još ispred), računato samo po trajanju nivoa.
+  const addonStart = (t0: number, i0: number, rem0: number) => {
+    if (addonAt <= i0) return null;
+    let at = t0 + rem0;
+    for (let j = i0 + 1; j < addonAt; j++) at += levelAt(levels, j).minutes * MIN;
+    return at;
+  };
+  const minBreak = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b));
+  // Add-on pauza na prelazu u nivo addonAt (u njoj je nivo već sledeći, kao kod pauza posle N nivoa).
+  const addonBreak = (t0: number, i0: number, rem0: number): ClockState | number => {
+    if (i0 !== addonAt) return t0;
+    const bEnd = t0 + addonMs;
+    if (now < bEnd) return { level: i0, onBreak: true, breakEndsAt: bEnd, levelEndsAt: bEnd + rem0, nextBreakAt: t0 };
+    return bEnd;
+  };
 
   // Sledeća pauza kad se pauze daju posle svakih N nivoa (od trenutka t, na nivou i sa preostalih rem ms).
   const nextLevelsBreak = (t0: number, i0: number, rem0: number) => {
@@ -73,21 +93,29 @@ export function clockAt(startedAt: number, levels: Level[], rule: BreakRule, now
       if (now < end) {
         // Kraj nivoa: ako nivo prelazi preko pauze, pauza se dodaje.
         const levelEndsAt = t + rem <= bStart ? t + rem : bEnd + (t + rem - bStart);
-        return { level: i, onBreak: false, breakEndsAt: null, levelEndsAt, nextBreakAt: bStart };
+        return { level: i, onBreak: false, breakEndsAt: null, levelEndsAt, nextBreakAt: minBreak(bStart, addonStart(t, i, rem)) };
       }
       rem -= end - t;
       t = end;
       if (rem <= 0) {
         i++;
         rem = levelAt(levels, i).minutes * MIN;
+        const ab = addonBreak(t, i, rem);
+        if (typeof ab !== 'number') return ab;
+        t = ab;
       }
       continue;
     }
     const end = t + rem;
-    if (now < end) return { level: i, onBreak: false, breakEndsAt: null, levelEndsAt: end, nextBreakAt: nextLevelsBreak(t, i, rem) };
+    if (now < end) return { level: i, onBreak: false, breakEndsAt: null, levelEndsAt: end, nextBreakAt: minBreak(nextLevelsBreak(t, i, rem), addonStart(t, i, rem)) };
     t = end;
     i++;
     rem = levelAt(levels, i).minutes * MIN;
+    {
+      const ab = addonBreak(t, i, rem);
+      if (typeof ab !== 'number') return ab;
+      t = ab;
+    }
     if (byLevels && i % rule.every === 0) {
       const bEnd = t + bm;
       if (now < bEnd) return { level: i, onBreak: true, breakEndsAt: bEnd, levelEndsAt: bEnd + rem, nextBreakAt: t };
@@ -175,6 +203,7 @@ export function estimateMinutes(levels: Level[], rule: BreakRule, players: numbe
   let breaks = 0;
   if (rule.mode === 'HOURLY' && rule.minutes > 0 && rule.minutes < 60) breaks = Math.floor(play / (60 - rule.minutes)) * rule.minutes;
   if (rule.mode === 'LEVELS' && rule.every > 0) breaks = Math.floor((count - 1) / rule.every) * rule.minutes;
+  if ((rule.addonAt ?? 0) > 0 && (rule.addonAt ?? 0) < count) breaks += rule.addonMinutes ?? 0;
   return Math.round(play + breaks);
 }
 

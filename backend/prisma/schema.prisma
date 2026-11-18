@@ -291,6 +291,8 @@ model Tournament {
   breakMode        String           @default("HOURLY")
   breakEvery       Int              @default(4)
   breakMinutes     Int              @default(5)
+  /// Pauza za add-on: na kraju kasne prijave (minuti; 0 = bez posebne pauze).
+  addonBreakMinutes Int             @default(0)
   /// Kasna prijava i re-entry do kraja ovog nivoa (0 = samo pre početka).
   lateRegLevels    Int              @default(0)
   /// Rebuy: dozvoljen do kraja nivoa rebuyLevels, najviše rebuyMax puta (0 = bez ograničenja),

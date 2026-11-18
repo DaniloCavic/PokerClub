@@ -93,3 +93,21 @@ describe('levelReachedAt', () => {
     expect(Math.round(t / MIN)).toBe(65);
   });
 });
+
+describe('add-on pauza na kraju kasne prijave', () => {
+  const lv10 = [1, 2, 3, 4, 5].map((k) => ({ sb: k, bb: 2 * k, ante: 0, minutes: 10 }));
+  const M = 60_000;
+  const rule = { mode: 'NONE' as const, every: 0, minutes: 0, addonAt: 2, addonMinutes: 5 };
+  it('posle 2. nivoa pauza 5 min, pa 3. nivo', () => {
+    expect(clockAt(0, lv10, rule, 15 * M)).toMatchObject({ level: 1, onBreak: false, nextBreakAt: 20 * M });
+    expect(clockAt(0, lv10, rule, 22 * M)).toMatchObject({ level: 2, onBreak: true, breakEndsAt: 25 * M });
+    expect(clockAt(0, lv10, rule, 26 * M)).toMatchObject({ level: 2, onBreak: false, levelEndsAt: 35 * M });
+    // Kasna prijava (do kraja 2. nivoa) se zatvara kad pauza počne.
+    expect(levelReachedAt(0, lv10, rule, 2)).toBe(20 * M);
+  });
+  it('sa pauzom svakog sata', () => {
+    const r = { mode: 'HOURLY' as const, every: 0, minutes: 5, addonAt: 2, addonMinutes: 5 };
+    expect(clockAt(0, lv10, r, 22 * M)).toMatchObject({ level: 2, onBreak: true, breakEndsAt: 25 * M });
+    expect(clockAt(0, lv10, r, 26 * M)).toMatchObject({ level: 2, onBreak: false });
+  });
+});
