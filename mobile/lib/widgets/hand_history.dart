@@ -4,6 +4,7 @@ import '../format.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'playing_card.dart';
+import 'hand_replay.dart';
 import '../i18n.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -316,6 +317,16 @@ class _HandTile extends StatelessWidget {
                 style: const TextStyle(color: gold, fontWeight: FontWeight.w700),
               ),
             ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => showHandReplay(context, hand, money),
+              icon: const Icon(Icons.play_circle, color: goldLight),
+              label: Text(tr('Replay hand', 'Odigraj ruku ponovo'), style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
+              style: OutlinedButton.styleFrom(side: BorderSide(color: gold.withOpacity(0.6))),
+            ),
+          ),
           const Divider(color: Colors.white10, height: 20),
           ActionsByStreet(actions: ((hand['actions'] as List?) ?? []).cast<Json>(), board: board, money: money),
         ],

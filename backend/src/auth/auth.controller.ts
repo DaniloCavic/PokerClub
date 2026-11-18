@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normLang, tr, userLang } from '../common/i18n';
 import { playerStats } from '../tables/player-stats';
 import { TablesService } from '../tables/tables.service';
-import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto } from './dto';
+import { AvatarDto, ChangePasswordDto, LoginDto, NoteDto, RegisterDto } from './dto';
 
 @Controller('auth')
 export class AuthController {
@@ -37,6 +37,40 @@ export class AuthController {
     const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
     return { accessToken, user: publicUser(fresh) };
   }
+
+  /**
+   * Igrač sam pravi nalog. Sa kodom agenta pripada tom agentu; bez koda ostaje bez agenta,
+   * a super agent ga kasnije može dodeliti nekom agentu.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('register')
+  async register(@Body() dto: RegisterDto) {
+    if (await this.prisma.user.findUnique({ where: { usernameLower: dto.username.toLowerCase() } })) {
+      throw new ConflictException('Korisničko ime je zauzeto.');
+    }
+    let agentId: string | null = null;
+    const code = dto.agentCode?.trim().toUpperCase();
+    if (code) {
+      const agent = await this.prisma.user.findUnique({ where: { agentCode: code } });
+      if (!agent || agent.role !== 'AGENT') throw new BadRequestException('Kod agenta ne postoji.');
+      if (agent.isBlocked) throw new BadRequestException('Agent sa ovim kodom trenutno nije aktivan.');
+      agentId = agent.id;
+    }
+    const user = await this.prisma.user.create({
+      data: {
+        username: dto.username,
+        usernameLower: dto.username.toLowerCase(),
+        displayName: dto.displayName,
+        passwordHash: await bcrypt.hash(dto.password, 12),
+        role: 'PLAYER',
+        agentId,
+        lastSeenAt: new Date(),
+      },
+    });
+    const accessToken = await this.jwt.signAsync({ sub: user.id, role: user.role });
+    return { accessToken, user: publicUser(user) };
+  }
 }
 
 @Controller('me')
@@ -52,6 +86,23 @@ export class MeController {
       ? await this.prisma.user.findUnique({ where: { id: user.agentId }, select: { displayName: true } })
       : null;
     return { ...publicUser(user), agentName: agent?.displayName ?? null, seatedAt: this.tables.seatsOf(user.id) };
+  }
+
+  /** Poruka dobrodošlice i pravila kluba, ako ih igrač još nije video (ili su promenjena posle toga). */
+  @Get('welcome')
+  async welcome(@CurrentUser() user: User) {
+    const rows = await this.prisma.appSetting.findMany({ where: { key: { in: ['welcomeEn', 'welcomeSr', 'welcomeAt'] } } });
+    const v = (k: string) => rows.find((r) => r.key === k)?.value ?? '';
+    const at = v('welcomeAt') ? new Date(v('welcomeAt')) : null;
+    if (!at || (!v('welcomeEn') && !v('welcomeSr'))) return { show: false };
+    const show = !user.welcomeSeenAt || user.welcomeSeenAt < at;
+    return { show, en: v('welcomeEn') || v('welcomeSr'), sr: v('welcomeSr') || v('welcomeEn') };
+  }
+
+  @Post('welcome/seen')
+  async welcomeSeen(@CurrentUser() user: User) {
+    await this.prisma.user.update({ where: { id: user.id }, data: { welcomeSeenAt: new Date() } });
+    return { ok: true };
   }
 
   /** Jezik aplikacije (en / sr): poruke i obaveštenja na telefonu stižu na tom jeziku. */

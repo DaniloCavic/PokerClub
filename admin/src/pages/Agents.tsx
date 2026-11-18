@@ -36,6 +36,7 @@ export function Agents() {
             <tr>
               <th>Korisničko ime</th>
               <th>Ime</th>
+              <th>Kod za igrače</th>
               <th>Procenat</th>
               <th>Igrača</th>
               <th>Na nalozima igrača</th>
@@ -53,6 +54,9 @@ export function Agents() {
                   <b>{a.username}</b>
                 </td>
                 <td>{a.displayName}</td>
+                <td>
+                  <code style={{ fontSize: 15, fontWeight: 700, letterSpacing: 1 }}>{a.agentCode ?? '—'}</code>
+                </td>
                 <td>
                   <b>{a.rakePercent}%</b>
                 </td>

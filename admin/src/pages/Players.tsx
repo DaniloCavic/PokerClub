@@ -6,9 +6,10 @@ export function Players({ me }: { me: Me }) {
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [noAgent, setNoAgent] = useState(false);
   const { data, error, reload } = useLoad<any>(
-    () => api('GET', `/admin/players?page=${page}&q=${encodeURIComponent(search)}`),
-    [page, search],
+    () => api('GET', `/admin/players?page=${page}&q=${encodeURIComponent(search)}${noAgent ? '&noAgent=1' : ''}`),
+    [page, search, noAgent],
   );
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -30,6 +31,19 @@ export function Players({ me }: { me: Me }) {
       >
         <input className="grow" placeholder="Pretraga po korisničkom imenu ili imenu" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="secondary">Traži</button>
+        {me.role === 'ADMIN' && (
+          <label className="row small" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={noAgent}
+              onChange={(e) => {
+                setPage(1);
+                setNoAgent(e.target.checked);
+              }}
+            />
+            Samo bez agenta (registrovani sami)
+          </label>
+        )}
       </form>
       {error && <div className="error">{error}</div>}
       <div className="card">
@@ -56,7 +70,7 @@ export function Players({ me }: { me: Me }) {
                 <td>{u.displayName}</td>
                 <td>{fmt(u.balance)}</td>
                 <td>{u.onTables ? fmt(u.onTables) : '—'}</td>
-                {me.role === 'ADMIN' && <td>{u.agentName ?? '—'}</td>}
+                {me.role === 'ADMIN' && <td>{u.agentName ?? <span className="badge red">bez agenta</span>}</td>}
                 <td>{fmt(u.hands ?? 0)}</td>
                 <td>{fmt((me.role === 'ADMIN' ? u.rakePaid : u.myEarning) ?? 0)}</td>
                 <td>{fmtDate(u.lastSeenAt)}</td>

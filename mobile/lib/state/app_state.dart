@@ -75,6 +75,12 @@ class AppState extends ChangeNotifier {
   /// Jezik aplikacije (en / sr).
   String lang = 'en';
 
+  /// Oznaka uređaja.
+  String device = '';
+
+  /// Poruka dobrodošlice i pravila kluba (prikazuje je glavni okvir aplikacije).
+  final welcome = ValueNotifier<String?>(null);
+
   /// Promena jezika: čuva se na uređaju i na serveru (poruke i obaveštenja na tom jeziku).
   Future<void> setLang(String v) async {
     lang = v == 'sr' ? 'sr' : 'en';
@@ -139,6 +145,12 @@ class AppState extends ChangeNotifier {
     CardStyle.fourColor = fourColor;
     soundOn = prefs.getBool('sound') ?? true;
     lang = prefs.getString('lang') ?? 'en';
+    // Oznaka ovog uređaja (zaštita od više naloga na istom uređaju za istim stolom).
+    device = prefs.getString('device') ?? '';
+    if (device.isEmpty) {
+      device = '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}${Random().nextInt(1 << 30).toRadixString(36)}';
+      await prefs.setString('device', device);
+    }
     Lang.code = lang;
     autoSwitch = prefs.getBool('autoSwitch') ?? false;
     Sounds.enabled = soundOn;
@@ -338,8 +350,38 @@ class AppState extends ChangeNotifier {
     _onUser(res['user']);
   }
 
+  /// Novi nalog igrača (kod agenta je opcioni).
+  Future<void> register(String username, String displayName, String password, String agentCode) async {
+    final res = await api.post('/auth/register', {
+      'username': username,
+      'displayName': displayName,
+      'password': password,
+      if (agentCode.trim().isNotEmpty) 'agentCode': agentCode.trim(),
+    });
+    api.token = res['accessToken'];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', api.token!);
+    _onUser(res['user']);
+  }
+
+  /// Da li postoji poruka dobrodošlice koju igrač još nije video.
+  Future<void> loadWelcome() async {
+    try {
+      final r = await api.get('/me/welcome');
+      if (r['show'] == true) welcome.value = (Lang.sr ? r['sr'] : r['en']) as String?;
+    } catch (_) {}
+  }
+
+  Future<void> welcomeSeen() async {
+    welcome.value = null;
+    try {
+      await api.post('/me/welcome/seen', {});
+    } catch (_) {}
+  }
+
   void _onUser(Map<String, dynamic> u) {
     user = u;
+    loadWelcome();
     // Jezik izabran na ovom uređaju važi i za poruke sa servera.
     if (u['lang'] != null && u['lang'] != lang) api.post('/me/lang', {'lang': lang}).catchError((_) => null);
     balance = (u['balance'] as num?)?.toInt() ?? 0;
@@ -412,7 +454,7 @@ class AppState extends ChangeNotifier {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setPath('/socket.io')
-          .setAuth({'token': api.token, 'lang': Lang.code})
+          .setAuth({'token': api.token, 'lang': Lang.code, 'device': device})
           .disableAutoConnect()
           // Nova veza za svaku prijavu: inače biblioteka ponovo koristi staru vezu
           // (sa tokenom prethodnog naloga) i server misli da je to prethodni igrač.
@@ -511,6 +553,13 @@ class AppState extends ChangeNotifier {
       notify(tr('“${m['name']}”: you finished #${m['position']}, prize ${m['prize']} was added to your account!', '„${m['name']}“: ${m['position']}. mesto, nagrada ${m['prize']} je uplaćena na nalog!'));
     });
     s.on('tournament:closed', (data) => notify((data as Map)['message'].toString()));
+    // Bounty: izbacili ste igrača.
+    s.on('tournament:bounty', (data) {
+      final m = data as Map;
+      Sounds.play('chips', volume: 0.7);
+      toast(tr('Knockout! You eliminated ${m['victim']} and won a bounty of ${m['amount']}.',
+          'Izbacili ste igrača ${m['victim']} i osvojili bounty ${m['amount']}!'));
+    });
     s.connect();
   }
 

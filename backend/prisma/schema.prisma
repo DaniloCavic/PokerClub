@@ -26,6 +26,7 @@ enum TxType {
   TOURNAMENT_BUY_IN // prijava na turnir, rebuy, re-entry ili add-on (nagradni deo + fee)
   TOURNAMENT_PRIZE // nagrada sa turnira
   TOURNAMENT_REFUND // povraćaj (odjava ili otkazan turnir)
+  TOURNAMENT_BOUNTY // bounty za izbačenog igrača
 }
 
 enum TournamentStatus {
@@ -66,12 +67,21 @@ model User {
   avatarAt      DateTime?
   /// Jezik aplikacije igrača (en / sr): poruke i obaveštenja stižu na tom jeziku.
   lang          String    @default("en")
+  /// Za agente: kod koji igrač unosi pri registraciji da bi pripao ovom agentu.
+  agentCode     String?   @unique
+  /// Poslednja IP adresa i uređaj (zaštita od igre sa više naloga za istim stolom).
+  lastIp        String?
+  lastDevice    String?
+  /// Kada je igrač video poruku dobrodošlice i pravila kluba.
+  welcomeSeenAt DateTime?
 
   transactions Transaction[]      @relation("TxUser")
   actions      Transaction[]      @relation("TxActor")
   tables       PokerTable[]
   seats        TableSeat[]
   tournaments  Tournament[]
+  feePaid      FeeShare[]         @relation("FeePlayer")
+  feeEarned    FeeShare[]         @relation("FeeAgent")
   tourEntries  TournamentEntry[]
   rakePaid     RakeShare[]        @relation("RakePlayer")
   rakeEarned   RakeShare[]        @relation("RakeAgent")
@@ -287,6 +297,10 @@ model Tournament {
   payoutMode       String           @default("PERCENT")
   payPercent       Int              @default(15)
   payouts          Json             @default("[]")
+  /// Ponavljanje: NONE, DAILY ili WEEKLY (kad turnir počne, isti se zakaže za sledeći dan / nedelju).
+  repeat           String           @default("NONE")
+  /// Bounty (knockout): deo ulaza koji dobija igrač koji izbaci ovog igrača (0 = običan turnir).
+  bounty           Int              @default(0)
   /// Procena trajanja koju zadaje administrator (minuti); 0 = računa se iz strukture.
   estimatedMinutes Int              @default(0)
   createdById      String
@@ -299,6 +313,7 @@ model Tournament {
 
   entries TournamentEntry[]
   tables  PokerTable[]
+  fees    FeeShare[]
 
   @@index([status, startAt])
 }
@@ -322,9 +337,45 @@ model TournamentEntry {
   /// Ukupno plaćeno (nagradni deo i fee posebno).
   paid         Int         @default(0)
   feePaid      Int         @default(0)
+  /// Bounty: koliko je igrača izbacio i koliko je dobio.
+  knockouts    Int         @default(0)
+  bountyWon    Int         @default(0)
   createdAt    DateTime    @default(now())
   bustedAt     DateTime?
 
   @@unique([tournamentId, userId, entryNo])
   @@index([tournamentId, status])
+}
+
+/// Fee (rake) sa turnira koji je platio jedan igrač i deo koji pripada njegovom agentu
+/// (procenat važeći na kraju turnira). Ostatak (amount − agentCut) pripada super agentu.
+model FeeShare {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+  userId       String
+  user         User       @relation("FeePlayer", fields: [userId], references: [id])
+  agentId      String?
+  agent        User?      @relation("FeeAgent", fields: [agentId], references: [id])
+  amount       Int
+  agentCut     Int
+  createdAt    DateTime   @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+}
+
+/// Upozorenje: igrači sa iste IP adrese ili uređaja za istim stolom, ili često igraju jedan protiv drugog.
+model SecurityAlert {
+  id        String   @id @default(cuid())
+  kind      String
+  tableId   String?
+  tableName String?
+  userIds   String[]
+  names     String
+  detail    String
+  createdAt DateTime @default(now())
+  seen      Boolean  @default(false)
+
+  @@index([createdAt])
 }

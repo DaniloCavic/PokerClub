@@ -17,6 +17,8 @@ interface TourForm {
   fee: number;
   startingStack: number;
   guarantee: number;
+  bounty: number;
+  repeat: 'NONE' | 'DAILY' | 'WEEKLY';
   minPlayers: number;
   maxPlayers: number;
   tableSize: number;
@@ -117,12 +119,14 @@ export function Tournaments({ me }: { me: Me }) {
             {data?.map((t) => (
               <tr key={t.id} className="clickable" onClick={() => setOpenId(t.id)}>
                 <td>
-                  <b>{t.name}</b>
+                  <b>{t.name}</b> {t.repeat && t.repeat !== 'NONE' ? <span className="badge blue">{t.repeat === 'DAILY' ? 'svaki dan' : 'svake nedelje'}</span> : null}
+                  {t.bounty ? <span className="badge">bounty</span> : null}
                 </td>
                 <td>{t.variant === 'HOLDEM' ? "Hold'em" : 'Omaha'}</td>
                 <td>{fmtWhen(t.startAt)}</td>
                 <td>
-                  {fmt(t.buyIn)} + {fmt(t.fee)}
+                  {fmt(t.buyIn)}
+                  {t.bounty ? ` + ${fmt(t.bounty)} KO` : ''} + {fmt(t.fee)}
                 </td>
                 <td>{t.guarantee ? fmt(t.guarantee) : '—'}</td>
                 <td>{t.entries}</td>
@@ -173,6 +177,8 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
     fee: 100,
     startingStack: 10_000,
     guarantee: 0,
+    bounty: 0,
+    repeat: 'NONE',
     minPlayers: 2,
     maxPlayers: 0,
     tableSize: 9,
@@ -300,6 +306,15 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
           Početak
           <input type="datetime-local" value={f.startAt} onChange={(e) => set('startAt', e.target.value)} />
         </label>
+        <label>
+          Ponavljanje
+          <select value={f.repeat} onChange={(e) => set('repeat', e.target.value as TourForm['repeat'])}>
+            <option value="NONE">Jednom</option>
+            <option value="DAILY">Svaki dan u isto vreme</option>
+            <option value="WEEKLY">Svake nedelje u isto vreme</option>
+          </select>
+          <small className="muted">kad turnir počne, sledeći se sam zakaže</small>
+        </label>
         {n('tableSize', 'Igrača za stolom', '2–9', 2)}
         {n('actionSeconds', 'Vreme za potez (s)', '10–120', 10)}
         {n('minPlayers', 'Najmanje igrača', 'ako ih je manje, turnir se otkazuje i ulaz vraća', 2)}
@@ -312,6 +327,7 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
         {n('fee', 'Fee (rake)', 'zadržava klub')}
         {n('startingStack', 'Početni stek (žetoni)', undefined, 100)}
         {n('guarantee', 'Garantovan fond', '0 = bez garancije; razliku doplaćuje klub')}
+        {n('bounty', 'Bounty (knockout)', 'deo ulaza koji dobija ko izbaci igrača; 0 = običan turnir. Igrač plaća ulaz + bounty + fee')}
       </div>
 
       <h3>Blajndovi</h3>
@@ -530,7 +546,8 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
             <b>{fmtWhen(t.startAt)}</b>
             <span>Ulaz</span>
             <b>
-              {fmt(t.buyIn)} + {fmt(t.fee)} fee
+              {fmt(t.buyIn)}
+              {t.bounty ? ` + ${fmt(t.bounty)} bounty` : ''} + {fmt(t.fee)} fee
             </b>
             <span>Početni stek</span>
             <b>{fmt(t.startingStack)}</b>
@@ -565,6 +582,19 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
               <button className="danger" disabled={busy} onClick={cancel}>
                 Otkaži turnir i vrati ulaze
               </button>
+              {t.repeat && t.repeat !== 'NONE' && t.status === 'REGISTERING' && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={async () => {
+                    await api('POST', `/admin/tournaments/${id}/stop-repeat`);
+                    setMsg('Ponavljanje je zaustavljeno: posle ovog turnira se neće zakazati sledeći.');
+                    reload();
+                  }}
+                >
+                  Zaustavi ponavljanje
+                </button>
+              )}
             </div>
           )}
 
@@ -576,6 +606,7 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
                   <th>Mesto</th>
                   <th>Igrač</th>
                   <th>Žetoni</th>
+                  {t.bounty ? <th>KO / bounty</th> : null}
                   <th>Nagrada</th>
                 </tr>
               </thead>
@@ -587,6 +618,7 @@ function TournamentDetail({ id, isSuper, onClose, onChanged }: { id: string; isS
                       {s.name} {s.status === 'BUSTED' && t.status === 'RUNNING' ? <span className="badge red">ispao</span> : null}
                     </td>
                     <td>{s.status === 'PLAYING' ? fmt(s.chips) : '—'}</td>
+                    {t.bounty ? <td>{s.knockouts ?? 0} / {fmt(s.bountyWon ?? 0)}</td> : null}
                     <td>{s.prize ? fmt(s.prize) : '—'}</td>
                   </tr>
                 ))}

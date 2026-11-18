@@ -19,5 +19,6 @@ export function publicUser(u: User) {
     createdAt: u.createdAt,
     lastSeenAt: u.lastSeenAt,
     lang: u.lang,
+    agentCode: u.agentCode,
   };
 }

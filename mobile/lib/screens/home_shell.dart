@@ -54,6 +54,36 @@ class _HomeShellState extends State<HomeShell> {
       app.navigatorKey.currentState?.popUntil((r) => r.isFirst);
       app.showTable(tableId);
     };
+    // Poruka dobrodošlice i pravila kluba (jednom, i posle svake izmene).
+    void showWelcome() {
+      final text = app.welcome.value;
+      final ctx = app.navigatorKey.currentContext;
+      if (text == null || text.trim().isEmpty || ctx == null) return;
+      showDialog(
+        context: ctx,
+        barrierDismissible: false,
+        builder: (c) => AlertDialog(
+          backgroundColor: panel,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: gold.withOpacity(0.6))),
+          title: GoldText(tr('Welcome to Triling!', 'Dobro došli u Triling!'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460, maxHeight: 420),
+            child: SingleChildScrollView(child: Text(text, style: const TextStyle(height: 1.45))),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(c);
+                app.welcomeSeen();
+              },
+              child: Text(tr('I understand', 'Razumem')),
+            ),
+          ],
+        ),
+      );
+    }
+    app.welcome.addListener(showWelcome);
+    WidgetsBinding.instance.addPostFrameCallback((_) => showWelcome());
     // Kraj turnira (ispadanje ili pobeda): prozor sa mestom i nagradom.
     app.tourResult.addListener(() {
       final r = app.tourResult.value;

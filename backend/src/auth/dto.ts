@@ -14,6 +14,32 @@ export class LoginDto {
   password: string;
 }
 
+/** Registracija igrača (sam pravi nalog); kod agenta je opcioni. */
+export class RegisterDto {
+  @Transform(trim)
+  @Matches(/^[A-Za-z0-9_.]{3,20}$/, {
+    message: 'Korisničko ime: 3–20 znakova, samo slova bez kvačica, brojevi, tačka i donja crta.',
+  })
+  username: string;
+
+  @Transform(trim)
+  @IsString()
+  @MinLength(2, { message: 'Ime za prikaz mora imati bar 2 znaka.' })
+  @MaxLength(30, { message: 'Ime za prikaz može imati najviše 30 znakova.' })
+  displayName: string;
+
+  @IsString()
+  @MinLength(6, { message: 'Lozinka mora imati bar 6 znakova.' })
+  @MaxLength(100)
+  password: string;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(20)
+  agentCode?: string;
+}
+
 export class ChangePasswordDto {
   @IsString()
   oldPassword: string;

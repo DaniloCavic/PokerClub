@@ -8,6 +8,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { LangExceptionFilter } from './common/lang.filter';
 import { ensureAdmin } from './seed-admin';
+import { ensureAgentCodes } from './common/agent-code';
 import { PrismaService } from './prisma/prisma.service';
 
 /** Servira izgrađenu web aplikaciju na `prefix`; rute bez ekstenzije vraćaju index.html. */
@@ -57,6 +58,7 @@ async function bootstrap() {
   }
 
   await ensureAdmin(app.get(PrismaService));
+  await ensureAgentCodes(app.get(PrismaService));
   const port = Number(process.env.PORT || 3000);
   await app.listen(port, '0.0.0.0');
   Logger.log(`Poker server radi na portu ${port}`, 'Bootstrap');

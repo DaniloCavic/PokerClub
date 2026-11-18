@@ -141,7 +141,23 @@ class _TournamentTile extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(t['name'] as String, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
+                Row(children: [
+                  Flexible(
+                    child: Text(t['name'] as String, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
+                  ),
+                  if ((t['bounty'] as num? ?? 0) > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(color: const Color(0xFFB34A1A), borderRadius: BorderRadius.circular(5)),
+                      child: const Text('KO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+                    ),
+                  ],
+                  if (t['repeat'] == 'DAILY' || t['repeat'] == 'WEEKLY') ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.repeat, size: 15, color: gold),
+                  ],
+                ]),
                 const SizedBox(height: 2),
                 Row(children: [
                   Container(
@@ -164,7 +180,7 @@ class _TournamentTile extends StatelessWidget {
                 ]),
                 const SizedBox(height: 4),
                 Text(
-                  '${tr('Buy-in', 'Ulaz')} ${rsd((t['buyIn'] as num) + (t['fee'] as num))}${guarantee > 0 ? ' · ${tr('GTD', 'Garantovano')} ${chips(guarantee)}' : ''}',
+                  '${tr('Buy-in', 'Ulaz')} ${rsd((t['buyIn'] as num) + (t['bounty'] as num? ?? 0) + (t['fee'] as num))}${guarantee > 0 ? ' · ${tr('GTD', 'Garantovano')} ${chips(guarantee)}' : ''}',
                   style: const TextStyle(fontSize: 12.5, color: goldLight),
                 ),
                 Text(
@@ -298,7 +314,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
     final st = tourStatus(d);
     final me = d['me'] as Json?;
     final start = DateTime.parse(d['startAt'] as String).toLocal();
-    final total = (d['buyIn'] as num) + (d['fee'] as num);
+    final total = (d['buyIn'] as num) + (d['bounty'] as num? ?? 0) + (d['fee'] as num);
     final clock = d['clock'] as Json?;
     final now = app.serverNow;
     final running = d['status'] == 'RUNNING';
@@ -311,8 +327,11 @@ class _TournamentScreenState extends State<TournamentScreen> {
           onTap: _busy
               ? null
               : () => _run('tour:register',
-                  confirm: tr('Buy-in ${rsd(total)} (${chips(d['buyIn'])} prize pool + ${chips(d['fee'])} fee) will be taken from your account.',
-                      'Ulaz ${rsd(total)} (${chips(d['buyIn'])} nagradni fond + ${chips(d['fee'])} fee) se skida sa naloga.'),
+                  confirm: (d['bounty'] as num? ?? 0) > 0
+                      ? tr('Buy-in ${rsd(total)} (${chips(d['buyIn'])} prize pool + ${chips(d['bounty'])} bounty + ${chips(d['fee'])} fee) will be taken from your account.',
+                          'Ulaz ${rsd(total)} (${chips(d['buyIn'])} nagradni fond + ${chips(d['bounty'])} bounty + ${chips(d['fee'])} fee) se skida sa naloga.')
+                      : tr('Buy-in ${rsd(total)} (${chips(d['buyIn'])} prize pool + ${chips(d['fee'])} fee) will be taken from your account.',
+                          'Ulaz ${rsd(total)} (${chips(d['buyIn'])} nagradni fond + ${chips(d['fee'])} fee) se skida sa naloga.'),
                   done: tr('You are registered.', 'Prijavljeni ste.')),
         ));
       }
@@ -442,7 +461,12 @@ class _TournamentScreenState extends State<TournamentScreen> {
     return ListView(padding: const EdgeInsets.fromLTRB(14, 10, 14, 20), children: [
       _section(tr('Rules', 'Pravila'), [
         _kv(tr('Starting stack', 'Početni stek'), chips(d['startingStack'])),
-        _kv('Buy-in', '${chips(d['buyIn'])} + ${chips(d['fee'])} fee'),
+        _kv(tr('Buy-in', 'Ulaz'), '${chips(d['buyIn'])}${(d['bounty'] as num? ?? 0) > 0 ? ' + ${chips(d['bounty'])} bounty' : ''} + ${chips(d['fee'])} fee'),
+        if ((d['bounty'] as num? ?? 0) > 0)
+          _kv('Bounty (KO)', tr('You win ${rsd(d['bounty'])} for every player you knock out; the winner also gets their own bounty.',
+              'Za svakog igrača koga izbacite dobijate ${rsd(d['bounty'])}; pobednik dobija i svoj bounty.')),
+        if (d['repeat'] == 'DAILY' || d['repeat'] == 'WEEKLY')
+          _kv(tr('Repeats', 'Ponavlja se'), d['repeat'] == 'DAILY' ? tr('every day at the same time', 'svaki dan u isto vreme') : tr('every week at the same time', 'svake nedelje u isto vreme')),
         _kv('Players per table', '${d['tableSize'] ?? 9}'),
         if (d['actionSeconds'] != null) _kv('Time to act', '${d['actionSeconds']} s'),
         _kv(tr('Breaks', 'Pauze'), breaks),
@@ -533,6 +557,11 @@ class _TournamentScreenState extends State<TournamentScreen> {
               child: Text(x['name'] as String,
                   overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: out ? Colors.white54 : Colors.white)),
             ),
+            if ((x['knockouts'] as num? ?? 0) > 0)
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: Text('${x['knockouts']} KO', style: const TextStyle(fontSize: 12, color: Color(0xFFFF8A65), fontWeight: FontWeight.w800)),
+              ),
             if (!out) Text(chips(x['chips']), style: const TextStyle(fontWeight: FontWeight.w800, color: goldLight)),
             if (out && (x['prize'] as num? ?? 0) > 0) Text(rsd(x['prize']), style: const TextStyle(fontWeight: FontWeight.w800, color: winGreen)),
             if (out && (x['prize'] as num? ?? 0) == 0) Text(tr('out', 'ispao'), style: TextStyle(color: Colors.white38, fontSize: 12)),
@@ -674,6 +703,7 @@ class TourBar extends StatelessWidget {
           if (!onBreak && nextBreak != null) item(tr('BREAK IN', 'PAUZA ZA'), clockLeft(nextBreak, now)),
           item(tr('RANK', 'MESTO'), tour['position'] != null ? '${tour['position']}/${tour['playersLeft']}' : tr('${tour['playersLeft']} left', '${tour['playersLeft']} igrača')),
           item(tr('AVG STACK', 'PROSEK'), chips(tour['avgStack'])),
+          if ((tour['bounty'] as num? ?? 0) > 0) item(tr('BOUNTIES', 'BOUNTY'), '${tour['myKnockouts'] ?? 0} KO · ${chips(tour['myBountyWon'] ?? 0)}', color: const Color(0xFFFF8A65)),
           if (wide) item(tr('PRIZE POOL', 'FOND'), chips(tour['prizePool'])),
         ]),
       ),

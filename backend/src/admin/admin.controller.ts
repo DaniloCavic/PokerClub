@@ -21,6 +21,7 @@ import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
+import { newAgentCode } from '../common/agent-code';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -133,10 +134,18 @@ export class AdminController {
       ...(this.isSuper(actor) ? {} : { agentId: actor.id }),
       ...(since ? { createdAt: { gte: since } } : {}),
     });
-    const [sharesToday, sharesTotal] = await Promise.all([
+    const feeWhere = (since?: Date): Prisma.FeeShareWhereInput => ({
+      ...(this.isSuper(actor) ? {} : { agentId: actor.id }),
+      ...(since ? { createdAt: { gte: since } } : {}),
+    });
+    const [sharesToday, sharesTotal, feesToday, feesTotal] = await Promise.all([
       this.prisma.rakeShare.aggregate({ where: shareWhere(today), _sum: { amount: true, agentCut: true } }),
       this.prisma.rakeShare.aggregate({ where: shareWhere(), _sum: { amount: true, agentCut: true } }),
+      this.prisma.feeShare.aggregate({ where: feeWhere(today), _sum: { amount: true, agentCut: true } }),
+      this.prisma.feeShare.aggregate({ where: feeWhere(), _sum: { amount: true, agentCut: true } }),
     ]);
+    const fT = { amount: feesToday._sum.amount ?? 0, cut: feesToday._sum.agentCut ?? 0 };
+    const fA = { amount: feesTotal._sum.amount ?? 0, cut: feesTotal._sum.agentCut ?? 0 };
     const [playerCount, blocked, balances, atTables, dep, wd, rakeToday, rakeTotal, openTables, handsToday] = await Promise.all([
       this.prisma.user.count({ where: players }),
       this.prisma.user.count({ where: { ...players, isBlocked: true } }),
@@ -161,27 +170,156 @@ export class AdminController {
         ? {
             rakeToday: rakeToday._sum.rake ?? 0,
             rakeTotal: rakeTotal._sum.rake ?? 0,
-            agentsCutToday: sharesToday._sum.agentCut ?? 0,
-            agentsCutTotal: sharesTotal._sum.agentCut ?? 0,
-            superShareToday: (rakeToday._sum.rake ?? 0) - (sharesToday._sum.agentCut ?? 0),
-            superShareTotal: (rakeTotal._sum.rake ?? 0) - (sharesTotal._sum.agentCut ?? 0),
+            feesToday: fT.amount,
+            feesTotal: fA.amount,
+            agentsCutToday: (sharesToday._sum.agentCut ?? 0) + fT.cut,
+            agentsCutTotal: (sharesTotal._sum.agentCut ?? 0) + fA.cut,
+            superShareToday: (rakeToday._sum.rake ?? 0) - (sharesToday._sum.agentCut ?? 0) + fT.amount - fT.cut,
+            superShareTotal: (rakeTotal._sum.rake ?? 0) - (sharesTotal._sum.agentCut ?? 0) + fA.amount - fA.cut,
           }
         : {
             // Agent vidi samo svoju zaradu: ni procenat ni ukupan rake (iz kog bi se procenat izračunao).
-            myCutToday: sharesToday._sum.agentCut ?? 0,
-            myCutTotal: sharesTotal._sum.agentCut ?? 0,
+            myCutToday: (sharesToday._sum.agentCut ?? 0) + fT.cut,
+            myCutTotal: (sharesTotal._sum.agentCut ?? 0) + fA.cut,
           }),
       openTables,
       handsToday,
     };
   }
 
+  // ---------- Bezbednost ----------
+
+  /**
+   * Upozorenja (ista IP adresa ili uređaj za istim stolom) i parovi igrača koji su
+   * u poslednjih 7 dana najčešće igrali iste ruke (mogući dogovor).
+   */
+  @Roles('ADMIN')
+  @Get('security')
+  async security() {
+    const alerts = await this.prisma.securityAlert.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    const pairs = await this.prisma.$queryRaw<{ a: string; b: string; hands: number }[]>`
+      SELECT p1 AS a, p2 AS b, COUNT(*)::int AS hands
+      FROM (
+        SELECT x.p AS p1, y.p AS p2
+        FROM "Hand" h, unnest(h."playerIds") AS x(p), unnest(h."playerIds") AS y(p)
+        WHERE h."createdAt" >= ${since} AND x.p < y.p
+      ) t
+      GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 15`;
+    const ids = [...new Set(pairs.flatMap((p) => [p.a, p.b]))];
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, lastIp: true } });
+    const u = (id: string) => users.find((x) => x.id === id);
+    return {
+      alerts,
+      pairs: pairs.map((p) => ({
+        ...p,
+        nameA: u(p.a)?.displayName ?? '?',
+        nameB: u(p.b)?.displayName ?? '?',
+        sameIp: !!u(p.a)?.lastIp && u(p.a)?.lastIp === u(p.b)?.lastIp,
+      })),
+    };
+  }
+
+  @Roles('ADMIN')
+  @Post('security/seen')
+  async securitySeen() {
+    await this.prisma.securityAlert.updateMany({ where: { seen: false }, data: { seen: true } });
+    return { ok: true };
+  }
+
+  // ---------- Poruka dobrodošlice i pravila kluba ----------
+
+  @Get('welcome')
+  async getWelcome() {
+    const rows = await this.prisma.appSetting.findMany({ where: { key: { in: ['welcomeEn', 'welcomeSr', 'welcomeAt'] } } });
+    const v = (k: string) => rows.find((r) => r.key === k)?.value ?? '';
+    return { en: v('welcomeEn'), sr: v('welcomeSr'), updatedAt: v('welcomeAt') || null };
+  }
+
+  /** Nova poruka: svaki igrač je vidi jednom (i posle svake izmene ponovo). */
+  @Roles('ADMIN')
+  @Post('welcome')
+  async setWelcome(@Body() b: { en?: string; sr?: string }) {
+    const en = String(b?.en ?? '').slice(0, 4000);
+    const sr = String(b?.sr ?? '').slice(0, 4000);
+    const at = new Date().toISOString();
+    for (const [key, value] of [['welcomeEn', en], ['welcomeSr', sr], ['welcomeAt', at]]) {
+      await this.prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    }
+    return { ok: true, updatedAt: at };
+  }
+
+  // ---------- Izveštaj zarade ----------
+
+  /**
+   * Zarada po danima: rake sa keš stolova i fee sa turnira, deo agenata i deo super agenta.
+   * Super agent vidi i podelu po agentima; agent vidi samo svoju zaradu.
+   */
+  @Get('reports')
+  async report(@CurrentUser() actor: User, @Query('from') from?: string, @Query('to') to?: string) {
+    const tz = process.env.APP_TIMEZONE || 'Europe/Belgrade';
+    const day = (s: string | undefined, fallback: Date) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback.toISOString().slice(0, 10));
+    const toDay = day(to, new Date());
+    const fromDay = day(from, new Date(Date.now() - 29 * 86_400_000));
+    const agentFilter = this.isSuper(actor) ? Prisma.empty : Prisma.sql`AND "agentId" = ${actor.id}`;
+    const q = (table: 'RakeShare' | 'FeeShare') => Prisma.sql`
+      SELECT to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day,
+             "agentId", SUM(amount)::int AS amount, SUM("agentCut")::int AS cut
+      FROM ${Prisma.raw(`"${table}"`)}
+      WHERE (("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date BETWEEN ${fromDay}::date AND ${toDay}::date ${agentFilter}
+      GROUP BY 1, 2`;
+    type Row = { day: string; agentId: string | null; amount: number; cut: number };
+    const [rake, fees] = await Promise.all([this.prisma.$queryRaw<Row[]>(q('RakeShare')), this.prisma.$queryRaw<Row[]>(q('FeeShare'))]);
+    const days: string[] = [];
+    for (let d = new Date(`${fromDay}T12:00:00Z`); d.toISOString().slice(0, 10) <= toDay; d = new Date(d.getTime() + 86_400_000)) {
+      days.push(d.toISOString().slice(0, 10));
+      if (days.length > 400) break;
+    }
+    const sum = (rows: Row[], k: 'amount' | 'cut', dayKey?: string, agentId?: string | null) =>
+      rows.filter((r) => (dayKey === undefined || r.day === dayKey) && (agentId === undefined || r.agentId === agentId)).reduce((a, r) => a + (r[k] ?? 0), 0);
+    const series = days.map((d) => ({
+      day: d,
+      rake: sum(rake, 'amount', d),
+      fees: sum(fees, 'amount', d),
+      agentsCut: sum(rake, 'cut', d) + sum(fees, 'cut', d),
+    }));
+    if (!this.isSuper(actor)) {
+      // Agent: samo svoja zarada (bez ukupnog rake-a iz kog bi se video procenat).
+      return { from: fromDay, to: toDay, series: series.map((x) => ({ day: x.day, myCut: x.agentsCut })), total: { myCut: series.reduce((a, x) => a + x.agentsCut, 0) } };
+    }
+    const agentIds = [...new Set([...rake, ...fees].map((r) => r.agentId))];
+    const names = await this.prisma.user.findMany({ where: { id: { in: agentIds.filter((x): x is string => !!x) } }, select: { id: true, displayName: true } });
+    const byAgent = agentIds
+      .map((id) => ({
+        agentId: id,
+        name: id ? (names.find((n) => n.id === id)?.displayName ?? '?') : 'Bez agenta',
+        rake: sum(rake, 'amount', undefined, id),
+        fees: sum(fees, 'amount', undefined, id),
+        agentCut: sum(rake, 'cut', undefined, id) + sum(fees, 'cut', undefined, id),
+      }))
+      .map((a) => ({ ...a, superShare: a.rake + a.fees - a.agentCut }))
+      .sort((a, b) => b.rake + b.fees - (a.rake + a.fees));
+    const total = series.reduce(
+      (a, x) => ({ rake: a.rake + x.rake, fees: a.fees + x.fees, agentsCut: a.agentsCut + x.agentsCut }),
+      { rake: 0, fees: 0, agentsCut: 0 },
+    );
+    return {
+      from: fromDay,
+      to: toDay,
+      series: series.map((x) => ({ ...x, superShare: x.rake + x.fees - x.agentsCut })),
+      byAgent,
+      total: { ...total, superShare: total.rake + total.fees - total.agentsCut },
+    };
+  }
+
   // ---------- Igrači ----------
 
   @Get('players')
-  async players(@CurrentUser() actor: User, @Query('q') q?: string, @Query('page') p?: string) {
+  async players(@CurrentUser() actor: User, @Query('q') q?: string, @Query('page') p?: string, @Query('noAgent') noAgent?: string) {
     const where: Prisma.UserWhereInput = {
       ...this.playerScope(actor),
+      // Super agent: igrači koji su se registrovali bez koda agenta (da ih dodeli agentu).
+      ...(noAgent && this.isSuper(actor) ? { agentId: null } : {}),
       ...(q?.trim()
         ? {
             OR: [
@@ -224,6 +362,11 @@ export class AdminController {
     const out = new Map<string, Record<string, number>>();
     if (!ids.length) return out;
     const sup = this.isSuper(actor);
+    const fees = await this.prisma.feeShare.groupBy({
+      by: ['userId'],
+      where: { userId: { in: ids }, ...(sup ? {} : { agentId: actor.id }) },
+      _sum: { amount: true, agentCut: true },
+    });
     const [shares, hands] = await Promise.all([
       this.prisma.rakeShare.groupBy({
         by: ['userId'],
@@ -236,8 +379,9 @@ export class AdminController {
     const handCount = new Map(hands);
     for (const id of ids) {
       const r = shares.find((x) => x.userId === id)?._sum;
-      const amount = r?.amount ?? 0;
-      const cut = r?.agentCut ?? 0;
+      const f = fees.find((x) => x.userId === id)?._sum;
+      const amount = (r?.amount ?? 0) + (f?.amount ?? 0);
+      const cut = (r?.agentCut ?? 0) + (f?.agentCut ?? 0);
       out.set(
         id,
         sup
@@ -358,8 +502,12 @@ export class AdminController {
     });
     const balances = await this.prisma.user.groupBy({ by: ['agentId'], where: { role: 'PLAYER' }, _sum: { balance: true } });
     const rake = await this.prisma.rakeShare.groupBy({ by: ['agentId'], _sum: { amount: true, agentCut: true } });
+    const fees = await this.prisma.feeShare.groupBy({ by: ['agentId'], _sum: { amount: true, agentCut: true } });
     return agents.map((a) => {
-      const r = rake.find((x) => x.agentId === a.id)?._sum;
+      const r0 = rake.find((x) => x.agentId === a.id)?._sum;
+      const f = fees.find((x) => x.agentId === a.id)?._sum;
+      // Rake sa keš stolova i fee sa turnira zajedno.
+      const r = { amount: (r0?.amount ?? 0) + (f?.amount ?? 0), agentCut: (r0?.agentCut ?? 0) + (f?.agentCut ?? 0) };
       return {
         ...publicUser(a),
         rakePercent: a.rakeShareBps / 100,
@@ -376,7 +524,10 @@ export class AdminController {
   @Post('agents')
   async createAgent(@Body() dto: CreateUserDto) {
     const a = await this.createAccount(dto, 'AGENT', null);
-    const u = await this.prisma.user.update({ where: { id: a.id }, data: { rakeShareBps: this.shareBps(dto.rakePercent) } });
+    const u = await this.prisma.user.update({
+      where: { id: a.id },
+      data: { rakeShareBps: this.shareBps(dto.rakePercent), agentCode: await newAgentCode(this.prisma) },
+    });
     return publicUser(u);
   }
 

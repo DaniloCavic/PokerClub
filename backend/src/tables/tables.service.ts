@@ -42,6 +42,8 @@ export interface TourTableCtx {
   remove(userId: string): number;
   /** Sto se zatvara (posle premeštanja svih igrača). */
   close(): void;
+  /** Ko je dobio glavni pot poslednje ruke (za bounty). */
+  winners(): string[];
 }
 
 interface Runtime {
@@ -50,6 +52,8 @@ interface Runtime {
   tour?: TourHooks;
   /** Turnir: žetoni kupljeni tokom ruke (rebuy, add-on) dodaju se pre sledeće ruke. */
   pendingChips: Map<string, number>;
+  /** Igrači koji su dobili glavni pot poslednje ruke. */
+  lastWinners?: string[];
   game: PokerGame;
   queue: Promise<unknown>;
   turnTimer?: NodeJS.Timeout;
@@ -140,6 +144,44 @@ export class TablesService implements OnModuleInit {
     private readonly wallet: WalletService,
     private readonly push: PushService,
   ) {}
+
+  // ---------- Zaštita: ista mreža ili uređaj za istim stolom ----------
+
+  private readonly net = new Map<string, { ip: string; device: string | null }>();
+  private readonly alerted = new Map<string, number>();
+
+  setNet(userId: string, ip: string, device: string | null) {
+    this.net.set(userId, { ip, device });
+  }
+
+  /** Kad igrač sedne: ako za stolom već sedi neko sa iste IP adrese ili uređaja, upisuje se upozorenje. */
+  private checkSameNetwork(rt: Runtime, userId: string, name: string) {
+    const me = this.net.get(userId);
+    if (!me) return;
+    for (const s of rt.game.seats) {
+      if (!s || s.userId === userId) continue;
+      const other = this.net.get(s.userId);
+      if (!other) continue;
+      const sameDevice = !!me.device && me.device === other.device;
+      const sameIp = !!me.ip && me.ip === other.ip;
+      if (!sameDevice && !sameIp) continue;
+      const key = `${rt.table.id}:${[userId, s.userId].sort().join(':')}`;
+      if (Date.now() - (this.alerted.get(key) ?? 0) < 12 * 3600_000) continue;
+      this.alerted.set(key, Date.now());
+      void this.prisma.securityAlert
+        .create({
+          data: {
+            kind: sameDevice ? 'SAME_DEVICE' : 'SAME_IP',
+            tableId: rt.table.id,
+            tableName: rt.table.name,
+            userIds: [userId, s.userId],
+            names: `${name}, ${s.name}`,
+            detail: sameDevice ? 'Isti uređaj' : `Ista IP adresa (${me.ip})`,
+          },
+        })
+        .catch((e) => this.log.warn((e as Error).message));
+    }
+  }
 
   // ---------- Prisutnost (da li je igrač trenutno u aplikaciji) ----------
 
@@ -568,6 +610,7 @@ export class TablesService implements OnModuleInit {
         await this.wallet.change(db, userId, 'BUY_IN', -buyIn, { tableId });
         await db.tableSeat.create({ data: { tableId, userId, seat, stack: buyIn } });
       });
+      this.checkSameNetwork(rt, userId, user.displayName);
       rt.game.sit(seat, userId, user.displayName, buyIn);
       this.avatars.set(userId, avatarUrl(user));
       rt.waitlist = rt.waitlist.filter((w) => w.userId !== userId);
@@ -703,6 +746,7 @@ export class TablesService implements OnModuleInit {
       const free = rt.game.seats.map((x, i) => (x ? -1 : i)).filter((i) => i >= 0);
       if (!free.length) throw new GameError('Sto je pun.');
       const seat = free[Math.floor(Math.random() * free.length)];
+      this.checkSameNetwork(rt, userId, name);
       rt.game.sit(seat, userId, name, chips);
       if (avatar !== undefined) this.avatars.set(userId, avatar);
       await this.afterChange(rt);
@@ -780,6 +824,7 @@ export class TablesService implements OnModuleInit {
       close: () => {
         rt.closing = true;
       },
+      winners: () => rt.lastWinners ?? [],
     };
   }
 
@@ -982,6 +1027,7 @@ export class TablesService implements OnModuleInit {
       void this.computeEquity(rt, r).catch((e) => this.log.warn((e as Error).message));
     } else rt.runoutMs = 0;
     rt.lastResult = this.resultView(rt, r);
+    rt.lastWinners = (r.pots[0]?.winners ?? []).map((w) => g.seats[w.seat]?.userId).filter((x): x is string => !!x);
     rt.lastResultAt = Date.now();
     const pot = r.pots.reduce((s, p) => s + p.amount, 0) + r.rake;
     const players = Object.keys(rt.startStacks).map(Number).filter((i) => g.seats[i]).map((i) => ({

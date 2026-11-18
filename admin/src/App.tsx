@@ -6,8 +6,11 @@ import { Players } from './pages/Players';
 import { Transactions } from './pages/Transactions';
 import { Agents } from './pages/Agents';
 import { Tournaments } from './pages/Tournaments';
+import { Reports } from './pages/Reports';
+import { Security } from './pages/Security';
+import { Welcome } from './pages/Welcome';
 
-type Page = 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'agents';
+type Page = 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'reports' | 'agents' | 'security' | 'welcome';
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -41,7 +44,14 @@ export function App() {
     { id: 'tournaments', label: 'Turniri' },
     { id: 'players', label: 'Igrači' },
     { id: 'transactions', label: 'Transakcije' },
-    ...(me.role === 'ADMIN' ? [{ id: 'agents' as Page, label: 'Agenti' }] : []),
+    { id: 'reports', label: 'Izveštaji' },
+    ...(me.role === 'ADMIN'
+      ? [
+          { id: 'agents' as Page, label: 'Agenti' },
+          { id: 'security' as Page, label: 'Bezbednost' },
+          { id: 'welcome' as Page, label: 'Poruka i pravila' },
+        ]
+      : []),
   ];
   const current = pages.some((p) => p.id === page) ? page : 'dashboard';
 
@@ -77,6 +87,9 @@ export function App() {
         {current === 'players' && <Players me={me} />}
         {current === 'transactions' && <Transactions />}
         {current === 'agents' && <Agents />}
+        {current === 'reports' && <Reports me={me} />}
+        {current === 'security' && <Security />}
+        {current === 'welcome' && <Welcome />}
       </main>
     </div>
   );

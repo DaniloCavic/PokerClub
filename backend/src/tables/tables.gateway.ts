@@ -55,7 +55,12 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       socket.data.lang = lang;
       userLang.set(user.id, lang);
       await socket.join(`user:${user.id}`);
-      await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
+      // IP adresa i uređaj (zaštita: više naloga sa iste mreže/uređaja za istim stolom).
+      const fwd = String(socket.handshake.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+      const ip = fwd || socket.handshake.address || '';
+      const device = String(socket.handshake.auth?.device ?? '').slice(0, 64) || null;
+      this.tables.setNet(user.id, ip, device);
+      await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date(), lastIp: ip || null, lastDevice: device } });
       // Dok klijent ne javi drugačije, smatra se da je aplikacija otvorena.
       this.tables.setPresence(user.id, socket.id, true);
       socket.emit('session', { user: publicUser(user), seatedAt: this.tables.seatsOf(user.id) });

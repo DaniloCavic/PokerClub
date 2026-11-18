@@ -7,6 +7,7 @@ import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
 import { trUser } from '../common/i18n';
 import { GameError } from '../poker/engine/game';
+import { agentCut } from '../poker/engine/rake';
 import { TablesService, TourTableCtx } from '../tables/tables.service';
 import {
   BreakRule,
@@ -37,6 +38,10 @@ interface Player {
   prize: number;
   paid: boolean;
   tableId: string | null;
+  /** Bounty: ko je ovog igrača ostavio bez žetona (dobitnici glavnog pota te ruke). */
+  knockedBy: string[];
+  knockouts: number;
+  bountyWon: number;
   /** Redosled ispadanja (veći = kasnije ispao = bolje mesto). */
   bustSeq: number;
   /** Ostao bez žetona, čeka se rebuy (do ovog trenutka). */
@@ -54,6 +59,8 @@ interface TourRt {
   startTimer?: NodeJS.Timeout;
   clockKey: string;
   finishing: boolean;
+  /** Bounty igrača za koje se ne zna ko ih je izbacio (dobija ih pobednik). */
+  unclaimedBounty?: number;
 }
 
 export const tourRule = (t: Pick<Tournament, 'breakMode' | 'breakEvery' | 'breakMinutes'>): BreakRule => ({
@@ -129,6 +136,9 @@ export class TournamentsService implements OnModuleInit {
         tableId: null,
         rebuyUntil: null,
         bustSeq: e.bustedAt ? e.bustedAt.getTime() * 1000 : 0,
+        knockedBy: [],
+        knockouts: e.knockouts,
+        bountyWon: e.bountyWon,
       });
     }
     this.tours.set(t.id, tr);
@@ -222,6 +232,8 @@ export class TournamentsService implements OnModuleInit {
       finishedAt: t.finishedAt,
       buyIn: t.buyIn,
       fee: t.fee,
+      bounty: t.bounty,
+      repeat: t.repeat,
       startingStack: t.startingStack,
       guarantee: t.guarantee,
       prizePool: t.status === 'FINISHED' ? t.prizePool : prizePool(t, c),
@@ -269,6 +281,7 @@ export class TournamentsService implements OnModuleInit {
       finishedAt: t.finishedAt,
       buyIn: t.buyIn,
       fee: t.fee,
+      bounty: t.bounty,
       startingStack: t.startingStack,
       guarantee: t.guarantee,
       prizePool: t.status === 'CANCELLED' ? 0 : t.prizePool,
@@ -335,7 +348,7 @@ export class TournamentsService implements OnModuleInit {
     const standings = t.entries
       .filter((e) => e.position !== null)
       .sort((a, b) => a.position! - b.position!)
-      .map((e) => ({ entryId: e.id, position: e.position!, name: e.user.displayName, userId: e.userId, chips: 0, prize: e.prize, status: e.status, tableId: null }));
+      .map((e) => ({ entryId: e.id, position: e.position!, name: e.user.displayName, userId: e.userId, chips: 0, knockouts: e.knockouts, bountyWon: e.bountyWon, prize: e.prize, status: e.status, tableId: null }));
     const percents = payoutPercents(t.payoutMode, t.payPercent, t.payouts as unknown as number[], Math.max(1, t.entries.length));
     const amounts = payoutAmounts(t.prizePool, percents);
     const mine = userId ? t.entries.filter((e) => e.userId === userId).sort((a, b) => b.entryNo - a.entryNo)[0] : undefined;
@@ -349,6 +362,7 @@ export class TournamentsService implements OnModuleInit {
       finishedAt: t.finishedAt,
       buyIn: t.buyIn,
       fee: t.fee,
+      bounty: t.bounty,
       startingStack: t.startingStack,
       guarantee: t.guarantee,
       prizePool: t.prizePool,
@@ -381,6 +395,8 @@ export class TournamentsService implements OnModuleInit {
       name: p.name,
       userId: p.userId,
       chips,
+      knockouts: p.knockouts,
+      bountyWon: p.bountyWon,
       prize: 0,
       status: 'PLAYING',
       tableId: p.tableId,
@@ -388,7 +404,7 @@ export class TournamentsService implements OnModuleInit {
     // Ispali: kasnije ispao = bolje mesto (jedinstvena mesta i kad ima re-entry-ja i kasne prijave).
     const busted = [...tr.players.values()].filter((p) => p.status === 'BUSTED').sort((a, b) => (a.position === 1 ? -1 : b.position === 1 ? 1 : b.bustSeq - a.bustSeq));
     for (const p of busted) {
-      out.push({ entryId: p.entryId, position: out.length + 1, name: p.name, userId: p.userId, chips: 0, prize: p.prize, status: 'BUSTED', tableId: null });
+      out.push({ entryId: p.entryId, position: out.length + 1, name: p.name, userId: p.userId, chips: 0, knockouts: p.knockouts, bountyWon: p.bountyWon, prize: p.prize, status: 'BUSTED', tableId: null });
     }
     return out;
   }
@@ -430,6 +446,9 @@ export class TournamentsService implements OnModuleInit {
       canRebuy: !!me && this.canRebuy(tr, me),
       canAddon: !!me && this.canAddon(tr, me),
       rebuy: { price: tr.t.rebuyPrice + tr.t.rebuyFee, chips: tr.t.rebuyChips },
+      bounty: tr.t.bounty,
+      myBountyWon: me?.bountyWon ?? 0,
+      myKnockouts: me?.knockouts ?? 0,
       addon: { price: tr.t.addonPrice + tr.t.addonFee, chips: tr.t.addonChips },
     };
   }
@@ -454,11 +473,37 @@ export class TournamentsService implements OnModuleInit {
     void this.push
       .toAllPlayers({
         title: `Novi turnir: ${t.name}`,
-        body: `${game} — počinje ${TablesService.when(t.startAt)}. Ulaz ${t.buyIn + t.fee}${t.guarantee ? `, garantovano ${t.guarantee}` : ''}.`,
+        body: `${game} — počinje ${TablesService.when(t.startAt)}. Ulaz ${t.buyIn + t.bounty + t.fee}${t.guarantee ? `, garantovano ${t.guarantee}` : ''}.`,
         tag: `tour-${t.id}`,
       })
       .catch(() => undefined);
     return t;
+  }
+
+  /** Ponavljajući turnir: kad počne, isti turnir se zakaže za sledeći dan ili nedelju. */
+  private async scheduleNext(t: Tournament) {
+    const days = t.repeat === 'DAILY' ? 1 : t.repeat === 'WEEKLY' ? 7 : 0;
+    if (!days) return;
+    const {
+      id: _id, status: _s, createdAt: _c, startedAt: _st, finishedAt: _f, prizePool: _p, startAt, levels, payouts, ...rest
+    } = t;
+    try {
+      await this.create({
+        ...rest,
+        levels: levels as Prisma.InputJsonValue,
+        payouts: payouts as Prisma.InputJsonValue,
+        startAt: new Date(startAt.getTime() + days * 24 * 3600_000),
+      });
+    } catch (e) {
+      this.log.error(`Sledeći turnir u seriji nije napravljen: ${(e as Error).message}`);
+    }
+  }
+
+  /** Prekida ponavljanje (turnir koji čeka početak više neće praviti sledeći). */
+  async stopRepeat(id: string) {
+    const tr = this.tours.get(id);
+    await this.prisma.tournament.update({ where: { id }, data: { repeat: 'NONE' } });
+    if (tr) tr.t.repeat = 'NONE';
   }
 
   /** Otkazivanje: svi ulazi (i rebuy/add-on) se vraćaju igračima. */
@@ -523,9 +568,9 @@ export class TournamentsService implements OnModuleInit {
       if (t.maxPlayers > 0 && tr.players.size >= t.maxPlayers) throw new GameError('Turnir je popunjen.');
       const entryNo = mine.length + 1;
       const e = await this.wallet.run(async (db) => {
-        await this.wallet.change(db, userId, 'TOURNAMENT_BUY_IN', -(t.buyIn + t.fee), { note: `${entryNo > 1 ? 'Re-entry' : 'Ulaz'}: ${t.name}` });
+        await this.wallet.change(db, userId, 'TOURNAMENT_BUY_IN', -(t.buyIn + t.bounty + t.fee), { note: `${entryNo > 1 ? 'Re-entry' : 'Ulaz'}: ${t.name}` });
         return db.tournamentEntry.create({
-          data: { tournamentId: id, userId, entryNo, chips: t.startingStack, paid: t.buyIn, feePaid: t.fee },
+          data: { tournamentId: id, userId, entryNo, chips: t.startingStack, paid: t.buyIn + t.bounty, feePaid: t.fee },
         });
       });
       const p = this.addPlayer(tr, e.id, user, entryNo, t.startingStack);
@@ -553,6 +598,9 @@ export class TournamentsService implements OnModuleInit {
       tableId: null,
       rebuyUntil: null,
       bustSeq: 0,
+      knockedBy: [],
+      knockouts: 0,
+      bountyWon: 0,
     };
     tr.players.set(entryId, p);
     return p;
@@ -594,6 +642,7 @@ export class TournamentsService implements OnModuleInit {
         });
       });
       p.rebuys++;
+      p.knockedBy = [];
       clearTimeout(p.rebuyTimer);
       p.rebuyUntil = null;
       await this.tables.addTournamentChips(p.tableId, userId, t.rebuyChips);
@@ -646,6 +695,7 @@ export class TournamentsService implements OnModuleInit {
 
   private async start(tr: TourRt) {
     if (tr.t.status !== 'REGISTERING' || !this.tours.has(tr.t.id)) return;
+    await this.scheduleNext(tr.t);
     const players = [...tr.players.values()];
     if (players.length < Math.max(2, tr.t.minPlayers)) {
       await this.refundAll(tr, 'Nedovoljno igrača');
@@ -774,6 +824,11 @@ export class TournamentsService implements OnModuleInit {
     }
     await Promise.all(updates);
 
+    // Bounty: ko je igrača ostavio bez žetona (pamti se i dok traje vreme za rebuy).
+    for (const s of seats) {
+      const p = byUser.get(s.userId);
+      if (p && s.stack === 0 && !p.knockedBy.length) p.knockedBy = ctx.winners().filter((u) => u !== p.userId);
+    }
     // Bez žetona: rebuy (ako je dozvoljen) ili ispadanje.
     const out: { p: Player; startStack: number }[] = [];
     for (const s of seats) {
@@ -829,6 +884,7 @@ export class TournamentsService implements OnModuleInit {
     let seq = Date.now() * 1000;
     for (const { p } of order) {
       p.bustSeq = seq++;
+      await this.payBounty(tr, p);
       p.status = 'BUSTED';
       p.position = pos--;
       p.tableId = null;
@@ -851,9 +907,70 @@ export class TournamentsService implements OnModuleInit {
         prize: final ? prize : 0,
         pendingPrize: !final && prize > 0,
         canReenter: reentry,
-        reentryPrice: tr.t.buyIn + tr.t.fee,
+        reentryPrice: tr.t.buyIn + tr.t.bounty + tr.t.fee,
       });
     }
+  }
+
+  /**
+   * Fee (rake) turnira: koliko je svaki igrač platio i koliko od toga pripada njegovom agentu
+   * (procenat agenta važeći na kraju turnira, kao kod rake-a sa keš stolova).
+   */
+  private async recordFees(tournamentId: string) {
+    const rows = await this.prisma.tournamentEntry.groupBy({ by: ['userId'], where: { tournamentId }, _sum: { feePaid: true } });
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: rows.map((r) => r.userId) } },
+      select: { id: true, agentId: true, agent: { select: { rakeShareBps: true } } },
+    });
+    const data = rows
+      .filter((r) => (r._sum.feePaid ?? 0) > 0)
+      .map((r) => {
+        const u = users.find((x) => x.id === r.userId);
+        const amount = r._sum.feePaid ?? 0;
+        return {
+          tournamentId,
+          userId: r.userId,
+          agentId: u?.agentId ?? null,
+          amount,
+          agentCut: u?.agentId ? agentCut(amount, u.agent?.rakeShareBps ?? 0) : 0,
+        };
+      });
+    if (data.length) await this.prisma.feeShare.createMany({ data });
+  }
+
+  /** Bounty izbačenog igrača dobija onaj ko ga je izbacio (deli se ako ih je više). */
+  private async payBounty(tr: TourRt, out: Player) {
+    const b = tr.t.bounty;
+    const knockers = out.knockedBy
+      .map((u) => [...tr.players.values()].find((x) => x.userId === u && x.status === 'PLAYING'))
+      .filter((x): x is Player => !!x);
+    out.knockedBy = [];
+    if (b <= 0) return;
+    if (!knockers.length) {
+      // Nije poznato ko je izbacio (npr. posle ponovnog pokretanja servera): bounty ide pobedniku.
+      tr.unclaimedBounty = (tr.unclaimedBounty ?? 0) + b;
+      return;
+    }
+    const share = Math.floor(b / knockers.length);
+    for (const [k, w] of knockers.entries()) {
+      const amount = share + (k === 0 ? b - share * knockers.length : 0);
+      await this.creditBounty(tr, w, amount, out.name);
+    }
+  }
+
+  private async creditBounty(tr: TourRt, w: Player, amount: number, victim: string | null) {
+    if (amount <= 0) return;
+    if (victim) w.knockouts++;
+    w.bountyWon += amount;
+    await this.wallet.run(async (db) => {
+      await this.wallet.change(db, w.userId, 'TOURNAMENT_BOUNTY', amount, { note: `Bounty: ${tr.t.name}` });
+      await db.tournamentEntry.update({
+        where: { id: w.entryId },
+        data: { bountyWon: { increment: amount }, ...(victim ? { knockouts: { increment: 1 } } : {}) },
+      });
+    });
+    await this.balance(w.userId);
+    if (victim) this.emitUser(w.userId, 'tournament:bounty', { tournamentId: tr.t.id, name: tr.t.name, victim, amount });
   }
 
   private async payPrize(tr: TourRt, p: Player, prize: number) {
@@ -926,6 +1043,9 @@ export class TournamentsService implements OnModuleInit {
     const winner = [...tr.players.values()].find((p) => p.status === 'PLAYING');
     const pay = this.payouts(tr);
     if (winner) {
+      // Pobednik dobija i svoj bounty (i one za koje se ne zna ko ih je osvojio).
+      await this.creditBounty(tr, winner, tr.t.bounty + (tr.unclaimedBounty ?? 0), null);
+      tr.unclaimedBounty = 0;
       winner.status = 'BUSTED';
       winner.position = 1;
       await this.payPrize(tr, winner, pay.amounts[0] ?? 0);
@@ -959,6 +1079,7 @@ export class TournamentsService implements OnModuleInit {
       where: { id: tr.t.id },
       data: { status: 'FINISHED', finishedAt: new Date(), prizePool: pay.pool },
     });
+    await this.recordFees(tr.t.id);
     if (winner) {
       this.emitUser(winner.userId, 'tournament:busted', {
         tournamentId: tr.t.id,

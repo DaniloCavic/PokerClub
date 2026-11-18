@@ -116,6 +116,12 @@ const EN: [RegExp, string][] = [
   [/^Iznos mora biti ceo broj veći od nule\.$/, 'The amount must be a whole number greater than zero.'],
   [/^Neispravna pretplata\.$/, 'Invalid subscription.'],
   [/^Neispravni podaci\.$/, 'Invalid data.'],
+  [/^Korisničko ime je zauzeto\.$/, 'That username is taken.'],
+  [/^Korisničko ime: 3–20 znakova, samo slova bez kvačica, brojevi, tačka i donja crta\.$/, 'Username: 3–20 characters, letters without accents, digits, dot and underscore.'],
+  [/^Ime za prikaz mora imati bar 2 znaka\.$/, 'The display name must have at least 2 characters.'],
+  [/^Ime za prikaz može imati najviše 30 znakova\.$/, 'The display name can have at most 30 characters.'],
+  [/^Kod agenta ne postoji\.$/, 'That agent code does not exist.'],
+  [/^Agent sa ovim kodom trenutno nije aktivan\.$/, 'The agent with this code is not active right now.'],
   // ---------- Beleške uz transakcije ----------
   [/^dopuna$/, 'top-up'],
   [/^Server je ponovo pokrenut$/, 'Server restarted'],

@@ -27,9 +27,11 @@ export function Dashboard({ me }: { me: Me }) {
   const rake: [string, number, string?][] = isSuper
     ? [
         ['Rake danas', data.rakeToday],
+        ['Fee turnira danas', data.feesToday],
         ['Agentima danas', data.agentsCutToday],
         ['Vaš deo danas', data.superShareToday, 'gold'],
         ['Rake ukupno', data.rakeTotal],
+        ['Fee turnira ukupno', data.feesTotal],
         ['Agentima ukupno', data.agentsCutTotal],
         ['Vaš deo ukupno', data.superShareTotal, 'gold'],
       ]

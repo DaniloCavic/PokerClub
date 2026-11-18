@@ -114,6 +114,8 @@ export class TournamentsAdminController {
       addonFee: int(b.addonFee ?? 0, 'Fee add-on-a', 0),
       addonChips: int(b.addonChips ?? 0, 'Žetoni za add-on', 0),
       guarantee: int(b.guarantee ?? 0, 'Garancija', 0),
+      bounty: int(b.bounty ?? 0, 'Bounty', 0),
+      repeat: ['DAILY', 'WEEKLY'].includes(String(b.repeat)) ? String(b.repeat) : 'NONE',
       payoutMode,
       payPercent: int(b.payPercent ?? 15, 'Procenat plaćenih', 1, 100),
       payouts: payouts as unknown as Prisma.InputJsonValue,
@@ -134,6 +136,13 @@ export class TournamentsAdminController {
     }
     if (data.maxPlayers > 0 && data.maxPlayers < data.minPlayers) throw new BadRequestException('Najviše igrača je manje od najmanje.');
     return this.tours.create(data);
+  }
+
+  @Roles('ADMIN')
+  @Post(':id/stop-repeat')
+  async stopRepeat(@Param('id') id: string) {
+    await this.tours.stopRepeat(id);
+    return { ok: true };
   }
 
   @Roles('ADMIN')
