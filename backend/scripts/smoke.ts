@@ -80,7 +80,7 @@ async function main() {
 
   console.log('Agent i igrači');
   const agentName = `agent_${suffix}`;
-  await call('POST', '/admin/agents', admin, { username: agentName, displayName: 'Agent Proba', password: 'lozinka1', rakePercent: 30 });
+  await call('POST', '/admin/agents', admin, { username: agentName, displayName: 'Agent Proba', password: 'lozinka1', rakePercent: 30, agentCode: 'SMOKE' + Date.now().toString(36).toUpperCase() });
   const agent = await login(agentName, 'lozinka1');
   const players: { id: string; username: string }[] = [];
   for (let i = 0; i < 4; i++) {
