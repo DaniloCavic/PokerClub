@@ -24,7 +24,7 @@ class NavItem {
 }
 
 List<NavItem> get navItems => [
-      NavItem('Cash Game', Icons.style),
+      NavItem(tr('Cash Game', 'Keš igra'), Icons.style),
       NavItem(tr('Tournaments', 'Turniri'), Icons.emoji_events),
       NavItem(tr('History', 'Istorija'), Icons.history),
       NavItem(tr('Cashier', 'Blagajna'), Icons.account_balance_wallet),
@@ -557,7 +557,7 @@ class _LobbyViewState extends State<LobbyView> {
             ),
           const _PushBanner(),
           Builder(builder: (context) {
-            final title = GoldText(_tours ? tr('Tournaments', 'Turniri') : 'Cash Game',
+            final title = GoldText(_tours ? tr('Tournaments', 'Turniri') : tr('Cash Game', 'Keš igra'),
                 style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800));
             final chips = [
               for (final f in [('ALL', tr('All', 'Svi')), ('HOLDEM', 'NLH'), ('OMAHA', 'PLO')])
