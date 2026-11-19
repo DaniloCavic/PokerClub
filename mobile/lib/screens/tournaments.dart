@@ -395,7 +395,7 @@ class _TournamentScreenState extends State<TournamentScreen> {
         ));
       }
     }
-    final fin = me?['finished'] as Json?;
+    final fin = (me?['finished'] as Json?)?['position'] == null ? null : me!['finished'] as Json;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
       child: LuxPanel(
@@ -420,7 +420,8 @@ class _TournamentScreenState extends State<TournamentScreen> {
             if (running && clock != null)
               clock['onBreak'] == true
                   ? _stat(tr('Break', 'Pauza'), '${tr('ends in', 'još')} ${clockLeft((clock['breakEndsAt'] as num?)?.toInt(), now)}')
-                  : _stat('${tr('Level', 'Nivo')} ${d['level']}', '${tr('next in', 'sledeći za')} ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
+                  : _stat('${tr('Level', 'Nivo')} ${d['level']}',
+                      clock['levelEndsAt'] == null ? tr('last level', 'poslednji nivo') : '${tr('next in', 'sledeći za')} ${clockLeft((clock['levelEndsAt'] as num?)?.toInt(), now)}'),
             if (d['estimatedMinutes'] != null && d['status'] == 'REGISTERING') _stat(tr('Duration', 'Trajanje'), '~${durationLabel((d['estimatedMinutes'] as num).toInt())}'),
           ]),
           if (running || d['status'] == 'REGISTERING') ...[
@@ -533,7 +534,11 @@ class _TournamentScreenState extends State<TournamentScreen> {
           _kv(tr('Repeats', 'Ponavlja se'), d['repeat'] == 'DAILY' ? tr('every day at the same time', 'svaki dan u isto vreme') : tr('every week at the same time', 'svake nedelje u isto vreme')),
         _kv('Players per table', '${d['tableSize'] ?? 9}'),
         if (d['actionSeconds'] != null) _kv('Time to act', '${d['actionSeconds']} s'),
-        _kv(tr('Breaks', 'Pauze'), breaks),
+        _kv(
+            tr('Breaks', 'Pauze'),
+            (ad != null && (ad['breakMinutes'] as num? ?? 0) > 0 && (ad['level'] as num? ?? 0) > 0)
+                ? '$breaks · ${tr('add-on break ${ad['breakMinutes']} min after level ${ad['level']}', 'add-on pauza ${ad['breakMinutes']} min posle nivoa ${ad['level']}')}'
+                : breaks),
         _kv(tr('Late registration', 'Kasna prijava'), (d['lateRegLevels'] as num? ?? 0) > 0 ? tr('until the end of level ${d['lateRegLevels']}', 'do kraja nivoa ${d['lateRegLevels']}') : tr('only before the start', 'samo pre početka')),
         if ((d['reentryMax'] as num? ?? 0) > 0) _kv('Re-entry', tr('up to ${d['reentryMax']}× (during late registration)', 'do ${d['reentryMax']}× (tokom kasne prijave)')),
         if (rb != null && (rb['levels'] as num) > 0)
@@ -800,7 +805,7 @@ class TourBar extends StatelessWidget {
         fit: BoxFit.scaleDown,
         child: Flex(direction: vertical ? Axis.vertical : Axis.horizontal, mainAxisSize: MainAxisSize.min, children: [
           item('${tr('LEVEL', 'NIVO')} ${tour['level']}', '${chips(tour['sb'])}/${chips(tour['bb'])}${(tour['ante'] as num) > 0 ? ' (${chips(tour['ante'])})' : ''}', color: goldLight),
-          if (!onBreak) item('${tr('NEXT', 'SLEDEĆI')} ${chips(tour['nextSb'])}/${chips(tour['nextBb'])}', clockLeft((tour['levelEndsAt'] as num?)?.toInt(), now)),
+          if (!onBreak && tour['levelEndsAt'] != null) item('${tr('NEXT', 'SLEDEĆI')} ${chips(tour['nextSb'])}/${chips(tour['nextBb'])}', clockLeft((tour['levelEndsAt'] as num?)?.toInt(), now)),
           if (onBreak) item(tr('BREAK', 'PAUZA'), clockLeft((tour['breakEndsAt'] as num?)?.toInt(), now), color: goldLight),
           if (!onBreak && nextBreak != null) item(tr('BREAK IN', 'PAUZA ZA'), clockLeft(nextBreak, now)),
           item(tr('RANK', 'MESTO'), tour['position'] != null ? '${tour['position']}/${tour['playersLeft']}' : tr('${tour['playersLeft']} left', '${tour['playersLeft']} igrača')),

@@ -162,24 +162,29 @@ export class TournamentsService implements OnModuleInit {
     return c;
   }
 
+  /** Pravi broj odigranih nivoa (i posle poslednjeg nivoa raste), za rokove kasne prijave, rebuy-a i add-on-a. */
+  private rawClock(tr: TourRt) {
+    return clockAt(tr.t.startedAt!.getTime(), tr.levels, tr.rule, Date.now());
+  }
+
   /** Igrači mogu da se prijave (pre početka, ili tokom kasne prijave). */
   private regOpen(tr: TourRt) {
     if (tr.t.status === 'REGISTERING') return true;
     if (tr.t.status !== 'RUNNING' || tr.finishing) return false;
-    const c = this.clock(tr)!;
-    return c.level < tr.t.lateRegLevels;
+    return this.rawClock(tr).level < tr.t.lateRegLevels;
   }
 
   private rebuyOpen(tr: TourRt) {
     if (tr.t.status !== 'RUNNING' || tr.t.rebuyLevels <= 0 || tr.t.rebuyChips <= 0) return false;
-    return this.clock(tr)!.level < tr.t.rebuyLevels;
+    return this.rawClock(tr).level < tr.t.rebuyLevels;
   }
 
   private addonOpen(tr: TourRt) {
     if (tr.t.status !== 'RUNNING' || tr.t.addonLevel <= 0 || tr.t.addonChips <= 0) return false;
-    const c = this.clock(tr)!;
-    // Do kraja zadatog nivoa, uključujući pauzu odmah posle njega.
-    return c.level < tr.t.addonLevel || (c.onBreak && c.level <= tr.t.addonLevel);
+    const c = this.rawClock(tr);
+    // Add-on samo na kraju kasne prijave: u add-on pauzi (ili, bez nje, na poslednjem nivou kasne prijave i u pauzi posle njega).
+    if (tr.t.addonBreakMinutes > 0) return c.onBreak && c.level === tr.t.addonLevel;
+    return c.level === tr.t.addonLevel - 1 || (c.onBreak && c.level === tr.t.addonLevel);
   }
 
   /** Nagradni fond je konačan kad se završe prijave, rebuy i add-on. */
@@ -407,7 +412,7 @@ export class TournamentsService implements OnModuleInit {
       standings,
       tables: [],
       regOpen: false,
-      me: mine ? { registered: false, finished: { position: mine.position, prize: mine.prize }, canRegister: false } : null,
+      me: mine ? { registered: false, finished: mine.position ? { position: mine.position, prize: mine.prize } : null, canRegister: false } : null,
     };
   }
 

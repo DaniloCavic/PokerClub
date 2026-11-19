@@ -381,7 +381,13 @@ class _TableScreenState extends State<TableScreen> {
         if (st['tournament'] != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-            child: TourBar(tour: st['tournament'] as Json, now: app.serverNow),
+            // Dodir na traku otvara sve o turniru (info, rang lista, nagrade, stolovi).
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => TournamentScreen(id: (st['tournament'] as Json)['id'] as String))),
+              child: TourBar(tour: st['tournament'] as Json, now: app.serverNow),
+            ),
           ),
         Expanded(child: _tableArea(st, money, false)),
         _panel(st, money, false),
