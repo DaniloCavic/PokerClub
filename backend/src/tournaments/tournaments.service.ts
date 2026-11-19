@@ -64,6 +64,8 @@ interface TourRt {
   finishing: boolean;
   /** Bounty igrača za koje se ne zna ko ih je izbacio (dobija ih pobednik). */
   unclaimedBounty?: number;
+  /** Bounty igrača koji su upravo ispali (vidi se za stolom dok traje prikaz poslednje ruke). */
+  recentHeads?: Map<string, { head: number; until: number }>;
 }
 
 export const tourRule = (
@@ -491,7 +493,15 @@ export class TournamentsService implements OnModuleInit {
       bounty: tr.t.bounty,
       progressive: tr.t.progressive,
       // Bounty na glavi svakog igrača u igri (prikazuje se za stolom).
-      heads: tr.t.bounty > 0 ? Object.fromEntries(playing.map((p) => [p.userId, p.head])) : {},
+      heads:
+        tr.t.bounty > 0
+          ? Object.fromEntries([
+              ...[...(tr.recentHeads ?? new Map<string, { head: number; until: number }>()).entries()]
+                .filter(([, x]) => x.until > Date.now())
+                .map(([u, x]) => [u, x.head]),
+              ...playing.map((p) => [p.userId, p.head]),
+            ])
+          : {},
       myBountyWon: me?.bountyWon ?? 0,
       myKnockouts: me?.knockouts ?? 0,
       addon: { price: tr.t.addonPrice + tr.t.addonFee, chips: tr.t.addonChips },
@@ -929,6 +939,7 @@ export class TournamentsService implements OnModuleInit {
     let pos = remaining;
     let seq = Date.now() * 1000;
     for (const { p } of order) {
+      if (tr.t.bounty > 0) (tr.recentHeads ??= new Map()).set(p.userId, { head: p.head, until: Date.now() + 20_000 });
       p.bustSeq = seq++;
       await this.payBounty(tr, p);
       p.status = 'BUSTED';

@@ -2567,30 +2567,7 @@ class _TableViewState extends State<_TableView> {
         ));
       }
       // Bounty turnir: koliko vredi glava ovog igrača (uvek vidljivo za stolom).
-      final heads = (st['tournament'] as Json?)?['heads'] as Map?;
-      final head = heads?[s['userId']] as num?;
-      if (head != null && head > 0) {
-        overlays.add(Positioned(
-          left: p.dx - avatarSize / 2 - (widget.wide ? 30 : 24),
-          top: topY + avatarSize * 0.55 - (widget.wide ? 13 : 11),
-          child: IgnorePointer(
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: widget.wide ? 7 : 5, vertical: 2),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFFFF8A3D), Color(0xFFD9480F)]),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFFFD8A8), width: 1),
-                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 2))],
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.gps_fixed, size: widget.wide ? 13 : 11, color: Colors.white),
-                const SizedBox(width: 3),
-                Text(chips(head), style: TextStyle(fontSize: widget.wide ? 12.5 : 10.5, fontWeight: FontWeight.w900, color: Colors.white)),
-              ]),
-            ),
-          ),
-        ));
-      }
+      final head = ((st['tournament'] as Json?)?['heads'] as Map?)?[s['userId']] as num?;
       children.add(Positioned(
         left: p.dx - seatW / 2,
         top: topY,
@@ -2598,6 +2575,7 @@ class _TableViewState extends State<_TableView> {
         child: _SeatView(
           seat: s,
           isMe: isMe,
+          bounty: head != null && head > 0 ? head.toInt() : null,
           hideCards: isMe && widget.hideMine,
           onTap: () => widget.onTapPlayer(s),
           avatarSize: avatarSize,
@@ -2833,7 +2811,10 @@ class _SeatView extends StatelessWidget {
   /// Svoje karte sakrivene (poleđina) dok ih igrač ne dodirne.
   final bool hideCards;
   final VoidCallback? onTap;
+  /// Bounty na glavi igrača (PKO turnir).
+  final int? bounty;
   const _SeatView({
+    this.bounty,
     required this.seat,
     required this.isMe,
     required this.avatarSize,
@@ -3035,6 +3016,24 @@ class _SeatView extends StatelessWidget {
                             left: -80,
                             right: -80,
                             child: Center(child: Transform.translate(offset: Offset(faceDx, 0), child: cardsWidget))) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
+              // Bounty: iznad otvorenih karata (moje i tuđe velike), inače sa strane avatara.
+              if (bounty != null)
+                if (isMe && cardsWidget != null)
+                  Positioned(
+                    top: -a * 0.02 - _myCardsLift(a) - _BountyPill.heightFor(a) - 3,
+                    left: -60,
+                    right: -60,
+                    child: Center(child: _BountyPill(amount: bounty!, a: a)),
+                  )
+                else if (bigFace)
+                  Positioned(
+                    bottom: 6 + faceCardW!(cards.length) * 1.4 + 6,
+                    left: -80,
+                    right: -80,
+                    child: Center(child: Transform.translate(offset: Offset(faceDx, 0), child: _BountyPill(amount: bounty!, a: a))),
+                  )
+                else
+                  Positioned(left: 25 - a * 0.55, top: a * 0.55 - _BountyPill.heightFor(a) / 2 + 4, child: _BountyPill(amount: bounty!, a: a)),
               // Pobeda: veliki WIN preko slike igrača
               if (won != null) Positioned(top: a * 0.12, child: _WinBadge(size: a * 1.25)),
             ]),
@@ -3379,6 +3378,37 @@ class _WaitingBadgeState extends State<_WaitingBadge> with SingleTickerProviderS
 }
 
 /// Koliko se moje (uvećane) karte dižu iznad avatara: 20% visine karte.
+/// Oznaka bounty-ja na glavi igrača (PKO turnir).
+class _BountyPill extends StatelessWidget {
+  final int amount;
+  final double a;
+  const _BountyPill({required this.amount, required this.a});
+
+  static double fontFor(double a) => (a * 0.2).clamp(10.5, 14.0);
+  static double heightFor(double a) => fontFor(a) * 1.25 + 6;
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = fontFor(a);
+    return IgnorePointer(
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: fs * 0.55, vertical: 2),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: [Color(0xFFFF8A3D), Color(0xFFD9480F)]),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFFD8A8), width: 1),
+          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 2))],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.gps_fixed, size: fs, color: Colors.white),
+          const SizedBox(width: 3),
+          Text(chips(amount), style: TextStyle(fontSize: fs, fontWeight: FontWeight.w900, color: Colors.white, height: 1.25)),
+        ]),
+      ),
+    );
+  }
+}
+
 double _myCardsLift(double a) => 34.0 * (a / 50) * 0.86 * 0.2 * 1.4;
 
 /// Natpis sa snagom moje ruke ("Two pair 8 & 3").
