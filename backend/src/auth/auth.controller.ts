@@ -139,7 +139,8 @@ export class AuthController {
         data: { resetCodeHash: await bcrypt.hash(code, 10), resetExpires: new Date(Date.now() + 15 * 60_000), resetTries: 0 },
       });
       const sr = (lang ?? user.lang) === 'sr';
-      await sendMail(
+      // Šalje se u pozadini (igrač ne čeka); greška se upisuje u log servera.
+      void sendMail(
         user.email!,
         sr ? 'Poker klub Triling — nova lozinka' : 'Poker klub Triling — reset your password',
         sr

@@ -22,6 +22,7 @@ import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { newTotpSecret, totpUrl, verifyTotp } from '../common/totp';
+import { mailConfig, sendMail } from '../common/mail';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -197,6 +198,21 @@ export class AdminController {
   }
 
   // ---------- Moj nalog: dvostepena prijava (2FA) i prijave ----------
+
+  /** Probni mejl (super agent): pokazuje tačnu grešku ako slanje ne radi. */
+  @Roles('ADMIN')
+  @Post('mail-test')
+  async mailTest(@Body() b: { to?: string }) {
+    const to = String(b?.to ?? '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw new BadRequestException('Unesite ispravnu e-poštu.');
+    const config = mailConfig();
+    try {
+      const sent = await sendMail(to, 'Poker klub Triling — probni mejl', 'Ovo je probni mejl iz admin panela. Slanje mejlova radi.');
+      return { ok: sent, config, error: sent ? null : 'Slanje mejlova nije podešeno (nema SMTP_HOST ni BREVO_API_KEY na Railway-u).' };
+    } catch (e) {
+      return { ok: false, config, error: (e as Error).message };
+    }
+  }
 
   @Get('account')
   async account(@CurrentUser() actor: User) {

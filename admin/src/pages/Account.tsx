@@ -13,6 +13,9 @@ export function Account({ me }: { me: Me }) {
   const [err, setErr] = useState('');
   const [pw, setPw] = useState({ old: '', next: '', again: '' });
   const [off, setOff] = useState({ password: '', code: '' });
+  const [mailTo, setMailTo] = useState('');
+  const [mailRes, setMailRes] = useState<any>(null);
+  const [mailBusy, setMailBusy] = useState(false);
 
   useEffect(() => {
     if (setup) QRCode.toDataURL(setup.url, { width: 220, margin: 1 }).then(setQr);
@@ -133,6 +136,47 @@ export function Account({ me }: { me: Me }) {
           Odjavi sve ostale uređaje
         </button>
       </div>
+
+      {me.role === 'ADMIN' && (
+        <>
+          <h3>Slanje mejlova (kodovi za zaboravljenu lozinku)</h3>
+          <div className="card">
+            <div className="row">
+              <input className="grow" type="email" placeholder="Pošalji probni mejl na…" value={mailTo} onChange={(e) => setMailTo(e.target.value)} />
+              <button
+                disabled={mailBusy || !mailTo.includes('@')}
+                onClick={async () => {
+                  setMailBusy(true);
+                  setMailRes(null);
+                  try {
+                    setMailRes(await api('POST', '/admin/mail-test', { to: mailTo }));
+                  } catch (e) {
+                    setMailRes({ ok: false, error: (e as Error).message });
+                  } finally {
+                    setMailBusy(false);
+                  }
+                }}
+              >
+                {mailBusy ? 'Šaljem…' : 'Pošalji probni mejl'}
+              </button>
+            </div>
+            {mailRes && (
+              <div className={mailRes.ok ? 'success' : 'error'} style={{ marginTop: 10 }}>
+                {mailRes.ok ? 'Mejl je poslat. Proverite Inbox (i Spam).' : `Mejl nije poslat: ${mailRes.error}`}
+              </div>
+            )}
+            {mailRes?.config && (
+              <p className="muted small" style={{ marginTop: 8 }}>
+                Način: {mailRes.config.method ?? 'nije podešeno'}
+                {mailRes.config.host ? ` · ${mailRes.config.host}:${mailRes.config.port ?? '465'}` : ''}
+                {mailRes.config.user ? ` · korisnik ${mailRes.config.user}` : ''}
+                {mailRes.config.method === 'SMTP' ? ` · lozinka ${mailRes.config.passSet ? 'upisana' : 'NIJE upisana'}` : ''}
+                {mailRes.config.from ? ` · pošiljalac ${mailRes.config.from}` : ''}
+              </p>
+            )}
+          </div>
+        </>
+      )}
 
       <h3>Moje poslednje prijave</h3>
       <div className="card">
