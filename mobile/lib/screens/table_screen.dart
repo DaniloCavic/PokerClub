@@ -2313,8 +2313,9 @@ class _TableViewState extends State<_TableView> {
         left: 0,
         right: 0,
         // Znak kluba i podaci o stolu ispod karata na stolu (i ispod rezultata ruke).
-        top: lay.boardTop + lay.cardW * 1.4 + (widget.wide ? 46 : 40),
-        child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75), logoOnly: true)),
+        // Računar: podignuto i malo manje, da natpis ne bude ispod mojih karata.
+        top: lay.boardTop + lay.cardW * 1.4 + (widget.wide ? 32 : 40),
+        child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75) * (widget.wide ? 0.72 : 1), logoOnly: true)),
       ),
       // POT iznad karata
       Positioned(
