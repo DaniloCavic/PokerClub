@@ -53,12 +53,3 @@ export async function sendMail(to: string, subject: string, text: string): Promi
 
 export const mailReady = () => !!(process.env.BREVO_API_KEY || process.env.SMTP_HOST);
 
-/** Kako je slanje podešeno (bez tajnih podataka), za admin panel. */
-export const mailConfig = () => ({
-  method: process.env.BREVO_API_KEY ? 'Brevo' : process.env.SMTP_HOST ? 'SMTP' : null,
-  host: process.env.SMTP_HOST ?? null,
-  port: process.env.SMTP_PORT ?? null,
-  user: process.env.SMTP_USER ?? null,
-  from: process.env.MAIL_FROM ?? null,
-  passSet: !!process.env.SMTP_PASS,
-});
