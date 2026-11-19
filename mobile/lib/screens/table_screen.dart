@@ -2566,6 +2566,31 @@ class _TableViewState extends State<_TableView> {
           ),
         ));
       }
+      // Bounty turnir: koliko vredi glava ovog igrača (uvek vidljivo za stolom).
+      final heads = (st['tournament'] as Json?)?['heads'] as Map?;
+      final head = heads?[s['userId']] as num?;
+      if (head != null && head > 0) {
+        overlays.add(Positioned(
+          left: p.dx - avatarSize / 2 - (widget.wide ? 30 : 24),
+          top: topY + avatarSize * 0.55 - (widget.wide ? 13 : 11),
+          child: IgnorePointer(
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: widget.wide ? 7 : 5, vertical: 2),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFFF8A3D), Color(0xFFD9480F)]),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFFD8A8), width: 1),
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 2))],
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.gps_fixed, size: widget.wide ? 13 : 11, color: Colors.white),
+                const SizedBox(width: 3),
+                Text(chips(head), style: TextStyle(fontSize: widget.wide ? 12.5 : 10.5, fontWeight: FontWeight.w900, color: Colors.white)),
+              ]),
+            ),
+          ),
+        ));
+      }
       children.add(Positioned(
         left: p.dx - seatW / 2,
         top: topY,

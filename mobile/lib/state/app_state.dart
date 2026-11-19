@@ -582,8 +582,12 @@ class AppState extends ChangeNotifier {
     s.on('tournament:bounty', (data) {
       final m = data as Map;
       Sounds.play('chips', volume: 0.7);
-      toast(tr('Knockout! You eliminated ${m['victim']} and won a bounty of ${m['amount']}.',
-          'Izbacili ste igrača ${m['victim']} i osvojili bounty ${m['amount']}!'));
+      final head = (m['toHead'] as num? ?? 0) > 0 ? m['toHead'] : null;
+      toast(head != null
+          ? tr('Knockout! You eliminated ${m['victim']}: ${m['amount']} RSD for you and +$head on your head.',
+              'Izbacili ste igrača ${m['victim']}: ${m['amount']} RSD vama i +$head na vašu glavu!')
+          : tr('Knockout! You eliminated ${m['victim']} and won a bounty of ${m['amount']}.',
+              'Izbacili ste igrača ${m['victim']} i osvojili bounty ${m['amount']}!'));
     });
     s.connect();
   }

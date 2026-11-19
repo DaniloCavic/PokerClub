@@ -118,6 +118,7 @@ export class TournamentsAdminController {
       addonBreakMinutes: int(b.addonBreakMinutes ?? 0, 'Add-on pauza', 0, 59),
       guarantee: int(b.guarantee ?? 0, 'Garancija', 0),
       bounty: int(b.bounty ?? 0, 'Bounty', 0),
+      progressive: b.progressive !== false,
       repeat: ['DAILY', 'WEEKLY'].includes(String(b.repeat)) ? String(b.repeat) : 'NONE',
       payoutMode,
       payPercent: int(b.payPercent ?? 15, 'Procenat plaćenih', 1, 100),

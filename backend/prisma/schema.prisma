@@ -320,6 +320,8 @@ model Tournament {
   repeat           String           @default("NONE")
   /// Bounty (knockout): deo ulaza koji dobija igrač koji izbaci ovog igrača (0 = običan turnir).
   bounty           Int              @default(0)
+  /// Progresivni bounty (PKO): pola bounty-ja izbačenog igrača u novac, pola na glavu onoga ko ga je izbacio.
+  progressive      Boolean          @default(true)
   /// Procena trajanja koju zadaje administrator (minuti); 0 = računa se iz strukture.
   estimatedMinutes Int              @default(0)
   createdById      String
@@ -359,6 +361,8 @@ model TournamentEntry {
   /// Bounty: koliko je igrača izbacio i koliko je dobio.
   knockouts    Int         @default(0)
   bountyWon    Int         @default(0)
+  /// Trenutni bounty na glavi igrača (progresivni bounty raste sa svakim izbacivanjem).
+  headBounty   Int         @default(0)
   createdAt    DateTime    @default(now())
   bustedAt     DateTime?
 

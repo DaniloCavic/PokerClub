@@ -43,6 +43,8 @@ interface Player {
   knockedBy: string[];
   knockouts: number;
   bountyWon: number;
+  /** Bounty na glavi igrača (koliko vredi izbaciti ga). */
+  head: number;
   /** Redosled ispadanja (veći = kasnije ispao = bolje mesto). */
   bustSeq: number;
   /** Ostao bez žetona, čeka se rebuy (do ovog trenutka). */
@@ -145,6 +147,7 @@ export class TournamentsService implements OnModuleInit {
         knockedBy: [],
         knockouts: e.knockouts,
         bountyWon: e.bountyWon,
+        head: e.headBounty || t.bounty,
       });
     }
     this.tours.set(t.id, tr);
@@ -264,6 +267,7 @@ export class TournamentsService implements OnModuleInit {
       buyIn: t.buyIn,
       fee: t.fee,
       bounty: t.bounty,
+      progressive: t.progressive,
       repeat: t.repeat,
       startingStack: t.startingStack,
       guarantee: t.guarantee,
@@ -432,6 +436,7 @@ export class TournamentsService implements OnModuleInit {
       chips,
       knockouts: p.knockouts,
       bountyWon: p.bountyWon,
+      head: p.head,
       prize: 0,
       status: 'PLAYING',
       tableId: p.tableId,
@@ -439,7 +444,7 @@ export class TournamentsService implements OnModuleInit {
     // Ispali: kasnije ispao = bolje mesto (jedinstvena mesta i kad ima re-entry-ja i kasne prijave).
     const busted = [...tr.players.values()].filter((p) => p.status === 'BUSTED').sort((a, b) => (a.position === 1 ? -1 : b.position === 1 ? 1 : b.bustSeq - a.bustSeq));
     for (const p of busted) {
-      out.push({ entryId: p.entryId, position: out.length + 1, name: p.name, userId: p.userId, chips: 0, knockouts: p.knockouts, bountyWon: p.bountyWon, prize: p.prize, status: 'BUSTED', tableId: null });
+      out.push({ entryId: p.entryId, position: out.length + 1, name: p.name, userId: p.userId, chips: 0, knockouts: p.knockouts, bountyWon: p.bountyWon, head: 0, prize: p.prize, status: 'BUSTED', tableId: null });
     }
     return out;
   }
@@ -484,6 +489,9 @@ export class TournamentsService implements OnModuleInit {
       canAddon: !!me && this.canAddon(tr, me),
       rebuy: { price: tr.t.rebuyPrice + tr.t.rebuyFee, chips: tr.t.rebuyChips },
       bounty: tr.t.bounty,
+      progressive: tr.t.progressive,
+      // Bounty na glavi svakog igrača u igri (prikazuje se za stolom).
+      heads: tr.t.bounty > 0 ? Object.fromEntries(playing.map((p) => [p.userId, p.head])) : {},
       myBountyWon: me?.bountyWon ?? 0,
       myKnockouts: me?.knockouts ?? 0,
       addon: { price: tr.t.addonPrice + tr.t.addonFee, chips: tr.t.addonChips },
@@ -607,7 +615,7 @@ export class TournamentsService implements OnModuleInit {
       const e = await this.wallet.run(async (db) => {
         await this.wallet.change(db, userId, 'TOURNAMENT_BUY_IN', -(t.buyIn + t.bounty + t.fee), { note: `${entryNo > 1 ? 'Re-entry' : 'Ulaz'}: ${t.name}` });
         return db.tournamentEntry.create({
-          data: { tournamentId: id, userId, entryNo, chips: t.startingStack, paid: t.buyIn + t.bounty, feePaid: t.fee },
+          data: { tournamentId: id, userId, entryNo, chips: t.startingStack, paid: t.buyIn + t.bounty, feePaid: t.fee, headBounty: t.bounty },
         });
       });
       const p = this.addPlayer(tr, e.id, user, entryNo, t.startingStack);
@@ -638,6 +646,7 @@ export class TournamentsService implements OnModuleInit {
       knockedBy: [],
       knockouts: 0,
       bountyWon: 0,
+      head: tr.t.bounty,
     };
     tr.players.set(entryId, p);
     return p;
@@ -975,9 +984,12 @@ export class TournamentsService implements OnModuleInit {
     if (data.length) await this.prisma.feeShare.createMany({ data });
   }
 
-  /** Bounty izbačenog igrača dobija onaj ko ga je izbacio (deli se ako ih je više). */
+  /**
+   * Bounty izbačenog igrača dobija onaj ko ga je izbacio (deli se ako ih je više).
+   * Progresivni bounty: od svog dela pola dobija u novac, a pola mu se dodaje na glavu.
+   */
   private async payBounty(tr: TourRt, out: Player) {
-    const b = tr.t.bounty;
+    const b = tr.t.progressive ? out.head : tr.t.bounty;
     const knockers = out.knockedBy
       .map((u) => [...tr.players.values()].find((x) => x.userId === u && x.status === 'PLAYING'))
       .filter((x): x is Player => !!x);
@@ -990,24 +1002,30 @@ export class TournamentsService implements OnModuleInit {
     }
     const share = Math.floor(b / knockers.length);
     for (const [k, w] of knockers.entries()) {
-      const amount = share + (k === 0 ? b - share * knockers.length : 0);
-      await this.creditBounty(tr, w, amount, out.name);
+      const part = share + (k === 0 ? b - share * knockers.length : 0);
+      const cash = tr.t.progressive ? Math.floor(part / 2) : part;
+      await this.creditBounty(tr, w, cash, out.name, part - cash);
     }
   }
 
-  private async creditBounty(tr: TourRt, w: Player, amount: number, victim: string | null) {
-    if (amount <= 0) return;
+  private async creditBounty(tr: TourRt, w: Player, amount: number, victim: string | null, toHead = 0) {
+    if (amount <= 0 && toHead <= 0) return;
     if (victim) w.knockouts++;
     w.bountyWon += amount;
+    w.head += toHead;
     await this.wallet.run(async (db) => {
-      await this.wallet.change(db, w.userId, 'TOURNAMENT_BOUNTY', amount, { note: `Bounty: ${tr.t.name}` });
+      if (amount > 0) await this.wallet.change(db, w.userId, 'TOURNAMENT_BOUNTY', amount, { note: `Bounty: ${tr.t.name}` });
       await db.tournamentEntry.update({
         where: { id: w.entryId },
-        data: { bountyWon: { increment: amount }, ...(victim ? { knockouts: { increment: 1 } } : {}) },
+        data: {
+          bountyWon: { increment: amount },
+          ...(toHead ? { headBounty: { increment: toHead } } : {}),
+          ...(victim ? { knockouts: { increment: 1 } } : {}),
+        },
       });
     });
-    await this.balance(w.userId);
-    if (victim) this.emitUser(w.userId, 'tournament:bounty', { tournamentId: tr.t.id, name: tr.t.name, victim, amount });
+    if (amount > 0) await this.balance(w.userId);
+    if (victim) this.emitUser(w.userId, 'tournament:bounty', { tournamentId: tr.t.id, name: tr.t.name, victim, amount, toHead });
   }
 
   private async payPrize(tr: TourRt, p: Player, prize: number) {
@@ -1081,7 +1099,7 @@ export class TournamentsService implements OnModuleInit {
     const pay = this.payouts(tr);
     if (winner) {
       // Pobednik dobija i svoj bounty (i one za koje se ne zna ko ih je osvojio).
-      await this.creditBounty(tr, winner, tr.t.bounty + (tr.unclaimedBounty ?? 0), null);
+      await this.creditBounty(tr, winner, (tr.t.progressive ? winner.head : tr.t.bounty) + (tr.unclaimedBounty ?? 0), null);
       tr.unclaimedBounty = 0;
       winner.status = 'BUSTED';
       winner.position = 1;

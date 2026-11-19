@@ -528,8 +528,13 @@ class _TournamentScreenState extends State<TournamentScreen> {
         _kv(tr('Starting stack', 'Početni stek'), chips(d['startingStack'])),
         _kv(tr('Buy-in', 'Ulaz'), '${chips(d['buyIn'])}${(d['bounty'] as num? ?? 0) > 0 ? ' + ${chips(d['bounty'])} bounty' : ''} + ${chips(d['fee'])} fee'),
         if ((d['bounty'] as num? ?? 0) > 0)
-          _kv('Bounty (KO)', tr('You win ${rsd(d['bounty'])} for every player you knock out; the winner also gets their own bounty.',
-              'Za svakog igrača koga izbacite dobijate ${rsd(d['bounty'])}; pobednik dobija i svoj bounty.')),
+          _kv(
+              d['progressive'] == false ? 'Bounty (KO)' : tr('Progressive bounty (PKO)', 'Progresivni bounty (PKO)'),
+              d['progressive'] == false
+                  ? tr('You win ${rsd(d['bounty'])} for every player you knock out; the winner also gets their own bounty.',
+                      'Za svakog igrača koga izbacite dobijate ${rsd(d['bounty'])}; pobednik dobija i svoj bounty.')
+                  : tr('Everyone starts with ${rsd(d['bounty'])} on their head. Knock a player out: half of their bounty is paid to you, the other half is added to your head. The winner also gets their own head. Bounties are shown at the table.',
+                      'Svako počinje sa ${rsd(d['bounty'])} na glavi. Kad izbacite igrača, pola njegovog bounty-ja dobijate odmah, a pola se dodaje na vašu glavu. Pobednik dobija i svoju glavu. Bounty svakog igrača vidi se za stolom.')),
         if (d['repeat'] == 'DAILY' || d['repeat'] == 'WEEKLY')
           _kv(tr('Repeats', 'Ponavlja se'), d['repeat'] == 'DAILY' ? tr('every day at the same time', 'svaki dan u isto vreme') : tr('every week at the same time', 'svake nedelje u isto vreme')),
         _kv('Players per table', '${d['tableSize'] ?? 9}'),

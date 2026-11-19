@@ -19,6 +19,7 @@ interface TourForm {
   startingStack: number;
   guarantee: number;
   bounty: number;
+  progressive: boolean;
   repeat: 'NONE' | 'DAILY' | 'WEEKLY';
   minPlayers: number;
   maxPlayers: number;
@@ -180,6 +181,7 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
     startingStack: 10_000,
     guarantee: 0,
     bounty: 0,
+    progressive: true,
     repeat: 'NONE',
     minPlayers: 2,
     maxPlayers: 0,
@@ -334,6 +336,16 @@ function TournamentEditor({ onClose, onSaved }: { onClose: () => void; onSaved: 
         {n('startingStack', 'Početni stek (žetoni)', undefined, 100)}
         {n('guarantee', 'Garantovan fond', '0 = bez garancije; razliku doplaćuje klub')}
         {n('bounty', 'Bounty (knockout)', 'deo ulaza koji dobija ko izbaci igrača; 0 = običan turnir. Igrač plaća ulaz + bounty + fee')}
+        {f.bounty > 0 && (
+          <label className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={f.progressive} onChange={(e) => setF({ ...f, progressive: e.target.checked })} />
+            <span>
+              Progresivni bounty (PKO)
+              <br />
+              <span className="muted small">pola bounty-ja izbačenog igrača odmah u novac, pola na glavu onoga ko ga je izbacio</span>
+            </span>
+          </label>
+        )}
       </div>
 
       <h3>Blajndovi</h3>

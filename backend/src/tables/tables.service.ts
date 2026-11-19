@@ -98,9 +98,13 @@ interface Runtime {
   /** Kraj runde: prvo se vidi potez i ulozi, pa žetoni idu u pot, pa tek onda karta (ili showdown). */
   hold?: Hold | null;
   holdTimers?: NodeJS.Timeout[];
+  /** Igrači koji su bili u ruci kad se završila (turnir: ispali ostaju vidljivi dok traje prikaz rezultata). */
+  endSeats?: ({ userId: string; name: string } | null)[];
 }
 
 interface ShotSeat {
+  userId: string;
+  name: string;
   stack: number;
   bet: number;
   folded: boolean;
@@ -498,8 +502,13 @@ export class TablesService implements OnModuleInit {
       ritNo: [],
       ritDeadline: null,
       myHand,
-      seats: v.seats.map((seat, i) => {
-        const x = h.seats[i];
+      seats: h.seats.map((x, i) => {
+        // Igrač koji je u ovoj ruci ispao sa turnira ostaje za stolom dok traje prikaz kraja ruke.
+        const seat =
+          v.seats[i] ??
+          (x
+            ? { index: i, userId: x.userId, name: x.name, avatarUrl: this.avatars.get(x.userId) ?? null, stack: 0, bet: 0, inHand: true, folded: false, allIn: true, sittingOut: false, leaving: false, lastAction: null, lastAct: null, cards: null, cardCount: 0 }
+            : null);
         if (!seat || !x) return seat;
         const cards = i === mySeat ? seat.cards : (shown.get(i) ?? null);
         return {
@@ -535,7 +544,7 @@ export class TablesService implements OnModuleInit {
       actionsLen: g.actions.length,
       seats: g.seats.map((x) =>
         x
-          ? { stack: x.stack, bet: x.bet, folded: x.folded, allIn: x.allIn, inHand: x.inHand, lastAction: x.lastAction, lastAct: x.lastAct ? { ...x.lastAct } : null }
+          ? { userId: x.userId, name: x.name, stack: x.stack, bet: x.bet, folded: x.folded, allIn: x.allIn, inHand: x.inHand, lastAction: x.lastAction, lastAct: x.lastAct ? { ...x.lastAct } : null }
           : null,
       ),
     };
@@ -631,7 +640,29 @@ export class TablesService implements OnModuleInit {
       ante: rt.game.config.ante ?? 0,
       serverTime: Date.now(),
       seats: g.seats.map((s, i) => {
-        if (!s) return null;
+        if (!s) {
+          // Turnir: igrač koji je ispao u ovoj ruci ostaje vidljiv (sa otvorenim kartama) dok traje prikaz rezultata.
+          const gone = rt.tour && this.freshResult(rt) ? rt.endSeats?.[i] : null;
+          if (!gone) return null;
+          return {
+            index: i,
+            userId: gone.userId,
+            name: gone.name,
+            avatarUrl: this.avatars.get(gone.userId) ?? null,
+            stack: 0,
+            bet: 0,
+            inHand: true,
+            folded: false,
+            allIn: false,
+            sittingOut: false,
+            leaving: false,
+            lastAction: null,
+            lastAct: null,
+            cards: shown.get(i) ?? null,
+            myShown: undefined,
+            cardCount: 0,
+          };
+        }
         const own = i === mySeat;
         // Turnir: igrač bez žetona koji čeka odluku o rebuy-u (ili ispada) ne stoji ostalima za stolom kao "duh".
         if (rt.tour && !own && s.stack === 0 && !(g.inProgress && s.inHand) && !this.freshResult(rt)) return null;
@@ -1081,6 +1112,7 @@ export class TablesService implements OnModuleInit {
       this.clearHold(rt);
     }
     const hold = this.makeHold(rt, result);
+    if (result) rt.endSeats = rt.game.seats.map((x, i) => (x && result.shown.some((sh) => sh.seat === i) ? { userId: x.userId, name: x.name } : null));
     if (result) await this.handFinished(rt, result);
     if (hold) {
       const ms = hold.until - hold.started;
