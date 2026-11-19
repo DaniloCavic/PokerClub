@@ -17,6 +17,7 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(!!getToken());
   const [page, setPage] = useState<Page>(() => (location.hash.slice(1) as Page) || 'dashboard');
+  const [more, setMore] = useState(false);
 
   useEffect(() => {
     const out = () => setMe(null);
@@ -32,6 +33,7 @@ export function App() {
 
   useEffect(() => {
     location.hash = page;
+    window.scrollTo(0, 0);
   }, [page]);
 
   useResponsiveTables();
@@ -56,9 +58,62 @@ export function App() {
       : []),
   ];
   const current = pages.some((p) => p.id === page) ? page : 'dashboard';
+  // Telefon: najvažnije stranice u donjem meniju, ostalo pod "Više".
+  const tabIds: Page[] = me.role === 'ADMIN' ? ['dashboard', 'tables', 'tournaments', 'players'] : ['dashboard', 'tables', 'players', 'transactions'];
+  const tabs = pages.filter((p) => tabIds.includes(p.id));
+  const rest = pages.filter((p) => !tabIds.includes(p.id));
+  const title = pages.find((p) => p.id === current)?.label ?? '';
+  const logout = () => {
+    setToken(null);
+    setMe(null);
+  };
+  const go = (p: Page) => {
+    setMore(false);
+    setPage(p);
+  };
 
   return (
     <div className="layout">
+      {/* Telefon: gornja traka sa nazivom stranice */}
+      <header className="appbar">
+        <div className="brand">
+          Triling <span>{me.role === 'ADMIN' ? 'super agent' : 'agent'}</span>
+        </div>
+        <div className="title">{title}</div>
+      </header>
+      {/* Telefon: donji meni kao u aplikaciji */}
+      <nav className="tabbar">
+        {tabs.map((p) => (
+          <a key={p.id} className={current === p.id && !more ? 'active' : ''} onClick={() => go(p.id)}>
+            <Icon name={p.id} />
+            <span>{p.id === 'dashboard' ? 'Pregled' : p.label}</span>
+          </a>
+        ))}
+        <a className={more || rest.some((p) => p.id === current) ? 'active' : ''} onClick={() => setMore(!more)}>
+          <Icon name="more" />
+          <span>Više</span>
+        </a>
+      </nav>
+      {more && (
+        <div className="sheet-bg" onClick={() => setMore(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-who">
+              <b>{me.displayName}</b>
+              <small>{me.role === 'ADMIN' ? 'Super agent' : 'Agent'}</small>
+            </div>
+            {rest.map((p) => (
+              <a key={p.id} className={current === p.id ? 'active' : ''} onClick={() => go(p.id)}>
+                <Icon name={p.id} />
+                {p.label}
+              </a>
+            ))}
+            <a className="danger" onClick={logout}>
+              <Icon name="logout" />
+              Odjava
+            </a>
+          </div>
+        </div>
+      )}
       <nav className="sidebar">
         <h1>
           Poker klub <span>Triling</span>
@@ -72,13 +127,7 @@ export function App() {
             {p.label}
           </a>
         ))}
-        <a
-          className="logout"
-          onClick={() => {
-            setToken(null);
-            setMe(null);
-          }}
-        >
+        <a className="logout" onClick={logout}>
           Odjava
         </a>
       </nav>
@@ -95,6 +144,33 @@ export function App() {
         {current === 'welcome' && <Welcome />}
       </main>
     </div>
+  );
+}
+
+const ICONS: Record<string, string> = {
+  dashboard: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+  tables:
+    'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM7.5 18c-.83 0-1.5-.67-1.5-1.5S6.67 15 7.5 15s1.5.67 1.5 1.5S8.33 18 7.5 18zm0-9C6.67 9 6 8.33 6 7.5S6.67 6 7.5 6 9 6.67 9 7.5 8.33 9 7.5 9zm4.5 4.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5 4.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm0-9c-.83 0-1.5-.67-1.5-1.5S15.67 6 16.5 6s1.5.67 1.5 1.5S17.33 9 16.5 9z',
+  tournaments:
+    'M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z',
+  players:
+    'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
+  transactions: 'M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z',
+  reports: 'M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z',
+  account: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+  agents:
+    'M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z',
+  security: 'M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z',
+  welcome: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z',
+  more: 'M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+  logout: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
+};
+
+function Icon({ name }: { name: string }) {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={ICONS[name] ?? ICONS.more} />
+    </svg>
   );
 }
 
@@ -128,7 +204,13 @@ function Login({ onDone }: { onDone: (me: Me) => void }) {
 
   return (
     <form className="card login" onSubmit={submit}>
-      <h2>Poker klub Triling — agenti</h2>
+      <img className="login-logo" src="/admin/icon-192.png" alt="" />
+      <h2>
+        Poker klub <span>Triling</span>
+      </h2>
+      <p className="muted small" style={{ marginTop: -8 }}>
+        Panel za agente i super agenta
+      </p>
       <input placeholder="Korisničko ime" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
       <input placeholder="Lozinka" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       {needTotp && (

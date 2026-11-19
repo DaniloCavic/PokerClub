@@ -74,38 +74,102 @@ tr.clickable:hover { background: #eef4f0; cursor: pointer; }
 .stat.gold b { color: var(--gold); }
 .badge.blue { background: #e1ebf7; color: #0c4076; }
 
-/* Telefon: meni na vrhu, tabele kao kartice, dugmad lako dodirljiva */
+/* Gornja i donja traka postoje samo na telefonu */
+.appbar, .tabbar, .sheet-bg { display: none; }
+.icon { width: 22px; height: 22px; fill: currentColor; flex-shrink: 0; }
+.login h2 span { color: var(--gold); }
+.login-logo { display: block; width: 84px; height: 84px; margin: 0 auto 12px; border-radius: 50%; }
+.login { text-align: center; }
+.login button { width: 100%; padding: 12px; font-size: 16px; }
+
+/* Telefon: izgled aplikacije (gornja traka, donji meni, tabele kao kartice, velika dugmad) */
 @media (max-width: 760px) {
-  .layout { grid-template-columns: 1fr; }
-  .sidebar {
-    position: sticky; top: 0; z-index: 5;
-    display: flex; gap: 4px; overflow-x: auto; padding: 8px; align-items: center;
-    -webkit-overflow-scrolling: touch;
+  body { background: var(--bg); -webkit-tap-highlight-color: transparent; }
+  .layout { display: block; min-height: 100vh; }
+  .sidebar { display: none; }
+
+  .appbar {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    position: sticky; top: 0; z-index: 6;
+    background: var(--accent-2); color: #fff;
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   }
-  .sidebar h1 { display: block; font-size: 15px; margin: 0 8px 0 4px; white-space: nowrap; }
-  .sidebar .who { display: none; }
-  .sidebar a { white-space: nowrap; padding: 8px 12px; }
-  .sidebar .logout { margin-top: 0; }
-  main { padding: 14px 12px 40px; }
+  .appbar .brand { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; color: var(--gold); text-transform: uppercase; }
+  .appbar .brand span { color: #b9d6c5; font-weight: 600; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+  .appbar .title { font-size: 21px; font-weight: 700; margin-top: 2px; }
+
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+    background: #fff; border-top: 1px solid var(--line);
+    padding: 6px 4px calc(env(safe-area-inset-bottom) + 6px);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+  }
+  .tabbar a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; color: var(--muted); text-decoration: none; padding: 4px 0; border-radius: 10px; cursor: pointer;
+  }
+  .tabbar a.active { color: var(--accent); font-weight: 600; }
+  .tabbar a.active .icon { background: #dcf1e4; border-radius: 14px; padding: 2px 14px; width: 52px; box-sizing: content-box; height: 22px; }
+  .tabbar a span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72px; }
+
+  .sheet-bg { display: flex; position: fixed; inset: 0; z-index: 7; background: rgba(10, 20, 15, 0.45); align-items: flex-end; }
+  .sheet {
+    width: 100%; background: #fff; border-radius: 18px 18px 0 0;
+    padding: 14px 10px calc(env(safe-area-inset-bottom) + 76px);
+    max-height: 80vh; overflow-y: auto;
+  }
+  .sheet-who { padding: 4px 12px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .sheet-who small { display: block; color: var(--muted); }
+  .sheet a { display: flex; align-items: center; gap: 14px; padding: 13px 12px; border-radius: 10px; color: var(--text); text-decoration: none; font-size: 16px; cursor: pointer; }
+  .sheet a .icon { color: var(--accent); }
+  .sheet a.active { background: #eef4f0; font-weight: 600; }
+  .sheet a.danger, .sheet a.danger .icon { color: var(--danger); }
+
+  main { padding: 14px 12px calc(env(safe-area-inset-bottom) + 84px); }
+  main > h2:first-child, main > div:first-child > h2:first-child { display: none; } /* naslov je u gornjoj traci */
   h2 { font-size: 20px; }
-  button { padding: 10px 14px; }
-  input, select, textarea { font-size: 16px; } /* iPhone ne zumira polja */
-  .card { padding: 10px; }
-  .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .stat { padding: 10px; }
+  h3 { font-size: 15px; margin: 18px 4px 8px; }
+  button { padding: 11px 16px; border-radius: 10px; font-size: 15px; }
+  input, select, textarea { font-size: 16px; padding: 11px 12px; border-radius: 10px; width: 100%; } /* iPhone ne zumira polja */
+  .row > input, .row > select { flex: 1 1 140px; width: auto; }
+  .card { padding: 12px; border-radius: 14px; overflow-x: visible; }
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { padding: 12px; border-radius: 14px; }
   .stat b { font-size: 19px; }
   .form-grid { grid-template-columns: 1fr; }
-  .drawer { width: 100%; padding: 14px 12px 40px; }
-  .kv { grid-template-columns: 1fr; gap: 0 0; }
+
+  /* Prozori (detalji igrača, stola...) preko celog ekrana, sa dugmetom za zatvaranje gore */
+  .modal-bg { z-index: 9; }
+  .drawer { width: 100%; padding: calc(env(safe-area-inset-top) + 8px) 12px calc(env(safe-area-inset-bottom) + 30px); }
+  .drawer > button.close {
+    position: sticky; top: 0; float: right; z-index: 2;
+    width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
+  .drawer h2 { padding-right: 50px; }
+
+  .kv { grid-template-columns: 1fr; gap: 0; }
   .kv b { margin-bottom: 8px; }
+  .pager { justify-content: center; }
+
+  /* Tabele kao kartice: natpis kolone levo, vrednost desno */
   table, tbody, tr, td { display: block; width: 100%; }
   thead { display: none; }
-  tr { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; background: var(--panel); }
-  td { border: 0; padding: 4px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: right; flex-wrap: wrap; }
-  td::before { content: attr(data-label); color: var(--muted); font-size: 12px; text-align: left; flex-shrink: 0; }
+  tr { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin-bottom: 10px; background: var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+  .card tr { box-shadow: none; }
+  tr.clickable:active { background: #eef4f0; }
+  td { border: 0; padding: 5px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: right; flex-wrap: wrap; font-size: 15px; }
+  /* Prva kolona (naziv, ime) je naslov kartice */
+  td:first-child { font-size: 16.5px; font-weight: 700; justify-content: flex-start; text-align: left; padding-bottom: 7px; margin-bottom: 3px; border-bottom: 1px solid var(--line); }
+  td:first-child::before { content: none; }
+  input[type='checkbox'], input[type='radio'] { width: 20px; height: 20px; flex: 0 0 auto; }
+  td::before { content: attr(data-label); color: var(--muted); font-size: 12.5px; text-align: left; flex-shrink: 0; }
   td[data-label=""]::before { content: none; }
   td.row { justify-content: flex-end; }
   td[colspan] { justify-content: center; }
+  td button { padding: 8px 12px; font-size: 14px; }
+  .card:has(> table) { background: transparent; border: 0; padding: 0; }
 }
 
 /* Live igra (super agent) */

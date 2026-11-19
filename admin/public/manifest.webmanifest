@@ -1,0 +1,16 @@
+{
+  "name": "Triling — agenti",
+  "short_name": "Triling agenti",
+  "description": "Poker klub Triling: panel za agente i super agenta",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b3d26",
+  "theme_color": "#0b3d26",
+  "icons": [
+    { "src": "/admin/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/admin/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/admin/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
