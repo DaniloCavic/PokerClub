@@ -45,6 +45,8 @@ interface Player {
   bountyWon: number;
   /** Bounty na glavi igrača (koliko vredi izbaciti ga). */
   head: number;
+  /** Upravo dobijeni deo bounty-ja na glavu (za stolom se prikazuje tek kad se proglasi pobednik ruke). */
+  headPending?: { amount: number; at: number };
   /** Redosled ispadanja (veći = kasnije ispao = bolje mesto). */
   bustSeq: number;
   /** Ostao bez žetona, čeka se rebuy (do ovog trenutka). */
@@ -502,6 +504,10 @@ export class TournamentsService implements OnModuleInit {
               ...playing.map((p) => [p.userId, p.head]),
             ])
           : {},
+      // Koliko je kome upravo dodato na glavu (i kada), da sto pokaže uvećanje tek posle proglašenja pobednika.
+      headPending: Object.fromEntries(
+        playing.filter((p) => p.headPending && Date.now() - p.headPending.at < 30_000).map((p) => [p.userId, p.headPending]),
+      ),
       myBountyWon: me?.bountyWon ?? 0,
       myKnockouts: me?.knockouts ?? 0,
       addon: { price: tr.t.addonPrice + tr.t.addonFee, chips: tr.t.addonChips },
@@ -1024,6 +1030,10 @@ export class TournamentsService implements OnModuleInit {
     if (victim) w.knockouts++;
     w.bountyWon += amount;
     w.head += toHead;
+    if (toHead > 0) {
+      const prev = w.headPending && Date.now() - w.headPending.at < 30_000 ? w.headPending.amount : 0;
+      w.headPending = { amount: prev + toHead, at: Date.now() };
+    }
     await this.wallet.run(async (db) => {
       if (amount > 0) await this.wallet.change(db, w.userId, 'TOURNAMENT_BOUNTY', amount, { note: `Bounty: ${tr.t.name}` });
       await db.tournamentEntry.update({

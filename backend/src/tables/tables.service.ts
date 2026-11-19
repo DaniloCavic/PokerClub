@@ -98,6 +98,8 @@ interface Runtime {
   /** Kraj runde: prvo se vidi potez i ulozi, pa žetoni idu u pot, pa tek onda karta (ili showdown). */
   hold?: Hold | null;
   holdTimers?: NodeJS.Timeout[];
+  /** Turnir (PKO): do kada se prikazuje bounty pre uvećanja (dok se ne proglasi pobednik ruke). */
+  headsUntil?: { from: number; until: number };
   /** Igrači koji su bili u ruci kad se završila (turnir: ispali ostaju vidljivi dok traje prikaz rezultata). */
   endSeats?: ({ userId: string; name: string } | null)[];
 }
@@ -717,7 +719,7 @@ export class TablesService implements OnModuleInit {
       legal: mySeat >= 0 ? g.legalActions(mySeat) : null,
       result: this.freshResult(rt),
       // Turnir: nivo, blajndovi, pauza, pozicija igrača, rebuy i add-on.
-      tournament: rt.tour ? rt.tour.view(userId) : null,
+      tournament: rt.tour ? this.tourView(rt, userId) : null,
     };
   }
 
@@ -728,6 +730,16 @@ export class TablesService implements OnModuleInit {
     const next = rt.game.handNo + (rt.game.inProgress ? 1 : 1);
     const left = (every - (next % every)) % every;
     return left + 1;
+  }
+
+  /** Podaci turnira za sto; PKO: uvećan bounty se vidi tek kad se proglasi pobednik ruke. */
+  private tourView(rt: Runtime, userId?: string) {
+    const v = rt.tour!.view(userId) as { heads?: Record<string, number>; headPending?: Record<string, { amount: number; at: number }> } | null;
+    const hu = rt.headsUntil;
+    if (!v || !v.heads || !v.headPending || !hu || Date.now() >= hu.until) return v;
+    const heads = { ...v.heads };
+    for (const [u, p] of Object.entries(v.headPending)) if (p.at >= hu.from && heads[u] !== undefined) heads[u] -= p.amount;
+    return { ...v, heads };
   }
 
   /** Trenutna jačina ruke igrača (od flopa), da se prikaže samo njemu. */
@@ -1113,7 +1125,17 @@ export class TablesService implements OnModuleInit {
     }
     const hold = this.makeHold(rt, result);
     if (result) rt.endSeats = rt.game.seats.map((x, i) => (x && result.shown.some((sh) => sh.seat === i) ? { userId: x.userId, name: x.name } : null));
+    const handEnd = Date.now() - 50;
     if (result) await this.handFinished(rt, result);
+    // Kada aplikacija proglašava pobednika: posle pauze na kraju runde i otkrivanja ulica kod all-in-a.
+    if (result && rt.tour) {
+      const hu = { from: handEnd, until: (hold ? hold.until : Date.now()) + Math.max(0, (rt.runoutMs ?? 0) - 700) };
+      rt.headsUntil = hu;
+      // Kad se proglasi pobednik, svi vide uvećan bounty.
+      setTimeout(() => {
+        if (rt.headsUntil === hu) void this.exclusive(rt, () => this.broadcast(rt)).catch((e) => this.log.error(e));
+      }, hu.until - Date.now() + 50);
+    }
     if (hold) {
       const ms = hold.until - hold.started;
       rt.hold = hold;
