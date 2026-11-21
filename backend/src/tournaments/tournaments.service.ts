@@ -488,6 +488,10 @@ export class TournamentsService implements OnModuleInit {
       position,
       prizePool: pay.pool,
       paidPlaces: pay.amounts.length,
+      // Nagrade po mestima (1. mesto prvo) i da li je fond konačan (posle kasne prijave, rebuy-a i add-on-a).
+      prizes: pay.amounts,
+      regOpen: this.regOpen(tr),
+      tableSize: tr.t.tableSize,
       rebuyUntil: me?.rebuyUntil ?? null,
       canRebuy: !!me && this.canRebuy(tr, me),
       canAddon: !!me && this.canAddon(tr, me),

@@ -50,7 +50,7 @@ class _ChatSheetState extends State<TableChatView> {
   }
 
   /// Brze reakcije: jedan dodir šalje poruku (pojavi se i iznad igrača za stolom).
-  static const _quick = ['👍', '😂', '😮', '😡', '🔥', '👏', 'nh', 'gg', 'gl', 'ty', 'wp', 'lol'];
+  static const _quick = ['nh', 'gg', 'gl', 'ty', 'wp', 'lol'];
 
   @override
   Widget build(BuildContext context) {

@@ -1582,6 +1582,14 @@ class _Layout {
   /// Pola širine tog pojasa ispod karata.
   double belowBoardHalf = 0;
 
+  /// Visina natpisa na stolu (znak kluba i podaci o igri/turniru), da ulozi ne padaju preko njega.
+  double feltHeight = 0;
+  Rect get feltRect {
+    final top = boardTop + cardW * 1.4 + (wide ? 32 : 40);
+    final half = min(w * 0.34, 170.0);
+    return Rect.fromLTRB(center.dx - half, top, center.dx + half, top + feltHeight);
+  }
+
   /// Veličina gomile uloga za svakog igrača koji ima ulog (žetoni + iznos).
   Map<int, Size> betSizes = {};
 
@@ -1643,6 +1651,7 @@ class _Layout {
     final blocked = <Rect>[
       for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)),
       ...middleRects,
+      if (feltHeight > 0) feltRect,
       if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
     ];
     // Prvo ja, pa ostali redom.
@@ -2125,6 +2134,10 @@ class _TableViewState extends State<_TableView> {
       ..boardCount = ((st['board'] as List?)?.length ?? 0)
       ..belowBoard = _belowBoard(st)
       ..belowBoardHalf = _belowBoardHalf(st)
+      // Natpis na stolu: turnir ima više redova (na računaru bez znaka kluba).
+      ..feltHeight = st['tournament'] != null
+          ? (widget.wide ? 4 * 16.0 : min(widget.size.width, widget.size.height * 0.75) * 0.1 + 6 * 16.5)
+          : (widget.wide ? 70.0 : 90.0)
       ..betSizes = {
         for (var i = 0; i < n; i++)
           if (((seats[i]?['bet'] as int?) ?? 0) > 0)
@@ -2329,7 +2342,7 @@ class _TableViewState extends State<_TableView> {
         // Znak kluba i podaci o stolu ispod karata na stolu (i ispod rezultata ruke).
         // Računar: podignuto i malo manje, da natpis ne bude ispod mojih karata.
         top: lay.boardTop + lay.cardW * 1.4 + (widget.wide ? 32 : 40),
-        child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75) * (widget.wide ? 0.72 : 1), logoOnly: true)),
+        child: IgnorePointer(child: _FeltInfo(st: st, w: min(w, h * 0.75) * (widget.wide ? 0.72 : 1), logoOnly: true, wide: widget.wide)),
       ),
       // POT iznad karata
       Positioned(
@@ -2718,13 +2731,81 @@ class _FeltInfo extends StatelessWidget {
   final double w;
   /// Na računaru su podaci o stolu u kartici gore levo, pa se na čoji vidi samo znak kluba.
   final bool logoOnly;
-  const _FeltInfo({required this.st, required this.w, this.logoOnly = false});
+  /// Računar: ispod mojih karata je malo mesta, pa bez znaka kluba i bez reda sa mestom (piše u kartici gore levo).
+  final bool wide;
+  const _FeltInfo({required this.st, required this.w, this.logoOnly = false, this.wide = false});
+
+  /// Turnir: šta piše na stolu (kao na velikim sajtovima). Pre kraja kasne prijave: koliko još traje,
+  /// fond i broj ulaza; posle: koliko igrača do nagrada, sledeća nagrada i skok nagrade, moje mesto.
+  static List<String> tourLines(Json t, int now) {
+    String left(num? at) => at == null ? '' : clockLeft(at.toInt(), now);
+    final lines = <String>[t['name'] as String? ?? ''];
+    final ante = (t['ante'] as num? ?? 0) > 0 ? ' (${chips(t['ante'])})' : '';
+    if (t['onBreak'] == true) {
+      lines.add(tr('Break · ${left(t['breakEndsAt'] as num?)}', 'Pauza · još ${left(t['breakEndsAt'] as num?)}'));
+    } else {
+      final next = t['levelEndsAt'] != null ? ' [${tr('in', 'za')} ${left(t['levelEndsAt'] as num?)}]' : '';
+      lines.add('${tr('Blinds', 'Blajndovi')} ${chips(t['sb'])} | ${chips(t['bb'])}$ante$next');
+    }
+    final prizes = ((t['prizes'] as List?) ?? const []).cast<num>();
+    final paid = prizes.length;
+    final playersLeft = (t['playersLeft'] as num? ?? 0).toInt();
+    if (t['lateRegEndsAt'] != null) {
+      lines.add(tr('Late registration · ${left(t['lateRegEndsAt'] as num?)}', 'Kasna prijava još ${left(t['lateRegEndsAt'] as num?)}'));
+      lines.add(tr('Prize pool ${chips(t['prizePool'])} · ${t['entries']} entries', 'Fond ${chips(t['prizePool'])} · ${t['entries']} ulaza'));
+      if (paid > 0) lines.add(tr('$paid places paid', 'Plaćeno $paid mesta'));
+    } else if (paid > 0 && playersLeft > paid) {
+      lines.add(tr('${playersLeft - paid} players to the money', 'Do nagrada još ${playersLeft - paid} igrača'));
+      lines.add(tr('Min prize ${chips(prizes.last)} · ${paid} paid', 'Najmanja nagrada ${chips(prizes.last)} · plaćeno $paid'));
+    } else if (paid > 0 && playersLeft > 1) {
+      // U nagradama: sledeća nagrada (kad ispadne još jedan igrač) i prvi veći skok.
+      final now0 = prizes[min(playersLeft, paid) - 1];
+      final nextPrize = prizes[playersLeft - 2];
+      lines.add(tr('In the money · next prize ${chips(nextPrize)}', 'U nagradama · sledeća nagrada ${chips(nextPrize)}'));
+      int? jumpPlace;
+      for (var q = playersLeft - 2; q >= 1; q--) {
+        if (prizes[q - 1] > nextPrize) {
+          jumpPlace = q;
+          break;
+        }
+      }
+      if (jumpPlace != null) lines.add(tr('Prize jump ${chips(prizes[jumpPlace - 1])} ($jumpPlace.)', 'Skok nagrade ${chips(prizes[jumpPlace - 1])} ($jumpPlace. mesto)'));
+      if (playersLeft <= ((t['tableSize'] as num?) ?? 9)) lines.add(tr('1st prize ${chips(prizes.first)}', '1. nagrada ${chips(prizes.first)}'));
+      if (now0 <= 0) lines.removeLast();
+    }
+    if (t['position'] != null) lines.add(tr('My rank ${t['position']} / $playersLeft', 'Moje mesto ${t['position']} / $playersLeft'));
+    return lines;
+  }
 
   @override
   Widget build(BuildContext context) {
     final tour = st['tournament'] as Json?;
     final omaha = st['variant'] == 'OMAHA';
     const faint = TextStyle(fontSize: 10.5, color: Color(0x99E8D9A8), height: 1.35);
+    if (tour != null && st['replay'] != true) {
+      // Turnir: znak kluba pa podaci turnira (jasnije i krupnije).
+      var lines = tourLines(tour, context.read<AppState>().serverNow);
+      if (wide && tour['position'] != null) lines = lines.sublist(0, lines.length - 1);
+      return Column(children: [
+        if (!wide) Opacity(
+          opacity: 0.5,
+          child: Column(children: [
+            GoldText('♠', style: TextStyle(fontSize: w * 0.04, height: 1)),
+            GoldText('TRILING', style: TextStyle(fontFamily: 'Cinzel', fontSize: w * 0.06, fontWeight: FontWeight.w800, height: 1)),
+          ]),
+        ),
+        if (!wide) SizedBox(height: w * 0.015),
+        for (var k = 0; k < lines.length; k++)
+          Text(lines[k],
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: wide ? (k == 0 ? 13 : 11.5) : (k == 0 ? 13.5 : 12),
+                fontWeight: k == 0 ? FontWeight.w800 : FontWeight.w600,
+                color: const Color(0xB3EDE3C4),
+                height: 1.35,
+              )),
+      ]);
+    }
     return Column(children: [
       // Znak kluba na čoji: zlatni, providan
       Opacity(
