@@ -39,6 +39,10 @@ class _ActionBarState extends State<ActionBar> {
   int _amount = 0;
   /// Telefon: izbor iznosa se otvara tek na dugme Raise/Bet.
   bool _open = false;
+  /// Telefon: tastatura za upis iznosa (umesto dugmadi sa delovima pota).
+  bool _keypad = false;
+  /// Ono što je igrač otkucao na tastaturi.
+  String _typed = '';
 
   int? get _min => widget.legal['minRaiseTo'] as int?;
   int? get _max => widget.legal['maxRaiseTo'] as int?;
@@ -101,6 +105,8 @@ class _ActionBarState extends State<ActionBar> {
     if (old.legal.toString() != widget.legal.toString()) {
       _busy = false;
       _open = false;
+      _keypad = false;
+      _typed = '';
       _amount = _min ?? 0;
       _field.text = _fieldText(_amount);
     } else if (old.money.inBB != widget.money.inBB) {
@@ -219,83 +225,6 @@ class _ActionBarState extends State<ActionBar> {
               onSubmitted: (_) => _focus.unfocus(),
             );
 
-  /// Izbor iznosa: −, iznos, + ; klizač; brzi iznosi.
-  Widget _amountBox() {
-    final presets = <String, int>{
-      'Min': _min!,
-      '½ pot': _potFraction(0.5),
-      'Pot': _potFraction(1),
-      if (!widget.potLimit) 'All-in': _max!,
-    };
-    final step = max(1, min(widget.bigBlind, (_max! - _min!) ~/ 20));
-    final divisions = _max! > _min! ? max(1, (_max! - _min!) ~/ step) : null;
-    final valueRow = Row(children: [
-      _round(Icons.remove, _amount > _min! ? () => _step(-1) : null),
-      Expanded(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // Iznos se može i upisati: dodir na broj otvara tastaturu.
-          SizedBox(height: 30, child: _amountField()),
-          const SizedBox(height: 2),
-          Text(_m.inBB ? chips(_amount) : '${bbNumber(_amount / widget.bigBlind)} BB',
-              style: const TextStyle(fontSize: 10.5, color: Colors.white54)),
-        ]),
-      ),
-      _round(Icons.add, _amount < _max! ? () => _step(1) : null),
-    ]);
-    final slider = SizedBox(
-      height: 28,
-      child: divisions == null
-          ? null
-          : SliderTheme(
-              data: SliderTheme.of(context).copyWith(trackHeight: 4, overlayShape: SliderComponentShape.noOverlay),
-              child: Slider(
-                min: _min!.toDouble(),
-                max: _max!.toDouble(),
-                divisions: divisions,
-                value: _amount.clamp(_min!, _max!).toDouble(),
-                onChanged: (v) {
-                  var to = v.round();
-                  if (to != _max) to = (to ~/ step) * step;
-                  _focus.unfocus();
-                  _set(to.clamp(_min!, _max!));
-                },
-              ),
-            ),
-    );
-    final presetRow = Row(children: [
-      for (final e in presets.entries)
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: InkWell(
-              onTap: () {
-                _focus.unfocus();
-                _set(e.value);
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  gradient: _amount == e.value ? goldGradient : null,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: gold.withOpacity(0.45)),
-                ),
-                child: Text(e.key,
-                    style: TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w700, color: _amount == e.value ? Colors.black : Colors.white)),
-              ),
-            ),
-          ),
-        ),
-    ]);
-    return LuxPanel(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-      radius: 14,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [valueRow, slider, presetRow]),
-    );
-  }
-
   /// Računar: brzi iznosi (Min, ½, ¾, Pot, All-in) kao velika dugmad sa iznosom,
   /// pored njih −, klizač, + i polje za upis.
   Widget _wideAmountRow() {
@@ -407,9 +336,152 @@ class _ActionBarState extends State<ActionBar> {
         _buttons(),
       ]);
     }
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      if (_canRaise && _open) ...[_amountBox(), const SizedBox(height: 8)],
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+      if (_canRaise && _open) ...[_keypad ? _keypadBox() : _phonePresets(), const SizedBox(height: 8)],
       _buttons(),
+    ]);
+  }
+
+  /// Telefon: delovi pota jedan iznad drugog (dodir odmah igra taj iznos), pored njih tastatura.
+  Widget _phonePresets() {
+    final seen = <int>{};
+    final items = <(String, String, int)>[];
+    void add(String pct, String label, int v) {
+      if (v < _min! || v > _max! || !seen.add(v)) return;
+      items.add((pct, label, v));
+    }
+    add('', widget.potLimit ? 'Max' : 'All-in', _max!);
+    add('100%', _currentBet == 0 ? 'Bet' : 'Raise', _potFraction(1));
+    add('75%', _currentBet == 0 ? 'Bet' : 'Raise', _potFraction(0.75));
+    add('50%', _currentBet == 0 ? 'Bet' : 'Raise', _potFraction(0.5));
+    add('33%', _currentBet == 0 ? 'Bet' : 'Raise', _potFraction(0.33));
+    add('Min', _currentBet == 0 ? 'Bet' : 'Raise', _min!);
+    Widget btn((String, String, int) it) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Material(
+            color: const Color(0xE6120D0B),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: _busy ? null : () => _send('raise', it.$3),
+              child: Container(
+                width: 140,
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: gold.withOpacity(0.55), width: 1.2)),
+                child: Row(children: [
+                  if (it.$1.isNotEmpty)
+                    Text(it.$1, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white70)),
+                  const Spacer(),
+                  Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(it.$2, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
+                    Text(_m(it.$3), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: goldLight)),
+                  ]),
+                ]),
+              ),
+            ),
+          ),
+        );
+    // Tastatura za tačan iznos: iznad kolone (ne prekriva moje karte).
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: _roundBig(Icons.dialpad, () => setState(() {
+              _keypad = true;
+              _typed = '';
+            })),
+      ),
+      for (final it in items) btn(it),
+    ]);
+  }
+
+  Widget _roundBig(IconData icon, VoidCallback onTap) => Material(
+        color: const Color(0xE6120D0B),
+        shape: CircleBorder(side: BorderSide(color: gold.withOpacity(0.55), width: 1.2)),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 52, height: 52, child: Icon(icon, color: goldLight, size: 26)),
+        ),
+      );
+
+  /// Telefon: tastatura za upis iznosa (u dinarima ili BB, kako je izabrano za stolom).
+  Widget _keypadBox() {
+    void press(String k) {
+      setState(() {
+        if (k == '<') {
+          if (_typed.isNotEmpty) _typed = _typed.substring(0, _typed.length - 1);
+        } else if (k == '.') {
+          if (_m.inBB && !_typed.contains('.')) _typed = _typed.isEmpty ? '0.' : '$_typed.';
+        } else if (_typed.length < 9) {
+          _typed = _typed == '0' ? k : '$_typed$k';
+        }
+        final v = _parse(_typed);
+        if (v != null) _amount = v;
+      });
+    }
+
+    Widget key(String k) => Padding(
+          padding: const EdgeInsets.all(3),
+          child: Material(
+            color: const Color(0xF0181210),
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: (k == '.' && !_m.inBB) ? null : () => press(k),
+              child: SizedBox(
+                width: 64,
+                height: 46,
+                child: Center(
+                  child: k == '<'
+                      ? const Icon(Icons.backspace_outlined, color: Colors.white70, size: 22)
+                      : Text(k, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: (k == '.' && !_m.inBB) ? Colors.white24 : Colors.white)),
+                ),
+              ),
+            ),
+          ),
+        );
+    final typedValue = _typed.isEmpty ? null : _parse(_typed);
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: _roundBig(Icons.close, () => setState(() => _keypad = false)),
+      ),
+      Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: const Color(0xE60E0A09),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: gold.withOpacity(0.45)),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // Otkucani iznos (ispravlja se na najmanji/najveći dozvoljeni)
+          Container(
+            width: 3 * 70,
+            height: 46,
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10), border: Border.all(color: gold.withOpacity(0.6))),
+            child: Row(children: [
+              Text(_m.inBB ? 'BB' : 'RSD', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white60)),
+              const Spacer(),
+              Text(_typed.isEmpty ? '0' : _typed, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: goldLight)),
+            ]),
+          ),
+          if (_typed.isNotEmpty && typedValue != null && _fieldText(typedValue) != _typed)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text('→ ${_m(typedValue)}', style: const TextStyle(fontSize: 12, color: Colors.white60)),
+            ),
+          for (final row in const [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            ['.', '0', '<'],
+          ])
+            Row(mainAxisSize: MainAxisSize.min, children: [for (final k in row) key(k)]),
+        ]),
+      ),
     ]);
   }
 }

@@ -6,6 +6,7 @@ import '../theme.dart';
 import 'playing_card.dart';
 import '../screens/table_screen.dart' show openHandReplay;
 import '../i18n.dart';
+import '../share/share.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -223,9 +224,11 @@ class _PreviousHandsState extends State<PreviousHands> {
     return RefreshIndicator(
       onRefresh: () => _load(reset: true),
       child: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: _items.length + 1,
-        itemBuilder: (_, i) {
+        padding: const EdgeInsets.only(bottom: 12),
+        itemCount: _items.length + 2,
+        itemBuilder: (_, k) {
+          if (k == 0) return const HandListHeader();
+          final i = k - 1;
           if (i == _items.length) {
             return _items.length < _total
                 ? TextButton(onPressed: _loading ? null : () => _load(), child: Text(tr('Load more', 'Učitaj još')))
@@ -239,6 +242,7 @@ class _PreviousHandsState extends State<PreviousHands> {
   }
 }
 
+/// Red u listi ruku: moje karte · pobednik · pot (moj profit). Dodir otvara detalj ruke.
 class _HandTile extends StatelessWidget {
   final Json hand;
   final Money money;
@@ -250,88 +254,353 @@ class _HandTile extends StatelessWidget {
     final players = (hand['players'] as List).cast<Json>();
     final me = players.firstWhere((p) => p['isMe'] == true, orElse: () => players.first);
     final diff = (me['endStack'] as int) - (me['startStack'] as int);
-    final board = (hand['board'] as List).cast<String>();
     final myCards = ((me['cards'] as List?) ?? []).cast<String>();
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ExpansionTile(
-        shape: const Border(),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-        title: Row(children: [
-          for (final c in myCards) Padding(padding: const EdgeInsets.only(right: 2), child: PlayingCard(code: c, width: 22)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(showTable ? '${(hand['table'] as Map?)?['name'] ?? tr('Table', 'Sto')} · #${hand['handNo']}' : '${tr('Hand', 'Ruka')} #${hand['handNo']}',
-                  overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-              Text(dateTime(hand['createdAt']), style: const TextStyle(fontSize: 11, color: Colors.white54)),
+    final pots = (hand['pots'] as List).cast<Json>();
+    final pot = pots.fold<int>(0, (a, p) => a + (p['amount'] as int));
+    final winners = <String>{for (final p in pots) for (final w in (p['winners'] as List)) w['name'] as String};
+    final iWon = winners.contains(me['name']);
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => HandDetailScreen(hand: hand, money: money))),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+        child: Row(children: [
+          SizedBox(
+            width: 64,
+            child: Row(children: [
+              for (final c in myCards.take(4)) Padding(padding: const EdgeInsets.only(right: 2), child: PlayingCard(code: c, width: myCards.length > 2 ? 14 : 24)),
             ]),
           ),
-          Text(
-            '${diff > 0 ? '+' : ''}${money(diff)}',
-            style: TextStyle(
-                fontWeight: FontWeight.w900, color: diff > 0 ? winGreen : (diff < 0 ? const Color(0xFFFF6B6B) : Colors.white54)),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              Text(winners.isEmpty ? '—' : winners.join(', '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: iWon ? const Color(0xFFFF9F43) : Colors.white, fontStyle: iWon ? FontStyle.italic : null)),
+              Text(showTable ? '${(hand['table'] as Map?)?['name'] ?? ''} · #${hand['handNo']}' : '#${hand['handNo']} · ${dateTime(hand['createdAt'])}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, color: Colors.white38)),
+            ]),
+          ),
+          SizedBox(
+            width: 92,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(money(pot), style: const TextStyle(fontWeight: FontWeight.w800, color: goldLight, fontSize: 14)),
+              Text('(${diff > 0 ? '+' : ''}${money(diff)})',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: diff > 0 ? winGreen : (diff < 0 ? const Color(0xFFFF6B6B) : Colors.white54))),
+            ]),
           ),
         ]),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        children: [
-          if (board.isNotEmpty)
-            Row(children: [
-              Text(tr('Board: ', 'Sto: '), style: const TextStyle(color: Colors.white54)),
-              for (final c in board) Padding(padding: const EdgeInsets.only(right: 3), child: PlayingCard(code: c, width: 24)),
+      ),
+    );
+  }
+}
+
+/// Zaglavlje liste ruku.
+class HandListHeader extends StatelessWidget {
+  const HandListHeader({super.key});
+  @override
+  Widget build(BuildContext context) {
+    const st = TextStyle(fontSize: 12.5, color: Colors.white54, fontWeight: FontWeight.w700);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      color: Colors.black26,
+      child: Row(children: [
+        SizedBox(width: 64, child: Text(tr('My cards', 'Moje karte'), style: st)),
+        Expanded(child: Text(tr('Winner', 'Pobednik'), textAlign: TextAlign.center, style: st)),
+        SizedBox(width: 92, child: Text(tr('Pot (profit)', 'Pot (profit)'), textAlign: TextAlign.right, style: st)),
+      ]),
+    );
+  }
+}
+
+const _suitChar = {'s': '♠', 'h': '♥', 'd': '♦', 'c': '♣'};
+String _cardText(String c) => c.length < 2 ? c : '${c.substring(0, c.length - 1).replaceAll('T', '10')}${_suitChar[c[c.length - 1]] ?? ''}';
+
+/// Ruka kao tekst (za deljenje i čuvanje).
+String handText(Json hand, Money money) {
+  final b = StringBuffer();
+  final table = (hand['table'] as Map?)?['name'];
+  b.writeln('Poker klub Triling${table != null ? ' — $table' : ''} — ${tr('Hand', 'Ruka')} #${hand['handNo']} — ${dateTime(hand['createdAt'])}');
+  final board = (hand['board'] as List).cast<String>();
+  if (board.isNotEmpty) b.writeln('${tr('Board', 'Sto')}: ${board.map(_cardText).join(' ')}');
+  b.writeln();
+  for (final p in (hand['players'] as List).cast<Json>()) {
+    final d = (p['endStack'] as int) - (p['startStack'] as int);
+    final cards = (p['cards'] as List?)?.cast<String>();
+    b.writeln('${p['name']}${p['isMe'] == true ? tr(' (me)', ' (ja)') : ''}: ${money(p['startStack'])} → ${money(p['endStack'])} (${d > 0 ? '+' : ''}${money(d)})'
+        '${cards != null ? ' [${cards.map(_cardText).join(' ')}]' : ''}');
+  }
+  String? street;
+  for (final a in ((hand['actions'] as List?) ?? []).cast<Json>()) {
+    if (a['street'] != street) {
+      street = a['street'] as String;
+      final dealt = switch (street) {
+        'flop' => board.take(3).toList(),
+        'turn' => board.length > 3 ? [board[3]] : <String>[],
+        'river' => board.length > 4 ? [board[4]] : <String>[],
+        _ => <String>[],
+      };
+      b.writeln();
+      b.writeln('${_streetNames[street] ?? street}${dealt.isNotEmpty ? ' [${dealt.map(_cardText).join(' ')}]' : ''}');
+    }
+    b.writeln('  ${a['name']}: ${historyLabel(a, money).label}');
+  }
+  b.writeln();
+  for (final pot in (hand['pots'] as List).cast<Json>()) {
+    b.writeln('${(pot['winners'] as List).map((w) => w['name']).join(' & ')} ${tr('wins', 'dobija')} ${money(pot['amount'])}'
+        '${pot['handName'] != null ? ' — ${pot['handName']}' : ''}');
+  }
+  return b.toString();
+}
+
+/// Detalj ruke preko celog ekrana: sto, igrači, potezi po ulicama (kolone), ponovo odigraj, podeli, sačuvaj.
+class HandDetailScreen extends StatelessWidget {
+  final Json hand;
+  final Money money;
+  const HandDetailScreen({super.key, required this.hand, required this.money});
+
+  @override
+  Widget build(BuildContext context) {
+    final players = (hand['players'] as List).cast<Json>();
+    final board = (hand['board'] as List).cast<String>();
+    final actions = ((hand['actions'] as List?) ?? []).cast<Json>();
+    final pots = (hand['pots'] as List).cast<Json>();
+    final winners = <String>{for (final p in pots) for (final w in (p['winners'] as List)) w['name'] as String};
+    final table = (hand['table'] as Map?)?['name'];
+
+    // Potezi po ulicama i pot na početku svake ulice.
+    const streets = ['preflop', 'flop', 'turn', 'river'];
+    final byStreet = {for (final s in streets) s: <Json>[]};
+    final potAt = <String, int>{};
+    var pot = 0;
+    String? cur;
+    final contrib = <String, int>{};
+    void closeStreet() {
+      pot += contrib.values.fold(0, (a, b) => a + b);
+      contrib.clear();
+    }
+    for (final a in actions) {
+      final st = a['street'] as String? ?? 'preflop';
+      if (st != cur) {
+        if (cur != null) closeStreet();
+        cur = st;
+        potAt[st] = pot;
+      }
+      byStreet.putIfAbsent(st, () => []).add(a);
+      final amt = a['amount'] as int? ?? 0;
+      final who = a['name'] as String;
+      switch (a['type']) {
+        case 'ante' || 'bomb':
+          pot += amt;
+        case 'sb' || 'bb' || 'straddle':
+          contrib[who] = (contrib[who] ?? 0) + amt;
+        case 'call' || 'bet' || 'raise' || 'allin':
+          contrib[who] = amt > (contrib[who] ?? 0) ? amt : (contrib[who] ?? 0);
+      }
+    }
+    closeStreet();
+    final total = pots.fold<int>(0, (a, p) => a + (p['amount'] as int));
+    // Pre-flopa: pot posle antea i blajndova (kao na velikim sajtovima).
+    final forced = actions
+        .where((a) => const ['ante', 'bomb', 'sb', 'bb', 'straddle'].contains(a['type']))
+        .fold<int>(0, (s, a) => s + (a['amount'] as int? ?? 0));
+
+    Widget streetColumn(String st) {
+      final dealt = switch (st) {
+        'flop' => board.take(3).toList(),
+        'turn' => board.length > 3 ? [board[3]] : <String>[],
+        'river' => board.length > 4 ? [board[4]] : <String>[],
+        _ => <String>[],
+      };
+      final acts = byStreet[st] ?? [];
+      return Container(
+        width: 150,
+        margin: const EdgeInsets.only(right: 8),
+        decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+            child: Column(children: [
+              Text(_streetNames[st] ?? st, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+              const SizedBox(height: 3),
+              Text(potAt.containsKey(st) || st == 'preflop' ? money(st == 'preflop' ? forced : potAt[st]!) : '—',
+                  style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
+              if (dealt.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  for (final c in dealt) Padding(padding: const EdgeInsets.symmetric(horizontal: 1.5), child: PlayingCard(code: c, width: 24)),
+                ]),
+              ],
             ]),
-          const SizedBox(height: 8),
-          // Igrači: karte (svoje i otvorene), stanje pre i posle
-          for (final p in players)
+          ),
+          for (final a in acts)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(children: [
-                Expanded(
-                  child: Text(p['name'] + (p['isMe'] == true ? tr(' (you)', ' (vi)') : ''),
-                      style: TextStyle(fontWeight: p['isMe'] == true ? FontWeight.w800 : FontWeight.w500)),
-                ),
-                if (p['cards'] != null)
-                  for (final c in (p['cards'] as List).cast<String>())
-                    Padding(padding: const EdgeInsets.only(right: 2), child: PlayingCard(code: c, width: 20))
-                else
-                  const Text('— ', style: TextStyle(color: Colors.white38)),
-                SizedBox(
-                  width: 92,
-                  child: Text(
-                    () {
-                      final d = (p['endStack'] as int) - (p['startStack'] as int);
-                      return '${d > 0 ? '+' : ''}${money(d)}';
-                    }(),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 12, color: Colors.white70),
-                  ),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(a['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(6), border: Border.all(color: historyLabel(a, money).color.withOpacity(0.6))),
+                  child: Text(historyLabel(a, money).label,
+                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: historyLabel(a, money).color)),
                 ),
               ]),
             ),
-          for (final pot in (hand['pots'] as List).cast<Json>())
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                '${(pot['winners'] as List).map((w) => w['name']).join(tr(' & ', ' i '))} ${tr('wins', 'dobija')} ${money(pot['amount'])}'
-                '${pot['handName'] != null ? ' · ${pot['handName']}' : ''}',
-                style: const TextStyle(color: gold, fontWeight: FontWeight.w700),
-              ),
-            ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () => openHandReplay(context, hand),
-              icon: const Icon(Icons.play_circle, color: goldLight),
-              label: Text(tr('Replay hand', 'Odigraj ruku ponovo'), style: const TextStyle(color: goldLight, fontWeight: FontWeight.w800)),
-              style: OutlinedButton.styleFrom(side: BorderSide(color: gold.withOpacity(0.6))),
+        ]),
+      );
+    }
+
+    Future<void> doShare() async {
+      final r = await HandShare.share('${tr('Hand', 'Ruka')} #${hand['handNo']}', handText(hand, money));
+      if (!context.mounted) return;
+      final msg = switch (r) {
+        'copied' => tr('Hand copied — paste it anywhere.', 'Ruka je kopirana — nalepite je gde želite.'),
+        'failed' => tr('Sharing is not available here.', 'Deljenje ovde nije moguće.'),
+        _ => null,
+      };
+      if (msg != null) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+
+    void doSave() {
+      final r = HandShare.download('triling-ruka-${hand['handNo']}.txt', handText(hand, money));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(r == 'ok' ? tr('Hand saved to Downloads.', 'Ruka je sačuvana u preuzimanja.') : tr('Saving is not available here.', 'Čuvanje ovde nije moguće.'))));
+    }
+
+    Widget action(IconData icon, String label, VoidCallback onTap) => Expanded(
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white10, border: Border.all(color: gold.withOpacity(0.5))),
+                  child: Icon(icon, color: goldLight),
+                ),
+                const SizedBox(height: 4),
+                Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              ]),
             ),
           ),
-          const Divider(color: Colors.white10, height: 20),
-          ActionsByStreet(actions: ((hand['actions'] as List?) ?? []).cast<Json>(), board: board, money: money),
-        ],
+        );
+
+    return Scaffold(
+      backgroundColor: bg,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0E0B08),
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${tr('Hand', 'Ruka')} #${hand['handNo']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text('${table ?? ''}${table != null ? ' · ' : ''}${dateTime(hand['createdAt'])}', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        ]),
       ),
+      body: Column(children: [
+        Expanded(
+          child: ListView(padding: const EdgeInsets.all(12), children: [
+            // Sto i pot
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: const RadialGradient(colors: [Color(0xFF8E1B2A), Color(0xFF4A0A14)], radius: 1.2),
+                borderRadius: BorderRadius.circular(60),
+                border: Border.all(color: gold.withOpacity(0.7), width: 2),
+              ),
+              child: Column(children: [
+                Text('${tr('Total pot', 'Ukupan pot')}: ${money(total)}', style: const TextStyle(fontWeight: FontWeight.w900, color: goldLight)),
+                const SizedBox(height: 8),
+                if (board.isNotEmpty)
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    for (final c in board) Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: PlayingCard(code: c, width: 38)),
+                  ])
+                else
+                  Text(tr('No board (hand ended before the flop)', 'Bez karata na stolu (ruka završena pre flopa)'), style: const TextStyle(color: Colors.white60)),
+              ]),
+            ),
+            const SizedBox(height: 12),
+            // Igrači
+            for (final p in players)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: p['isMe'] == true ? gold.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: winners.contains(p['name']) ? gold : Colors.white10),
+                ),
+                child: Row(children: [
+                  Expanded(
+                    child: Row(children: [
+                      Flexible(
+                        child: Text(p['name'] as String,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w800, color: p['isMe'] == true ? const Color(0xFFFF9F43) : Colors.white)),
+                      ),
+                      if (winners.contains(p['name']))
+                        Container(
+                          margin: const EdgeInsets.only(left: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(gradient: goldGradient, borderRadius: BorderRadius.circular(6)),
+                          child: const Text('WIN', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Colors.black)),
+                        ),
+                    ]),
+                  ),
+                  if (p['cards'] != null)
+                    for (final c in (p['cards'] as List).cast<String>())
+                      Padding(padding: const EdgeInsets.only(right: 2), child: PlayingCard(code: c, width: 24))
+                  else
+                    const Text('— ', style: TextStyle(color: Colors.white38)),
+                  SizedBox(
+                    width: 84,
+                    child: Text(() {
+                      final d = (p['endStack'] as int) - (p['startStack'] as int);
+                      return '${d > 0 ? '+' : ''}${money(d)}';
+                    }(),
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: () {
+                              final d = (p['endStack'] as int) - (p['startStack'] as int);
+                              return d > 0 ? winGreen : (d < 0 ? const Color(0xFFFF6B6B) : Colors.white54);
+                            }())),
+                  ),
+                ]),
+              ),
+            for (final pot in pots)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '${(pot['winners'] as List).map((w) => w['name']).join(tr(' & ', ' i '))} ${tr('wins', 'dobija')} ${money(pot['amount'])}'
+                  '${pot['handName'] != null ? ' · ${pot['handName']}' : ''}',
+                  style: const TextStyle(color: gold, fontWeight: FontWeight.w700),
+                ),
+              ),
+            const SizedBox(height: 14),
+            // Potezi po ulicama (kolone; prevuci levo-desno)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                for (final st in streets)
+                  if (st == 'preflop' || (byStreet[st]?.isNotEmpty ?? false) || potAt.containsKey(st)) streetColumn(st),
+              ]),
+            ),
+          ]),
+        ),
+        // Dugmad: ponovo odigraj, podeli, sačuvaj
+        Container(
+          padding: EdgeInsets.fromLTRB(8, 4, 8, 8 + MediaQuery.of(context).padding.bottom),
+          decoration: const BoxDecoration(color: Color(0xFF0E0B08), border: Border(top: BorderSide(color: Colors.white10))),
+          child: Row(children: [
+            action(Icons.play_arrow_rounded, tr('Replay', 'Odigraj ponovo'), () => openHandReplay(context, hand)),
+            action(Icons.share, tr('Share', 'Podeli'), doShare),
+            action(Icons.download, tr('Save', 'Sačuvaj'), doSave),
+          ]),
+        ),
+      ]),
     );
   }
 }

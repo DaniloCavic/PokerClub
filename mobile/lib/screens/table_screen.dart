@@ -389,8 +389,13 @@ class _TableScreenState extends State<TableScreen> {
               child: TourBar(tour: st['tournament'] as Json, now: app.serverNow),
             ),
           ),
-        Expanded(child: _tableArea(st, money, false)),
-        _panel(st, money, false),
+        // Sto preko celog ekrana; potezi (i potezi unapred) stoje preko donje ivice stola.
+        Expanded(
+          child: Stack(children: [
+            Positioned.fill(child: Padding(padding: const EdgeInsets.only(bottom: 22), child: _tableArea(st, money, false))),
+            Positioned(left: 0, right: 0, bottom: 0, child: _panel(st, money, false)),
+          ]),
+        ),
       ]),
     );
   }
@@ -1506,7 +1511,7 @@ class TableSidePanel extends StatelessWidget {
     'straddle' => (label: 'STRADDLE', color: const Color(0xFF8A5A00)),
     'sb' => (label: 'SB', color: const Color(0xFF4A4F5C)),
     'bb' => (label: 'BB', color: const Color(0xFF4A4F5C)),
-    'fold' => (label: 'FOLD', color: const Color(0xFF2B2F38)),
+    'fold' => (label: 'FOLD', color: const Color(0xFF9B1C24)),
     'check' => (label: 'CHECK', color: const Color(0xFF2E7D5B)),
     'call' => (label: 'CALL', color: const Color(0xFF1B6FD8)),
     'bet' => (label: 'BET', color: const Color(0xFFE07A18)),
@@ -1543,8 +1548,11 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
     final widen = 1 + 0.07 * sin(angle);
-    final p = center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    var p = center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
     if (i == mySeat) return p;
+    // Pločica igrača sa strane ne sme da izađe van ekrana.
+    final plate = wide ? 64.0 : 52.0;
+    p = Offset(p.dx.clamp(plate + 2, w - plate - 2), p.dy);
     // Igrač sa strane čije karte (poleđine) zalaze u karte na stolu: spusti ga tačno toliko
     // da se ne dodiruju (računa se puna tabla od 5 karata, da raspored ne skače).
     final a = wide ? 54.0 : 41.0;
@@ -3215,14 +3223,14 @@ class _MyPanel extends StatelessWidget {
       ]);
     }
 
-    final status = Row(children: [if (myHand != null) _HandPill(myHand)]);
 
     if (!wide) {
+      // Telefon: snaga ruke stoji levo odmah iznad donjih dugmadi (ne pomera se kad se otvori Raise).
       return Padding(
         padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          status,
-          if (bottom != null) ...[const SizedBox(height: 6), bottom],
+        child: Stack(clipBehavior: Clip.none, children: [
+          if (bottom != null) bottom else SizedBox(height: h, width: double.infinity),
+          if (myHand != null) Positioned(left: 0, bottom: h + 6, child: _HandPill(myHand)),
         ]),
       );
     }
@@ -3442,8 +3450,10 @@ class _PreButton extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         minimumSize: Size.fromHeight(height),
         padding: const EdgeInsets.symmetric(horizontal: 6),
-        backgroundColor: selected ? gold.withOpacity(0.15) : Colors.black38,
-        side: BorderSide(color: selected ? goldLight : gold.withOpacity(0.4), width: selected ? 2 : 1),
+        // Providno preko stola (vidi se sto ispod), izabrano jače.
+        backgroundColor: selected ? const Color(0x66C9A227) : Colors.black.withOpacity(0.28),
+        foregroundColor: selected ? Colors.white : Colors.white.withOpacity(0.85),
+        side: BorderSide(color: selected ? goldLight : Colors.white24, width: selected ? 2 : 1),
       ),
       onPressed: onTap,
       icon: Icon(selected ? Icons.check_box : Icons.check_box_outline_blank,
