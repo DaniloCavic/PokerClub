@@ -1543,13 +1543,40 @@ class _Layout {
   /// Žetoni glavnog pota: iznad karata, odmah iznad natpisa POT.
   Offset get pile => Offset(center.dx, potTop - 10);
 
+  /// Telefon: mesta po ivicama stola (levo i desno po visini, gore dva), da svih 9 igrača stane.
+  /// (x, y) od -1 do 1; redom od mene (dole) u smeru kazaljke.
+  static const _phoneSlots = <int, List<(double, double)>>{
+    9: [(-1, 0.64), (-1, 0.2), (-0.96, -0.42), (-0.42, -0.98), (0.42, -0.98), (0.96, -0.42), (1, 0.2), (1, 0.64)],
+    8: [(-1, 0.62), (-1, 0.18), (-0.9, -0.5), (0, -1), (0.9, -0.5), (1, 0.18), (1, 0.62)],
+    7: [(-1, 0.5), (-1, -0.3), (-0.42, -0.96), (0.42, -0.96), (1, -0.3), (1, 0.5)],
+    6: [(-1, 0.42), (-1, -0.45), (0, -1), (1, -0.45), (1, 0.42)],
+    5: [(-1, 0.3), (-0.6, -0.85), (0.6, -0.85), (1, 0.3)],
+    4: [(-1, 0.0), (0, -1), (1, 0.0)],
+    3: [(-0.8, -0.6), (0.8, -0.6)],
+    2: [(0, -1)],
+  };
+
   Offset seat(int i) {
     final k = (i - base + n) % n;
     final angle = pi / 2 + 2 * pi * k / n;
-    // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
-    final widen = 1 + 0.07 * sin(angle);
-    var p = center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    final slots = wide ? null : _phoneSlots[n];
+    late Offset p;
+    if (slots != null && k > 0) {
+      final (sx, sy) = slots[k - 1];
+      // Nagnut sto: gore (dalje) je uži nego dole.
+      final narrow = 1 - 0.14 * (-sy).clamp(0.0, 1.0);
+      p = center + Offset(w * 0.39 * narrow * sx, h * 0.40 * sy);
+    } else {
+      // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
+      final widen = 1 + 0.07 * sin(angle);
+      p = center + Offset(w * (wide ? 0.43 : 0.39) * widen * cos(angle), h * (wide ? 0.37 : 0.40) * sin(angle));
+    }
     if (i == mySeat) return p;
+    // Telefon: mesta su već raspoređena oko karata na stolu.
+    if (slots != null) {
+      final plate0 = 52.0;
+      return Offset(p.dx.clamp(plate0 + 2, w - plate0 - 2), p.dy);
+    }
     // Pločica igrača sa strane ne sme da izađe van ekrana.
     final plate = wide ? 64.0 : 52.0;
     p = Offset(p.dx.clamp(plate + 2, w - plate - 2), p.dy);
@@ -2298,15 +2325,17 @@ class _TableViewState extends State<_TableView> {
       Positioned(
         // Nagib skraćuje sto po visini, pa je pre nagiba viši (gornja ivica ostaje kod gornjih igrača).
         left: w * 0.02,
-        top: -h * (widget.wide ? 0.07 : 0.105),
+        // Telefon: jači nagib, pa je sto pre nagiba viši (donja ivica ostaje ista, gornja kod gornjih igrača).
+        top: -h * (widget.wide ? 0.07 : 0.295),
         width: w * 0.96,
-        height: h * (widget.wide ? 0.93 : 1.0),
+        height: h * (widget.wide ? 0.93 : 1.19),
         // Nagib stola (perspektiva): dalja strana se smanjuje, kao na GG.
         child: Transform(
           alignment: Alignment.bottomCenter,
+          // Telefon: jači nagib (sto kao da leži ispred igrača).
           transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.0011)
-            ..rotateX(-0.22),
+            ..setEntry(3, 2, widget.wide ? 0.0011 : 0.0014)
+            ..rotateX(widget.wide ? -0.22 : -0.30),
           child: Container(
           padding: const EdgeInsets.all(2.5),
           decoration: BoxDecoration(
