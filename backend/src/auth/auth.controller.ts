@@ -293,9 +293,10 @@ export class MeController {
    * Tuđe karte se vide samo ako su otvorene na kraju ruke.
    */
   @Get('hands')
-  async hands(@CurrentUser() user: User, @Query('tableId') tableId?: string, @Query('page') page = '1') {
+  async hands(@CurrentUser() user: User, @Query('tableId') tableId?: string, @Query('page') page = '1', @Query('id') id?: string) {
     const p = Math.max(1, Number(page) || 1);
-    const where = { playerIds: { has: user.id }, ...(tableId ? { tableId } : {}) };
+    // id: jedna ruka (npr. najbolja ruka iz sažetka turnira).
+    const where = { playerIds: { has: user.id }, ...(tableId ? { tableId } : {}), ...(id ? { id } : {}) };
     const [hands, total] = await Promise.all([
       this.prisma.hand.findMany({
         where,

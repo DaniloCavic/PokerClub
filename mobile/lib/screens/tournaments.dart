@@ -6,6 +6,10 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
 import '../i18n.dart';
+import '../share/share.dart';
+import '../widgets/avatar.dart';
+import '../widgets/playing_card.dart';
+import '../widgets/hand_history.dart' show HandDetailScreen;
 
 typedef Json = Map<String, dynamic>;
 
@@ -708,57 +712,230 @@ class _TournamentScreenState extends State<TournamentScreen> {
 }
 
 /// Kraj turnira za igrača: mesto i nagrada (i re-entry, ako je moguć).
+/// Kraj turnira za igrača (ispadanje ili pobeda): mesto, nagrada (redovna i bounty), vreme,
+/// najbolja ruka, bad beat, poslednja ruka, izbačeni igrači, zahvalnica; re-entry ako je moguć; deljenje.
 class TourResultDialog extends StatelessWidget {
   final Json r;
   const TourResultDialog({super.key, required this.r});
+
+  String _time(int s) => '${two(s ~/ 3600)}:${two((s % 3600) ~/ 60)}:${two(s % 60)}';
+
+  Future<void> _openHand(BuildContext context, String? id) async {
+    if (id == null) return;
+    final app = context.read<AppState>();
+    try {
+      final res = await app.api.get('/me/hands?id=$id');
+      final items = (res['items'] as List).cast<Json>();
+      if (items.isEmpty || !context.mounted) return;
+      final h = items.first;
+      final bb = ((h['table'] as Map?)?['bigBlind'] as int?) ?? 1;
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => HandDetailScreen(hand: h, money: Money(bb, false))));
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
     final prize = (r['prize'] as num?)?.toInt() ?? 0;
+    final bounty = (r['bountyWon'] as num?)?.toInt() ?? 0;
+    final total = prize + bounty;
     final winner = r['winner'] == true;
+    final position = r['position'];
+    final victims = ((r['victims'] as List?) ?? const []).cast<String>();
+    final ko = (r['knockouts'] as num?)?.toInt() ?? victims.length;
+    final name = (r['playerName'] as String?) ?? (app.user?['displayName'] as String? ?? '');
+    Widget handChip(String label, Json? h, IconData icon) => Expanded(
+          child: Opacity(
+            opacity: h == null ? 0.35 : 1,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: h == null ? null : () => _openHand(context, h['handId'] as String?),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                SizedBox(
+                  height: 48,
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    if (h != null)
+                      for (final c in ((h['cards'] as List).cast<String>()).take(4))
+                        Padding(padding: const EdgeInsets.symmetric(horizontal: 1), child: PlayingCard(code: c, width: (h['cards'] as List).length > 2 ? 20 : 30))
+                    else
+                      const Icon(Icons.remove, color: Colors.white38),
+                  ]),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(icon, size: 13, color: goldLight),
+                    const SizedBox(width: 3),
+                    Text(label, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800)),
+                  ]),
+                ),
+                if (h?['name'] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(h!['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10.5, color: Colors.white54)),
+                  ),
+              ]),
+            ),
+          ),
+        );
+
+    String shareText() => [
+          'Poker klub Triling — ${r['name']}',
+          tr('$name finished #$position of ${r['entries']}', '$name: ${position}. mesto od ${r['entries']}'),
+          if (total > 0) '${tr('Total prize', 'Ukupna nagrada')}: ${rsd(total)}${bounty > 0 ? ' (${tr('prize', 'nagrada')} ${rsd(prize)} + bounty ${rsd(bounty)})' : ''}',
+          if (ko > 0) tr('Knocked out $ko players', 'Izbacio $ko igrača'),
+        ].join('\n');
+
     return Dialog(
       backgroundColor: panel,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: gold.withOpacity(0.6))),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(winner ? Icons.emoji_events : Icons.flag, color: goldLight, size: 46),
-            const SizedBox(height: 8),
-            GoldText(winner ? tr('You won!', 'Pobedili ste!') : tr('You are out', 'Ispali ste sa turnira'),
-                align: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Text(r['name'] as String? ?? '', style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 12),
-            Text(tr('#${r['position']} of ${r['entries']}', '${r['position']}. mesto od ${r['entries']}'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-            if (prize > 0) ...[
-              const SizedBox(height: 6),
-              Text('${tr('Prize', 'Nagrada')}: ${rsd(prize)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: winGreen)),
-            ],
-            if (r['pendingPrize'] == true) ...[
-              const SizedBox(height: 6),
-              Text(tr('You are in the money — the prize is paid when the tournament ends.', 'U nagradama ste — nagrada se isplaćuje na kraju turnira.'), textAlign: TextAlign.center, style: TextStyle(color: goldLight)),
-            ],
-            const SizedBox(height: 16),
-            if (r['canReenter'] == true) ...[
-              LuxButton(
-                title: 'RE-ENTRY',
-                subtitle: rsd(r['reentryPrice']),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await app.run('tour:register', {'id': r['tournamentId']});
-                },
+            // Zaglavlje: pehar (pobeda) ili zastavica, ime igrača na traci, turnir, mesto
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                gradient: LinearGradient(
+                    colors: winner ? const [Color(0xFF5A1020), Color(0xFF2A0810)] : const [Color(0xFF2A1F17), Color(0xFF15100C)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter),
               ),
-              const SizedBox(height: 8),
-            ],
-            LuxButton(
-              title: tr('CLOSE', 'ZATVORI'),
-              gradient: redGradient,
-              textColor: Colors.white,
-              height: 46,
-              onTap: () => Navigator.pop(context),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Column(children: [
+                Row(children: [
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(tr('Total time', 'Ukupno vreme'), style: const TextStyle(fontSize: 11.5, color: Colors.white60)),
+                    Text(_time((r['totalSeconds'] as num?)?.toInt() ?? 0), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: winGreen)),
+                  ]),
+                  const Spacer(),
+                  const GoldText('TRILING', style: TextStyle(fontFamily: 'Cinzel', fontSize: 16, fontWeight: FontWeight.w800)),
+                ]),
+                Icon(winner ? Icons.emoji_events : (prize > 0 ? Icons.workspace_premium : Icons.flag), color: goldLight, size: winner ? 72 : 54),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                  decoration: BoxDecoration(gradient: redGradient, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 6)]),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Avatar(name: name, url: r['avatar'] as String?, size: 30),
+                    const SizedBox(width: 10),
+                    Text(name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: Colors.white)),
+                  ]),
+                ),
+                const SizedBox(height: 10),
+                GoldText(r['name'] as String? ?? '', align: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                if (r['startedAt'] != null) Text(dateTime(r['startedAt'] as String), style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                const SizedBox(height: 4),
+                Text.rich(TextSpan(children: [
+                  TextSpan(text: '$position', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+                  TextSpan(text: ' / ${r['entries']}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white60)),
+                ])),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(children: [
+                // Nagrada
+                if (total > 0) ...[
+                  Text(tr('Total prize', 'Ukupna nagrada'), style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                  GoldText(rsd(total), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+                  if (bounty > 0) ...[
+                    Text('${tr('Regular prize', 'Nagrada za mesto')}: ${rsd(prize)}', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                    Text('${tr('Bounty prize', 'Bounty nagrada')}: ${rsd(bounty)}', style: const TextStyle(color: Color(0xFFFF8A65), fontWeight: FontWeight.w700)),
+                  ],
+                ] else if (r['pendingPrize'] == true)
+                  Text(tr('You are in the money — the prize is paid when the tournament ends.', 'U nagradama ste — nagrada se isplaćuje na kraju turnira.'),
+                      textAlign: TextAlign.center, style: const TextStyle(color: goldLight, fontWeight: FontWeight.w700))
+                else
+                  Text(tr('No prize this time.', 'Ovaj put bez nagrade.'), style: const TextStyle(color: Colors.white60)),
+                const SizedBox(height: 10),
+                Text(
+                    winner
+                        ? tr('Congratulations on the win! Thank you for playing.', 'Čestitamo na pobedi! Hvala što ste igrali.')
+                        : tr('Thank you for playing! See you at the next tournament.', 'Hvala što ste učestvovali! Vidimo se na sledećem turniru.'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 14),
+                // Ruke: bad beat, najbolja, poslednja (dodir otvara ruku)
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  handChip('Bad beat', r['badBeat'] as Json?, Icons.sentiment_very_dissatisfied),
+                  handChip(tr('Best hand', 'Najbolja ruka'), r['bestHand'] as Json?, Icons.star),
+                  handChip(tr('Last hand', 'Poslednja ruka'), r['lastHand'] as Json?, Icons.history),
+                ]),
+                // Izbačeni igrači
+                if (ko > 0) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white10)),
+                    child: Column(children: [
+                      Text.rich(TextSpan(children: [
+                        TextSpan(text: tr('You knocked out ', 'Izbacili ste ')),
+                        TextSpan(text: '$ko', style: const TextStyle(color: winGreen, fontWeight: FontWeight.w900)),
+                        TextSpan(text: tr(' players', ' igrača')),
+                      ]), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 62,
+                        child: ListView(scrollDirection: Axis.horizontal, children: [
+                          for (final v in victims)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 5),
+                              child: Column(children: [
+                                Avatar(name: v, size: 38),
+                                const SizedBox(height: 3),
+                                SizedBox(width: 60, child: Text(v, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11))),
+                              ]),
+                            ),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                if (r['canReenter'] == true) ...[
+                  LuxButton(
+                    title: 'RE-ENTRY',
+                    subtitle: '${tr('play again', 'uđi ponovo')} · ${rsd(r['reentryPrice'])}',
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await app.run('tour:register', {'id': r['tournamentId']});
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Row(children: [
+                  Expanded(
+                    child: LuxButton(
+                      title: tr('CLOSE', 'ZATVORI'),
+                      gradient: const LinearGradient(colors: [Color(0xFF3A3F4A), Color(0xFF262A33)]),
+                      textColor: Colors.white,
+                      height: 46,
+                      onTap: () => Navigator.pop(context),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: LuxButton(
+                      title: tr('SHARE', 'PODELI'),
+                      gradient: redGradient,
+                      textColor: Colors.white,
+                      height: 46,
+                      onTap: () async {
+                        final res = await HandShare.share(r['name'] as String? ?? 'Triling', shareText());
+                        if (res == 'copied' && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Copied — paste it anywhere.', 'Kopirano — nalepite gde želite.'))));
+                        }
+                      },
+                    ),
+                  ),
+                ]),
+              ]),
             ),
           ]),
         ),

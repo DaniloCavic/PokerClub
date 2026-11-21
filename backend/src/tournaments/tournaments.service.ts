@@ -8,6 +8,8 @@ import { avatarUrl } from '../common/public-user';
 import { trUser } from '../common/i18n';
 import { GameError } from '../poker/engine/game';
 import { agentCut } from '../poker/engine/rake';
+import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
+import { parseCards } from '../poker/engine/cards';
 import { TablesService, TourTableCtx } from '../tables/tables.service';
 import {
   BreakRule,
@@ -45,6 +47,8 @@ interface Player {
   bountyWon: number;
   /** Bounty na glavi igrača (koliko vredi izbaciti ga). */
   head: number;
+  /** Igrači koje je ovaj igrač izbacio (za sažetak na kraju turnira). */
+  victims?: string[];
   /** Upravo dobijeni deo bounty-ja na glavu (za stolom se prikazuje tek kad se proglasi pobednik ruke). */
   headPending?: { amount: number; at: number };
   /** Redosled ispadanja (veći = kasnije ispao = bolje mesto). */
@@ -965,8 +969,10 @@ export class TournamentsService implements OnModuleInit {
         where: { id: p.entryId },
         data: { status: 'BUSTED', position: p.position, chips: 0, bustedAt: new Date(), prize: p.prize },
       });
-      const reentry = this.regOpen(tr) && [...tr.players.values()].filter((x) => x.userId === p.userId).length - 1 < tr.t.reentryMax;
+      const reentry = [...tr.players.values()].filter((x) => x.status === 'PLAYING').length > 1 && this.regOpen(tr) && [...tr.players.values()].filter((x) => x.userId === p.userId).length - 1 < tr.t.reentryMax;
+      const summary = await this.summary_(tr, p);
       this.emitUser(p.userId, 'tournament:busted', {
+        ...summary,
         tournamentId: tr.t.id,
         name: tr.t.name,
         position: p.position,
@@ -977,6 +983,62 @@ export class TournamentsService implements OnModuleInit {
         reentryPrice: tr.t.buyIn + tr.t.bounty + tr.t.fee,
       });
     }
+  }
+
+  /**
+   * Sažetak turnira za igrača (prozor na kraju): vreme, nagrada (redovna i bounty), izbačeni igrači,
+   * najbolja ruka, "bad beat" (najjača izgubljena ruka na otvaranju karata) i poslednja ruka.
+   */
+  private async summary_(tr: TourRt, p: Player) {
+    const started = tr.t.startedAt?.getTime() ?? Date.now();
+    const out: Record<string, unknown> = {
+      totalSeconds: Math.max(0, Math.round((Date.now() - started) / 1000)),
+      bountyWon: p.bountyWon,
+      knockouts: p.knockouts,
+      victims: p.victims ?? [],
+      avatar: p.avatar,
+      playerName: p.name,
+      startedAt: tr.t.startedAt,
+    };
+    try {
+      const hands = await this.prisma.hand.findMany({
+        where: { table: { tournamentId: tr.t.id }, playerIds: { has: p.userId } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, handNo: true, board: true, details: true, createdAt: true, tableId: true },
+      });
+      const fn = tr.t.variant === 'OMAHA' ? bestOmaha : bestHoldem;
+      type Pick = { cards: string[]; name: string; score: number; handId: string; diff: number };
+      let best: Pick | null = null;
+      let bad: Pick | null = null;
+      let last: Pick | null = null;
+      for (const h of hands) {
+        const d = h.details as { players?: { userId: string; cards: string; startStack: number; endStack: number }[]; shown?: { seat: number }[] };
+        const me = d.players?.find((x) => x.userId === p.userId);
+        if (!me?.cards) continue;
+        const cards = me.cards.split(' ');
+        const board = parseCards(h.board);
+        const diff = me.endStack - me.startStack;
+        let name = '';
+        let score = -1;
+        if (board.length >= 3) {
+          const v = fn(parseCards(me.cards), board);
+          name = v.name;
+          score = v.score;
+        }
+        const pick = { cards, name, score, handId: h.id, diff };
+        last = pick;
+        if (score >= 0 && diff > 0 && (!best || score > best.score)) best = pick;
+        if (score >= 0 && diff < 0 && board.length === 5 && (!bad || score > bad.score)) bad = pick;
+      }
+      const view = (x: Pick | null) => (x ? { cards: x.cards, name: x.name || null, handId: x.handId, diff: x.diff } : null);
+      out.bestHand = view(best);
+      out.badBeat = view(bad);
+      out.lastHand = view(last);
+      out.hands = hands.length;
+    } catch (e) {
+      this.log.warn(`Sažetak turnira: ${(e as Error).message}`);
+    }
+    return out;
   }
 
   /**
@@ -1031,7 +1093,10 @@ export class TournamentsService implements OnModuleInit {
 
   private async creditBounty(tr: TourRt, w: Player, amount: number, victim: string | null, toHead = 0) {
     if (amount <= 0 && toHead <= 0) return;
-    if (victim) w.knockouts++;
+    if (victim) {
+      w.knockouts++;
+      (w.victims ??= []).push(victim);
+    }
     w.bountyWon += amount;
     w.head += toHead;
     if (toHead > 0) {
@@ -1161,7 +1226,9 @@ export class TournamentsService implements OnModuleInit {
     });
     await this.recordFees(tr.t.id);
     if (winner) {
+      const summary = await this.summary_(tr, winner);
       this.emitUser(winner.userId, 'tournament:busted', {
+        ...summary,
         tournamentId: tr.t.id,
         name: tr.t.name,
         position: 1,
