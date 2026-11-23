@@ -392,7 +392,8 @@ class _TableScreenState extends State<TableScreen> {
         // Sto preko celog ekrana; potezi (i potezi unapred) stoje preko donje ivice stola.
         Expanded(
           child: Stack(children: [
-            Positioned.fill(child: Padding(padding: const EdgeInsets.only(bottom: 22), child: _tableArea(st, money, false))),
+            // Dole ostaje mesto za dugmad, da se uvek vidi moja pločica (ime i stek).
+            Positioned.fill(child: Padding(padding: const EdgeInsets.only(bottom: 66), child: _tableArea(st, money, false))),
             Positioned(left: 0, right: 0, bottom: 0, child: _panel(st, money, false)),
           ]),
         ),
@@ -1535,7 +1536,7 @@ class _Layout {
   // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
   Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.44));
   // Karte na stolu (+20%).
-  double get cardW => min(min(w, h) > 600 ? 55.0 : 46.0, (w * 0.68) / 5 - 4);
+  double get cardW => min(min(w, h) > 600 ? 55.0 : 43.7, (w * 0.68) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
 
@@ -1575,7 +1576,10 @@ class _Layout {
     // Telefon: mesta su već raspoređena oko karata na stolu.
     if (slots != null) {
       final plate0 = 52.0;
-      return Offset(p.dx.clamp(plate0 + 2, w - plate0 - 2), p.dy);
+      // Otvorene karte gornjih igrača ne smeju preko gornje trake (pomeri igrača naniže koliko treba).
+      final top = othersTop(p, 41.0);
+      final dy = top < 2 ? 2 - top : 0.0;
+      return Offset(p.dx.clamp(plate0 + 2, w - plate0 - 2), p.dy + dy);
     }
     // Pločica igrača sa strane ne sme da izađe van ekrana.
     final plate = wide ? 64.0 : 52.0;
@@ -1623,7 +1627,7 @@ class _Layout {
   double get myAvatar => wide ? 87.0 : 67.0;
 
   /// Otvorene karte (svoje i tuđe na kraju/all-in): iste veličine kao moje.
-  double faceCardW(int count) => (count > 2 ? 28.0 : 34.0) * (myAvatar / 50) * 0.86 * 1.2;
+  double faceCardW(int count) => (count > 2 ? 28.0 : 34.0) * (myAvatar / 50) * 0.86 * (wide ? 1.2 : 1.14);
 
   /// Gornja ivica tuđeg sedišta: mesto i za velike otvorene karte iznad pločice.
   double othersTop(Offset p, double a) => min(p.dy - a / 2 - 16, p.dy + (a + 8) / 2 - 6 - faceCardW(2) * 1.4 - 6);
@@ -1664,10 +1668,18 @@ class _Layout {
 
   /// Pravac od igrača ka sredini stola (za mene pravo gore, iznad mojih karata).
   Offset betDir(int i) {
-    // Pravac od igrača ka žetonima glavnog pota (sredina stola).
     final from = i == mySeat ? Offset(seat(i).dx, myTop(seat(i))) : seat(i);
-    final d = pile - from;
+    // Telefon: ulog ide pravo ka sredini stola (igrači sa strane ga imaju odmah pored sebe).
+    final d = (wide || i == mySeat ? pile : center) - from;
     return d / max(1.0, d.distance);
+  }
+
+  /// Za raspored uloga: samo avatar i pločica tuđeg igrača (bez mesta za velike otvorene karte).
+  List<Rect> betSeatRects(int i) {
+    if (wide || i == mySeat) return seatRects(i);
+    final p = seat(i);
+    const a = 41.0, half = 52.0;
+    return [Rect.fromLTRB(p.dx - half, p.dy - a / 2 - 16, p.dx + half, p.dy + a / 2 + 53)];
   }
 
   /// Centri gomila uloga: svaka na liniji od igrača ka sredini stola, odmah ispred
@@ -1676,9 +1688,8 @@ class _Layout {
   late final Map<int, Offset> _bets = () {
     final out = <int, Offset>{};
     final blocked = <Rect>[
-      for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3)),
+      for (var k = 0; k < n; k++) ...betSeatRects(k).map((r) => r.inflate(3)),
       ...middleRects,
-      if (feltHeight > 0) feltRect,
       if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
     ];
     // Prvo ja, pa ostali redom.
@@ -1692,9 +1703,9 @@ class _Layout {
       bool inside(Rect r) => r.left > 2 && r.right < w - 2 && r.top > 2 && r.bottom < h - 2;
       // Samo na liniji igrač → pot (bez skretanja levo-desno): prvo mesto ispred igrača
       // koje ništa ne dodiruje; ako ga nema pre pota, prvo mesto van sedišta (bilo čijeg).
-      final own = seatRects(i).map((r) => r.inflate(3)).toList();
-      final seatsAll = [for (var k = 0; k < n; k++) ...seatRects(k).map((r) => r.inflate(3))];
-      final reach = (pile - from).distance;
+      final own = betSeatRects(i).map((r) => r.inflate(3)).toList();
+      final seatsAll = [for (var k = 0; k < n; k++) ...betSeatRects(k).map((r) => r.inflate(3))];
+      final reach = max((pile - from).distance, (center - from).distance);
       Offset? found;
       for (var dist = 0.0; dist < reach && found == null; dist += 2) {
         final c = from + d * dist;
@@ -1717,6 +1728,10 @@ class _Layout {
         final others = [
           ...seatsAll,
           if (button >= 0) Rect.fromCenter(center: dealer(button), width: 26, height: 26),
+          // Ulozi koji su već postavljeni (da se gomile ne preklapaju).
+          for (final e in out.entries)
+            if (betSizes.containsKey(e.key))
+              Rect.fromCenter(center: e.value, width: (betSizes[e.key]!.width) + 6, height: betSizes[e.key]!.height + 4),
         ];
         var bestOver = double.infinity;
         for (var dist = 0.0; dist < reach; dist += 2) {
@@ -2782,7 +2797,7 @@ class _FeltInfo extends StatelessWidget {
     if (t['lateRegEndsAt'] != null) {
       lines.add(tr('Late registration · ${left(t['lateRegEndsAt'] as num?)}', 'Kasna prijava još ${left(t['lateRegEndsAt'] as num?)}'));
       lines.add(tr('Prize pool ${chips(t['prizePool'])} · ${t['entries']} entries', 'Fond ${chips(t['prizePool'])} · ${t['entries']} ulaza'));
-      if (paid > 0) lines.add(tr('$paid places paid', 'Plaćeno $paid mesta'));
+      if (paid > 0) lines.add(tr(paid == 1 ? '1 place paid' : '$paid places paid', paid == 1 ? 'Plaća se 1 mesto' : 'Plaćeno $paid mesta'));
     } else if (paid > 0 && playersLeft > paid) {
       lines.add(tr('${playersLeft - paid} players to the money', 'Do nagrada još ${playersLeft - paid} igrača'));
       lines.add(tr('Min prize ${chips(prizes.last)} · ${paid} paid', 'Najmanja nagrada ${chips(prizes.last)} · plaćeno $paid'));
@@ -3019,7 +3034,7 @@ class _SeatView extends StatelessWidget {
       ]);
     } else if (cards != null && cards.isNotEmpty) {
       // Moje karte su 20% veće (rastu naviše, da ne pređu preko pločice).
-      final cw = (isMe ? (cards.length > 2 ? 28.0 : 34.0) : (cards.length > 2 ? 19.0 : 24.0)) * (isMe ? scale * 0.86 * 1.2 : scale);
+      final cw = (isMe ? (cards.length > 2 ? 28.0 : 34.0) : (cards.length > 2 ? 19.0 : 24.0)) * (isMe ? scale * 0.86 * (a > 80 ? 1.2 : 1.14) : scale);
       cardsWidget = Row(mainAxisSize: MainAxisSize.min, children: [
         for (var k = 0; k < cards.length; k++)
           Transform.translate(
@@ -3311,7 +3326,12 @@ class _MyPanel extends StatelessWidget {
       bottom = null; // umesto dugmeta iskače prozor Rebuy / Leave table (vidi _RebuyDialog)
     } else if (showableCards(st) case final cards?) {
       // Posle fold-a ili na kraju ruke: dugmad za pokazivanje karata (jedna po jedna ili sve).
-      bottom = _ShowBar(cards: cards, shown: ((me['myShown'] as List?) ?? const []).cast<int>(), height: h, wide: wide,
+      bottom = _ShowBar(
+          cards: cards,
+          shown: ((me['myShown'] as List?) ?? const []).cast<int>(),
+          pending: ((me['myPendingShow'] as List?) ?? const []).cast<int>(),
+          height: h,
+          wide: wide,
           onShow: (idx) => app.run('table:show', {'tableId': tableId, 'cards': idx}));
     } else if (inHand && me['allIn'] != true) {
       // Potez unapred, kao na GG: zavisi od toga da li ima uloga za dorovnavanje.
@@ -3360,54 +3380,65 @@ class _MyPanel extends StatelessWidget {
   }
 }
 
-/// Traka "Pokaži karte": dodir na kartu pokazuje samo nju, dugme desno pokazuje sve.
+/// Traka "Pokaži karte": tri izbora (prva karta, druga karta, obe) kao slike karata.
+/// Izbor tokom ruke se pamti, a karte se otvaraju ostalima tek kad se ruka završi.
 class _ShowBar extends StatelessWidget {
   final List<String> cards;
   final List<int> shown;
+  final List<int> pending;
   final double height;
   final bool wide;
   final void Function(List<int> idx) onShow;
-  const _ShowBar({required this.cards, required this.shown, required this.height, required this.wide, required this.onShow});
+  const _ShowBar({required this.cards, required this.shown, required this.pending, required this.height, required this.wide, required this.onShow});
 
   @override
   Widget build(BuildContext context) {
-    final cw = wide ? 38.0 : 30.0;
-    return Row(children: [
-      Icon(Icons.visibility, color: goldLight, size: wide ? 24 : 20),
-      const SizedBox(width: 8),
-      Flexible(
-        child: Text(tr('Show:', 'Pokaži:'), style: TextStyle(fontWeight: FontWeight.w800, fontSize: wide ? 15 : 13.5)),
-      ),
-      const SizedBox(width: 8),
-      for (var k = 0; k < cards.length; k++)
-        Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: Opacity(
-            opacity: shown.contains(k) ? 0.35 : 1,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: shown.contains(k) ? null : () => onShow([k]),
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), border: Border.all(color: gold.withOpacity(0.7))),
-                  child: PlayingCard(code: cards[k], width: cw),
+    final cw = wide ? 34.0 : 29.0;
+    final all = [for (var k = 0; k < cards.length; k++) k];
+    final options = <List<int>>[
+      for (var k = 0; k < cards.length; k++) [k],
+      all,
+    ];
+    bool same(List<int> a, List<int> b) => a.length == b.length && a.every(b.contains);
+    Widget option(List<int> idx) {
+      final selected = same(idx, pending) || (shown.isNotEmpty && idx.every(shown.contains));
+      final isAll = idx.length > 1;
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Material(
+            color: selected ? const Color(0x66C9A227) : Colors.black.withOpacity(0.45),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              // Ponovni dodir na izabrano poništava izbor (samo dok ruka traje).
+              onTap: () => onShow(same(idx, pending) ? const [] : idx),
+              child: Container(
+                height: height,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: selected ? goldLight : Colors.white24, width: selected ? 2 : 1),
                 ),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.visibility, size: wide ? 18 : 15, color: selected ? goldLight : Colors.white54),
+                  const SizedBox(width: 5),
+                  for (final k in idx)
+                    Padding(
+                      padding: EdgeInsets.only(right: isAll ? 0 : 2),
+                      child: Transform.translate(
+                        offset: Offset(isAll && k > 0 ? -cw * 0.18 * k : 0, 0),
+                        child: PlayingCard(code: cards[k], width: cards.length > 2 && isAll ? cw * 0.8 : cw),
+                      ),
+                    ),
+                ]),
               ),
             ),
           ),
         ),
-      const SizedBox(width: 6),
-      Expanded(
-        child: LuxButton(
-          title: cards.length > 2 ? tr('SHOW ALL', 'POKAŽI SVE') : tr('SHOW BOTH', 'POKAŽI OBE'),
-          icon: Icons.visibility,
-          height: height,
-          onTap: () => onShow([for (var k = 0; k < cards.length; k++) k]),
-        ),
-      ),
-    ]);
+      );
+    }
+
+    return Row(children: [for (final o in options) option(o)]);
   }
 }
 

@@ -60,12 +60,14 @@ class PlayingCard extends StatelessWidget {
     final suit = code![1];
     final full = colored ?? CardStyle.fourColor;
     final color = full ? Colors.white : _twoColors[suit]!;
+    // Posivljena karta je neprovidna (zatamnjena), da se kroz nju ne vidi slika igrača ni sto.
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
-      opacity: dim ? 0.4 : 1,
+      opacity: 1,
       child: Container(
         width: width,
         height: h,
+        foregroundDecoration: dim ? BoxDecoration(color: const Color(0x99000000), borderRadius: radius) : null,
         decoration: BoxDecoration(
           gradient: LinearGradient(
               colors: full ? _fullColors[suit]! : const [Colors.white, Color(0xFFEDEAE3)],

@@ -90,7 +90,22 @@ class _HomeShellState extends State<HomeShell> {
       final ctx = app.navigatorKey.currentContext;
       if (r == null || ctx == null) return;
       app.tourResult.value = null;
-      showDialog(context: ctx, builder: (_) => TourResultDialog(r: r)).then((_) {
+      // Prvo se odigra kraj ruke (karte, ko je dobio, žetoni), pa tek onda prozor (bar 5 s).
+      () async {
+        await Future.delayed(const Duration(seconds: 5));
+        for (var k = 0; k < 30; k++) {
+          final busy = app.openTables.any((id) {
+            final st = app.tableNotifier(id).value;
+            final t = st?['tournament'] as Map?;
+            return t != null && t['id'] == r['tournamentId'] && st!['result'] != null;
+          });
+          if (!busy) break;
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+        final c2 = app.navigatorKey.currentContext;
+        if (c2 == null || !c2.mounted) return;
+        await showDialog(context: c2, builder: (_) => TourResultDialog(r: r));
+      }().then((_) {
         // Sto turnira na kome više ne sedite se zatvara.
         for (final id in [...app.openTables]) {
           final st = app.tableNotifier(id).value;

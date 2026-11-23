@@ -807,16 +807,30 @@ class TourResultDialog extends StatelessWidget {
               ),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               child: Column(children: [
-                Row(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(tr('Total time', 'Ukupno vreme'), style: const TextStyle(fontSize: 11.5, color: Colors.white60)),
-                    Text(_time((r['totalSeconds'] as num?)?.toInt() ?? 0), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: winGreen)),
-                  ]),
-                  const Spacer(),
-                  const GoldText('TRILING', style: TextStyle(fontFamily: 'Cinzel', fontSize: 16, fontWeight: FontWeight.w800)),
+                // Znak kluba (kao ikonica aplikacije), levo vreme igre
+                Stack(alignment: Alignment.center, children: [
+                  Container(
+                    width: 118,
+                    height: 118,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const RadialGradient(colors: [Color(0xFF7A1424), Color(0xFF3A0810)], radius: 0.8),
+                      border: Border.all(color: gold, width: 2.5),
+                      boxShadow: [BoxShadow(color: gold.withOpacity(0.35), blurRadius: 22, spreadRadius: 2)],
+                    ),
+                    child: const Center(child: TrilingLogo(size: 24, horizontal: false)),
+                  ),
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(tr('Total time', 'Ukupno vreme'), style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                      Text(_time((r['totalSeconds'] as num?)?.toInt() ?? 0), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: winGreen)),
+                    ]),
+                  ),
+                  const SizedBox(width: double.infinity, height: 118),
                 ]),
-                Icon(winner ? Icons.emoji_events : (prize > 0 ? Icons.workspace_premium : Icons.flag), color: goldLight, size: winner ? 72 : 54),
-                const SizedBox(height: 6),
+                const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                   decoration: BoxDecoration(gradient: redGradient, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 6)]),
@@ -830,10 +844,22 @@ class TourResultDialog extends StatelessWidget {
                 GoldText(r['name'] as String? ?? '', align: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                 if (r['startedAt'] != null) Text(dateTime(r['startedAt'] as String), style: const TextStyle(fontSize: 12, color: Colors.white54)),
                 const SizedBox(height: 4),
-                Text.rich(TextSpan(children: [
-                  TextSpan(text: '$position', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
-                  TextSpan(text: ' / ${r['entries']}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white60)),
-                ])),
+                const SizedBox(height: 6),
+                // Mesto: zlatna oznaka (pobednik: "POBEDNIK")
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                  decoration: BoxDecoration(
+                    gradient: winner ? goldGradient : null,
+                    color: winner ? null : Colors.black38,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: gold.withOpacity(0.7)),
+                  ),
+                  child: Text.rich(TextSpan(children: [
+                    if (winner) TextSpan(text: '${tr('WINNER', 'POBEDNIK')}  ', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.black)),
+                    TextSpan(text: '$position', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: winner ? Colors.black : Colors.white)),
+                    TextSpan(text: ' / ${r['entries']}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: winner ? Colors.black54 : Colors.white60)),
+                  ])),
+                ),
               ]),
             ),
             Padding(

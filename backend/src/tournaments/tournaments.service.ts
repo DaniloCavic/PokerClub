@@ -1077,7 +1077,11 @@ export class TournamentsService implements OnModuleInit {
       .map((u) => [...tr.players.values()].find((x) => x.userId === u && x.status === 'PLAYING'))
       .filter((x): x is Player => !!x);
     out.knockedBy = [];
-    if (b <= 0) return;
+    if (b <= 0) {
+      // Turnir bez bounty-ja: samo se broji ko je koga izbacio (za sažetak na kraju).
+      for (const w of knockers) await this.creditBounty(tr, w, 0, out.name);
+      return;
+    }
     if (!knockers.length) {
       // Nije poznato ko je izbacio (npr. posle ponovnog pokretanja servera): bounty ide pobedniku.
       tr.unclaimedBounty = (tr.unclaimedBounty ?? 0) + b;
@@ -1092,7 +1096,7 @@ export class TournamentsService implements OnModuleInit {
   }
 
   private async creditBounty(tr: TourRt, w: Player, amount: number, victim: string | null, toHead = 0) {
-    if (amount <= 0 && toHead <= 0) return;
+    if (amount <= 0 && toHead <= 0 && !victim) return;
     if (victim) {
       w.knockouts++;
       (w.victims ??= []).push(victim);
@@ -1115,7 +1119,7 @@ export class TournamentsService implements OnModuleInit {
       });
     });
     if (amount > 0) await this.balance(w.userId);
-    if (victim) this.emitUser(w.userId, 'tournament:bounty', { tournamentId: tr.t.id, name: tr.t.name, victim, amount, toHead });
+    if (victim && (amount > 0 || toHead > 0)) this.emitUser(w.userId, 'tournament:bounty', { tournamentId: tr.t.id, name: tr.t.name, victim, amount, toHead });
   }
 
   private async payPrize(tr: TourRt, p: Player, prize: number) {

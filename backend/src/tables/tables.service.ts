@@ -74,6 +74,8 @@ interface Runtime {
   startedAt: number;
   /** Karte koje je igrač sam pokazao (posle fold-a ili kraja ruke): sedište → indeksi karata. */
   voluntaryShow: Map<number, number[]>;
+  /** Izbor "pokaži karte" napravljen tokom ruke (posle fold-a): karte se otvaraju tek kad se ruka završi. */
+  pendingShow?: Map<number, number[]>;
   /** Kad je zakazana sledeća ruka (za produženje pauze kad neko pokaže karte). */
   nextHandAt?: number;
   /** Sto se zatvara posle ruke koja je u toku. */
@@ -523,7 +525,8 @@ export class TablesService implements OnModuleInit {
           lastAction: x.lastAction,
           lastAct: x.lastAct,
           cards,
-          cardCount: x.inHand && !x.folded ? g.seats[i]!.hole.length : 0,
+          // Igrač koji je ispao u ovoj ruci više nije za stolom (g.seats[i] je prazno).
+          cardCount: x.inHand && !x.folded ? (g.seats[i]?.hole.length ?? 2) : 0,
         };
       }),
     };
@@ -691,6 +694,7 @@ export class TablesService implements OnModuleInit {
           cards: visible && visible.length ? visible : null,
           // Svoje karte koje sam pokazao ostalima (za oznaku i dugmad)
           myShown: own ? (vol ?? []) : undefined,
+          myPendingShow: own ? (rt.pendingShow?.get(i) ?? []) : undefined,
           cardCount: s.inHand && !s.folded ? s.hole.length : 0,
         };
       }),
@@ -781,7 +785,12 @@ export class TablesService implements OnModuleInit {
     if (!this.server) return;
     const sockets = await this.server.in(`table:${rt.table.id}`).fetchSockets();
     for (const s of sockets) {
-      s.emit('table:state', this.viewOf(rt, (s.data as { userId?: string }).userId));
+      // Greška u prikazu za jednog igrača ne sme da zaustavi sto (sledeća ruka se mora zakazati).
+      try {
+        s.emit('table:state', this.viewOf(rt, (s.data as { userId?: string }).userId));
+      } catch (e) {
+        this.log.error(`Prikaz stola ${rt.table.name}: ${(e as Error).stack ?? e}`);
+      }
     }
   }
 
@@ -1124,6 +1133,13 @@ export class TablesService implements OnModuleInit {
       this.clearHold(rt);
     }
     const hold = this.makeHold(rt, result);
+    // Kraj ruke: otvaraju se karte koje su igrači izabrali da pokažu (posle fold-a).
+    if (result && rt.pendingShow?.size) {
+      for (const [seat, idx] of rt.pendingShow) {
+        if (rt.game.seats[seat]) rt.voluntaryShow.set(seat, idx);
+      }
+      rt.pendingShow.clear();
+    }
     if (result) rt.endSeats = rt.game.seats.map((x, i) => (x && result.shown.some((sh) => sh.seat === i) ? { userId: x.userId, name: x.name } : null));
     const handEnd = Date.now() - 50;
     if (result) await this.handFinished(rt, result);
@@ -1304,6 +1320,7 @@ export class TablesService implements OnModuleInit {
         rt.lastResult = null;
         rt.ritDeclined = undefined;
         rt.voluntaryShow.clear();
+        rt.pendingShow?.clear();
         rt.startStacks = {};
         rt.game.seats.forEach((s, i) => {
           if (s) rt.startStacks[i] = s.stack;
@@ -1503,6 +1520,14 @@ export class TablesService implements OnModuleInit {
         throw new GameError('Karte možete pokazati posle fold-a ili kad se ruka završi.');
       }
       const idx = [...new Set(cards.map(Number))].filter((k) => Number.isInteger(k) && k >= 0 && k < s.hole.length);
+      if (!handOver) {
+        // Tokom ruke: samo se zapamti izbor (prazan izbor poništava); karte se otvaraju na kraju ruke.
+        rt.pendingShow ??= new Map();
+        if (idx.length) rt.pendingShow.set(i, idx.sort());
+        else rt.pendingShow.delete(i);
+        await this.broadcast(rt);
+        return { pending: true };
+      }
       if (!idx.length) throw new GameError('Izaberite kartu.');
       const prev = rt.voluntaryShow.get(i) ?? [];
       rt.voluntaryShow.set(i, [...new Set([...prev, ...idx])].sort());
