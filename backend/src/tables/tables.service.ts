@@ -76,6 +76,8 @@ interface Runtime {
   voluntaryShow: Map<number, number[]>;
   /** Izbor "pokaži karte" napravljen tokom ruke (posle fold-a): karte se otvaraju tek kad se ruka završi. */
   pendingShow?: Map<number, number[]>;
+  /** Kada se na kraju ruke smeju otvoriti izabrane karte (kad se proglasi pobednik). */
+  showAt?: number;
   /** Kad je zakazana sledeća ruka (za produženje pauze kad neko pokaže karte). */
   nextHandAt?: number;
   /** Sto se zatvara posle ruke koja je u toku. */
@@ -1133,17 +1135,24 @@ export class TablesService implements OnModuleInit {
       this.clearHold(rt);
     }
     const hold = this.makeHold(rt, result);
-    // Kraj ruke: otvaraju se karte koje su igrači izabrali da pokažu (posle fold-a).
-    if (result && rt.pendingShow?.size) {
-      for (const [seat, idx] of rt.pendingShow) {
-        if (rt.game.seats[seat]) rt.voluntaryShow.set(seat, idx);
-      }
-      rt.pendingShow.clear();
-    }
     if (result) rt.endSeats = rt.game.seats.map((x, i) => (x && result.shown.some((sh) => sh.seat === i) ? { userId: x.userId, name: x.name } : null));
     const handEnd = Date.now() - 50;
     if (result) await this.handFinished(rt, result);
     // Kada aplikacija proglašava pobednika: posle pauze na kraju runde i otkrivanja ulica kod all-in-a.
+    if (result) {
+      // Karte koje su igrači izabrali da pokažu otvaraju se tek kad aplikacija proglasi pobednika
+      // (posle pauze na kraju runde i otkrivanja ulica kod all-in-a), nikako ranije.
+      const showAt = (hold ? hold.until : Date.now()) + (rt.runoutMs ?? 0);
+      rt.showAt = showAt;
+      const hand = rt.game.handNo;
+      setTimeout(() => {
+        void this.exclusive(rt, async () => {
+          if (rt.game.handNo !== hand || rt.game.inProgress || !rt.pendingShow?.size) return;
+          this.applyPendingShow(rt);
+          await this.broadcast(rt);
+        }).catch((e) => this.log.error(e));
+      }, Math.max(0, showAt - Date.now()) + 30);
+    }
     if (result && rt.tour) {
       const hu = { from: handEnd, until: (hold ? hold.until : Date.now()) + Math.max(0, (rt.runoutMs ?? 0) - 700) };
       rt.headsUntil = hu;
@@ -1515,8 +1524,10 @@ export class TablesService implements OnModuleInit {
       if (i < 0) throw new GameError('Ne sedite za ovim stolom.');
       const s = g.seats[i]!;
       if (!s.hole.length) throw new GameError('Nemate karte za pokazivanje.');
-      const handOver = !g.inProgress && !!rt.lastResult;
-      if (!handOver && !(g.inProgress && s.inHand && s.folded)) {
+      const finished = !g.inProgress && !!rt.lastResult;
+      // Pre proglašenja pobednika (pauza na kraju runde, otkrivanje ulica kod all-in-a) ruka još nije gotova za igrače.
+      const handOver = finished && Date.now() >= (rt.showAt ?? 0);
+      if (!finished && !(g.inProgress && s.inHand && s.folded)) {
         throw new GameError('Karte možete pokazati posle fold-a ili kad se ruka završi.');
       }
       const idx = [...new Set(cards.map(Number))].filter((k) => Number.isInteger(k) && k >= 0 && k < s.hole.length);
@@ -1539,6 +1550,20 @@ export class TablesService implements OnModuleInit {
       await this.broadcast(rt);
       return {};
     });
+  }
+
+  /** Otvara karte izabrane tokom ruke; sledeća ruka čeka bar SHOW_MS da svi vide. */
+  private applyPendingShow(rt: Runtime) {
+    if (!rt.pendingShow?.size) return;
+    for (const [seat, idx] of rt.pendingShow) {
+      if (rt.game.seats[seat]) rt.voluntaryShow.set(seat, idx);
+    }
+    rt.pendingShow.clear();
+    if (rt.nextHandTimer && (rt.nextHandAt ?? 0) - Date.now() < SHOW_MS) {
+      clearTimeout(rt.nextHandTimer);
+      rt.nextHandTimer = undefined;
+      this.scheduleNextHandIn(rt, SHOW_MS);
+    }
   }
 
   /** Odgovor na pitanje za run it twice (posle all-in-a). */
