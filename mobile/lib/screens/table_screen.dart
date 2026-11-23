@@ -1694,9 +1694,32 @@ class _Layout {
     ];
     // Prvo ja, pa ostali redom.
     final order = [if (mySeat >= 0) mySeat, for (var k = 0; k < n; k++) if (k != mySeat) k];
+    final slots = wide ? null : _phoneSlots[n];
     for (final i in order) {
       final sz = betSizes[i] ?? _defaultBet;
       final p = seat(i);
+      // Telefon: ulog uvek na istom mestu odmah ispred igrača (ne traži slobodno mesto po stolu).
+      final k = (i - base + n) % n;
+      if (slots != null && i == mySeat) {
+        // Ja: odmah iznad svojih karata (i oznake bounty-ja).
+        out[i] = Offset(p.dx, myTop(p) - _myCardsLift(myAvatar) - 30 - sz.height / 2);
+        continue;
+      }
+      if (slots != null && i != mySeat && k > 0) {
+        final (sx, _) = slots[k - 1];
+        const a = 41.0, plateHalf = 52.0;
+        final Offset c;
+        if (sx.abs() >= 0.8) {
+          // Igrač sa strane: pored pločice, ka sredini stola.
+          final dx = plateHalf + sz.width / 2 + 2;
+          c = Offset(p.dx + (sx < 0 ? dx : -dx), p.dy + a / 2 + 8);
+        } else {
+          // Igrač gore: ispod pločice i oznake poteza.
+          c = Offset(p.dx, p.dy + a / 2 + 56 + sz.height / 2);
+        }
+        out[i] = c;
+        continue;
+      }
       final d = betDir(i);
       final from = i == mySeat ? Offset(p.dx, myTop(p)) : p;
       Rect box(Offset c) => Rect.fromCenter(center: c, width: sz.width + 6, height: sz.height + 4);
