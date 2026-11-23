@@ -382,14 +382,18 @@ class _ActionBarState extends State<ActionBar> {
             ),
           ),
         );
-    // Tastatura za tačan iznos: iznad kolone (ne prekriva moje karte).
+    // Gore: spusti izbor (vrati se na Fold / Call / Raise) i tastatura za tačan iznos.
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
       Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: _roundBig(Icons.dialpad, () => setState(() {
-              _keypad = true;
-              _typed = '';
-            })),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          _roundBig(Icons.keyboard_arrow_down, () => setState(() => _open = false)),
+          const SizedBox(width: 10),
+          _roundBig(Icons.dialpad, () => setState(() {
+                _keypad = true;
+                _typed = '';
+              })),
+        ]),
       ),
       for (final it in items) btn(it),
     ]);
@@ -445,7 +449,15 @@ class _ActionBarState extends State<ActionBar> {
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
       Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: _roundBig(Icons.close, () => setState(() => _keypad = false)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          // Spusti sve (nazad na Fold / Call / Raise); X vraća na delove pota.
+          _roundBig(Icons.keyboard_arrow_down, () => setState(() {
+                _keypad = false;
+                _open = false;
+              })),
+          const SizedBox(width: 10),
+          _roundBig(Icons.close, () => setState(() => _keypad = false)),
+        ]),
       ),
       Container(
         padding: const EdgeInsets.all(6),
