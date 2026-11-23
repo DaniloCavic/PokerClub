@@ -78,6 +78,10 @@ interface Runtime {
   pendingShow?: Map<number, number[]>;
   /** Kada se na kraju ruke smeju otvoriti izabrane karte (kad se proglasi pobednik). */
   showAt?: number;
+  /** Igrač bez veze: dodatno čekanje (jednom po ruci) i ko trenutno čeka da se poveže. */
+  graceUsed?: Set<string>;
+  reconnectGrace?: string;
+  reconnectSeat?: number;
   /** Kad je zakazana sledeća ruka (za produženje pauze kad neko pokaže karte). */
   nextHandAt?: number;
   /** Sto se zatvara posle ruke koja je u toku. */
@@ -159,6 +163,9 @@ const RUNOUT_STREET_MS = 2000;
 const HOLD_ACTION_MS = Number(process.env.HOLD_ACTION_MS ?? 650);
 const HOLD_COLLECT_MS = 550;
 const HOLD_SHOWDOWN_MS = 1500;
+
+/** Igrač koji izgubi vezu dobija još ovoliko vremena (jednom po ruci) da se vrati. */
+const RECONNECT_MS = Number(process.env.RECONNECT_MS || 30_000);
 
 /** Koliko dugo svi vide "✗ No" pre nego što se karte podele jednom. */
 const RIT_DECLINE_SHOW_MS = 1500;
@@ -255,6 +262,11 @@ export class TablesService implements OnModuleInit {
     else m.set(socketId, visible);
     if (m.size) this.presence.set(userId, m);
     else this.presence.delete(userId);
+  }
+
+  /** Igrač ima bar jednu otvorenu vezu sa serverom (aplikacija nije izgubila internet). */
+  isConnected(userId: string) {
+    return (this.presence.get(userId)?.size ?? 0) > 0;
   }
 
   /** Igrač gleda aplikaciju (bar jedan uređaj je otvoren i vidljiv). */
@@ -695,6 +707,8 @@ export class TablesService implements OnModuleInit {
           lastAct: s.lastAct,
           cards: visible && visible.length ? visible : null,
           // Svoje karte koje sam pokazao ostalima (za oznaku i dugmad)
+          // Na potezu je, ali je izgubio vezu: sto ga čeka da se vrati.
+          reconnecting: g.inProgress && rt.reconnectSeat === i && g.toAct === i,
           myShown: own ? (vol ?? []) : undefined,
           myPendingShow: own ? (rt.pendingShow?.get(i) ?? []) : undefined,
           cardCount: s.inHand && !s.folded ? s.hole.length : 0,
@@ -798,6 +812,11 @@ export class TablesService implements OnModuleInit {
 
   private lobbyChanged() {
     this.server?.to('lobby').emit('lobby', this.lobby());
+  }
+
+  /** Novo stanje naloga igraču (npr. posle odobrenog zahteva za uplatu). */
+  balanceChangedPublic(userId: string) {
+    return this.balanceChanged(userId);
   }
 
   private async balanceChanged(userId: string) {
@@ -1246,6 +1265,8 @@ export class TablesService implements OnModuleInit {
     if (key === rt.turnKey) return;
     clearTimeout(rt.turnTimer);
     rt.turnKey = key;
+    rt.reconnectSeat = undefined;
+    rt.reconnectGrace = undefined;
     const turnUser = g.seats[g.toAct]!.userId;
     // Turnir: igrač na pauzi ne čeka se (check ili fold posle kratke pauze).
     if (rt.tour && g.seats[g.toAct]!.sittingOut) {
@@ -1279,6 +1300,28 @@ export class TablesService implements OnModuleInit {
       void this.exclusive(rt, async () => {
         if (rt.turnKey !== key || !rt.game.inProgress) return;
         const s = rt.game.seats[rt.game.toAct]!;
+        // Izgubio je vezu (internet): jednom po ruci sto sačeka još RECONNECT_MS da se vrati.
+        const graceKey = `${rt.game.handNo}:${s.userId}`;
+        if (!this.isConnected(s.userId) && rt.reconnectGrace !== graceKey && !rt.graceUsed?.has(graceKey)) {
+          (rt.graceUsed ??= new Set()).add(graceKey);
+          rt.reconnectGrace = graceKey;
+          rt.reconnectSeat = rt.game.toAct;
+          rt.deadline = Date.now() + RECONNECT_MS;
+          rt.timeBankAt = rt.deadline;
+          rt.turnTimer = setTimeout(() => {
+            void this.exclusive(rt, async () => {
+              if (rt.turnKey !== key || !rt.game.inProgress) return;
+              rt.reconnectSeat = undefined;
+              const s2 = rt.game.seats[rt.game.toAct]!;
+              s2.sittingOut = true;
+              rt.sitOutSince.set(s2.userId, Date.now());
+              const result = rt.game.timeoutAction();
+              await this.afterChange(rt, result);
+            }).catch((e) => this.log.error(e));
+          }, RECONNECT_MS);
+          await this.broadcast(rt);
+          return;
+        }
         // Igrač koji ne odigra na vreme prestaje da dobija karte dok se ne vrati.
         s.sittingOut = true;
         rt.sitOutSince.set(s.userId, Date.now());
@@ -1330,6 +1373,7 @@ export class TablesService implements OnModuleInit {
         rt.ritDeclined = undefined;
         rt.voluntaryShow.clear();
         rt.pendingShow?.clear();
+        rt.graceUsed?.clear();
         rt.startStacks = {};
         rt.game.seats.forEach((s, i) => {
           if (s) rt.startStacks[i] = s.stack;

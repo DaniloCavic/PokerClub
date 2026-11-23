@@ -11,7 +11,12 @@ const log = new Logger('Mail');
  * Bez podešavanja poruka se samo upiše u log servera (za probu).
  * Greška se baca (i upisuje u log), da se vidi zašto mejl nije otišao.
  */
-export async function sendMail(to: string, subject: string, text: string): Promise<boolean> {
+export interface MailFile {
+  name: string;
+  content: Buffer;
+}
+
+export async function sendMail(to: string, subject: string, text: string, files: MailFile[] = [], html?: string): Promise<boolean> {
   const from = process.env.MAIL_FROM || process.env.SMTP_USER || '';
   try {
     if (process.env.BREVO_API_KEY) {
@@ -20,8 +25,15 @@ export async function sendMail(to: string, subject: string, text: string): Promi
       const res = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json', 'api-key': process.env.BREVO_API_KEY },
-        body: JSON.stringify({ sender, to: [{ email: to }], subject, textContent: text }),
-        signal: AbortSignal.timeout(20_000),
+        body: JSON.stringify({
+          sender,
+          to: [{ email: to }],
+          subject,
+          textContent: text,
+          ...(html ? { htmlContent: html } : {}),
+          ...(files.length ? { attachment: files.map((f) => ({ name: f.name, content: f.content.toString('base64') })) } : {}),
+        }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) throw new Error(`Brevo ${res.status}: ${(await res.text()).slice(0, 300)}`);
       log.log(`Poslat mejl (Brevo) na ${to}: ${subject}`);
@@ -42,7 +54,7 @@ export async function sendMail(to: string, subject: string, text: string): Promi
       greetingTimeout: 15_000,
       socketTimeout: 20_000,
     });
-    await transport.sendMail({ from, to, subject, text });
+    await transport.sendMail({ from, to, subject, text, html, attachments: files.map((f) => ({ filename: f.name, content: f.content })) });
     log.log(`Poslat mejl (SMTP) na ${to}: ${subject}`);
     return true;
   } catch (e) {
@@ -53,3 +65,11 @@ export async function sendMail(to: string, subject: string, text: string): Promi
 
 export const mailReady = () => !!(process.env.BREVO_API_KEY || process.env.SMTP_HOST);
 
+
+/** Adresa za izveštaje i rezervne kopije: REPORT_EMAIL, ili adresa pošiljaoca (MAIL_FROM). */
+export function ownerEmail(): string | null {
+  const v = process.env.REPORT_EMAIL || process.env.MAIL_FROM || process.env.SMTP_USER || '';
+  const m = /<([^>]+)>/.exec(v);
+  const e = (m ? m[1] : v).trim();
+  return e.includes('@') ? e : null;
+}

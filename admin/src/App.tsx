@@ -10,14 +10,27 @@ import { Reports } from './pages/Reports';
 import { Security } from './pages/Security';
 import { Welcome } from './pages/Welcome';
 import { Account } from './pages/Account';
+import { Requests } from './pages/Requests';
 
-type Page = 'account' | 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'reports' | 'agents' | 'security' | 'welcome';
+type Page = 'requests' | 'account' | 'dashboard' | 'tables' | 'tournaments' | 'players' | 'transactions' | 'reports' | 'agents' | 'security' | 'welcome';
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(!!getToken());
   const [page, setPage] = useState<Page>(() => (location.hash.slice(1) as Page) || 'dashboard');
   const [more, setMore] = useState(false);
+  // Broj zahteva za uplatu/isplatu koji čekaju (osvežava se svakih 30 s).
+  const [pending, setPending] = useState(0);
+  const loadPending = () => {
+    if (getToken()) api<{ pending: number }>('GET', '/admin/cash-requests/count').then((r) => setPending(r.pending)).catch(() => undefined);
+  };
+  useEffect(() => {
+    if (!me) return;
+    loadPending();
+    const t = setInterval(loadPending, 30000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
 
   useEffect(() => {
     const out = () => setMe(null);
@@ -43,6 +56,7 @@ export function App() {
 
   const pages: { id: Page; label: string }[] = [
     { id: 'dashboard', label: 'Pregled' },
+    { id: 'requests', label: 'Zahtevi' },
     { id: 'tables', label: 'Stolovi' },
     { id: 'tournaments', label: 'Turniri' },
     { id: 'players', label: 'Igrači' },
@@ -59,7 +73,7 @@ export function App() {
   ];
   const current = pages.some((p) => p.id === page) ? page : 'dashboard';
   // Telefon: najvažnije stranice u donjem meniju, ostalo pod "Više".
-  const tabIds: Page[] = me.role === 'ADMIN' ? ['dashboard', 'tables', 'tournaments', 'players'] : ['dashboard', 'tables', 'players', 'transactions'];
+  const tabIds: Page[] = me.role === 'ADMIN' ? ['dashboard', 'requests', 'tournaments', 'players'] : ['dashboard', 'requests', 'players', 'transactions'];
   const tabs = pages.filter((p) => tabIds.includes(p.id));
   const rest = pages.filter((p) => !tabIds.includes(p.id));
   const title = pages.find((p) => p.id === current)?.label ?? '';
@@ -85,7 +99,10 @@ export function App() {
       <nav className="tabbar">
         {tabs.map((p) => (
           <a key={p.id} className={current === p.id && !more ? 'active' : ''} onClick={() => go(p.id)}>
-            <Icon name={p.id} />
+            <span className="tab-icon">
+              <Icon name={p.id} />
+              {p.id === 'requests' && pending > 0 && <span className="dot">{pending}</span>}
+            </span>
             <span>{p.id === 'dashboard' ? 'Pregled' : p.label}</span>
           </a>
         ))}
@@ -125,6 +142,7 @@ export function App() {
         {pages.map((p) => (
           <a key={p.id} className={current === p.id ? 'active' : ''} onClick={() => setPage(p.id)}>
             {p.label}
+            {p.id === 'requests' && pending > 0 && <span className="dot inline">{pending}</span>}
           </a>
         ))}
         <a className="logout" onClick={logout}>
@@ -140,6 +158,7 @@ export function App() {
         {current === 'agents' && <Agents />}
         {current === 'reports' && <Reports me={me} />}
         {current === 'account' && <Account me={me} />}
+        {current === 'requests' && <Requests me={me} onChanged={loadPending} />}
         {current === 'security' && <Security />}
         {current === 'welcome' && <Welcome />}
       </main>
@@ -162,6 +181,7 @@ const ICONS: Record<string, string> = {
     'M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z',
   security: 'M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z',
   welcome: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z',
+  requests: 'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5h3V8h4v4h3l-5 5z',
   more: 'M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
   logout: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
 };

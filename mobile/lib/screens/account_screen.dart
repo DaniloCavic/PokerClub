@@ -8,6 +8,7 @@ import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/playing_card.dart';
 import '../i18n.dart';
+import 'leaderboard_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   /// U glavnom okviru aplikacije (bez sopstvene gornje trake).
@@ -178,6 +179,13 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const SizedBox(height: 16),
           _MenuCard(children: [
+            _MenuItem(
+              icon: Icons.emoji_events,
+              title: tr('Leaderboard', 'Rang lista'),
+              subtitle: tr('Best players this month', 'Najbolji igrači ovog meseca'),
+              color: goldLight,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeaderboardScreen())),
+            ),
             _MenuItem(
               icon: Icons.style,
               title: tr('Card color', 'Boja karata'),

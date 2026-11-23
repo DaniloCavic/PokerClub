@@ -20,6 +20,17 @@ const DAYS: [RegExp, string][] = [
 
 /** [srpski obrazac, engleski] — $1, $2… su delovi iz obrasca (imena, iznosi). */
 const EN: [RegExp, string][] = [
+  // ---------- Zahtevi za uplatu/isplatu ----------
+  [/^Uplata je odobrena$/, 'Deposit approved'],
+  [/^Isplata je odobrena$/, 'Withdrawal approved'],
+  [/^Zahtev za uplatu je odbijen$/, 'Deposit request declined'],
+  [/^Zahtev za isplatu je odbijen$/, 'Withdrawal request declined'],
+  [/^Samo igrači šalju zahteve\.$/, 'Only players can send requests.'],
+  [/^Već imate zahteve koji čekaju odobrenje\.$/, 'You already have requests waiting for approval.'],
+  [/^Nemate toliko na nalogu\.$/, 'You do not have that much on your account.'],
+  [/^Izaberite uplatu ili isplatu\.$/, 'Choose deposit or withdrawal.'],
+  [/^Zahtev nije pronađen\.$/, 'Request not found.'],
+  [/^Zahtev je već rešen\.$/, 'The request has already been handled.'],
   // ---------- Stolovi ----------
   [/^Sto „(.+)“ je počeo!$/, 'Table “$1” has started!'],
   [/^(PLO|NLH) (\S+) — uđite i igrajte\.$/, '$1 $2 — join and play.'],

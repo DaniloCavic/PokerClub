@@ -34,6 +34,7 @@ Map<String, String> get txLabels => {
       'TOURNAMENT_BUY_IN': tr('Tournament buy-in', 'Ulaz na turnir'),
       'TOURNAMENT_PRIZE': tr('Tournament prize', 'Nagrada sa turnira'),
       'TOURNAMENT_REFUND': tr('Tournament refund', 'Povraćaj (turnir)'),
+      'TOURNAMENT_BOUNTY': tr('Bounty', 'Bounty'),
     };
 
 /// Iznos u žetonima ili u velikim blajndovima (BB), po izboru igrača.

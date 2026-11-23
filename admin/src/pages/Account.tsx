@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, fmtDate, Me, setToken } from '../api';
+import { api, fmtDate, getToken, Me, setToken } from '../api';
 import { useLoad } from './common';
 
 /** Moj nalog: dvostepena prijava (2FA), promena lozinke, odjava sa svih uređaja, moje prijave. */
@@ -133,6 +133,43 @@ export function Account({ me }: { me: Me }) {
           Odjavi sve ostale uređaje
         </button>
       </div>
+
+      {me.role === 'ADMIN' && (
+        <>
+          <h3>Rezervna kopija i dnevni izveštaj</h3>
+          <div className="card">
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Svakog dana oko 04:00 rezervna kopija baze stiže na mejl kluba, a oko 23:30 dnevni izveštaj (rake, fee, uplate i isplate po
+              agentima, upozorenja).
+            </p>
+            <div className="row">
+              <button
+                className="secondary"
+                onClick={() =>
+                  run(async () => {
+                    const res = await fetch('/api/admin/backup', { headers: { authorization: `Bearer ${getToken()}` } });
+                    if (!res.ok) throw new Error('Preuzimanje nije uspelo.');
+                    const blob = await res.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `triling-baza-${new Date().toISOString().slice(0, 10)}.json.gz`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }, 'Rezervna kopija je preuzeta.')
+                }
+              >
+                Preuzmi rezervnu kopiju baze
+              </button>
+              <button
+                className="secondary"
+                onClick={() => run(async () => api('POST', '/admin/daily/send'), 'Izveštaj i rezervna kopija su poslati na mejl kluba.')}
+              >
+                Pošalji današnji izveštaj sada
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       <h3>Moje poslednje prijave</h3>
       <div className="card">

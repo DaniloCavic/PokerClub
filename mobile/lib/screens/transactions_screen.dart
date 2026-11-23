@@ -22,10 +22,77 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   int _page = 1;
   bool _loading = false;
 
+  List<Map<String, dynamic>> _requests = [];
+  num? _lastBalance;
+
   @override
   void initState() {
     super.initState();
     _load(reset: true);
+    _loadRequests();
+  }
+
+  Future<void> _loadRequests() async {
+    try {
+      final res = await context.read<AppState>().api.get('/me/cash-requests');
+      if (mounted) setState(() => _requests = (res as List).cast<Map<String, dynamic>>());
+    } catch (_) {}
+  }
+
+  Future<void> _cancel(String id) async {
+    final app = context.read<AppState>();
+    try {
+      await app.api.post('/me/cash-requests/$id/cancel', {});
+    } catch (e) {
+      app.toast(e.toString());
+    }
+    _loadRequests();
+  }
+
+  /// Prozor za iznos zahteva (uplata ili isplata).
+  Future<void> _request(String type) async {
+    final app = context.read<AppState>();
+    final amount = TextEditingController();
+    final note = TextEditingController();
+    final deposit = type == 'DEPOSIT';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(deposit ? tr('Deposit request', 'Zahtev za uplatu') : tr('Withdrawal request', 'Zahtev za isplatu')),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            controller: amount,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: tr('Amount (RSD)', 'Iznos (RSD)')),
+          ),
+          const SizedBox(height: 8),
+          TextField(controller: note, maxLength: 200, decoration: InputDecoration(labelText: tr('Note (optional)', 'Napomena (nije obavezna)'), counterText: '')),
+          if (!deposit)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('${tr('On account', 'Na nalogu')}: ${rsd(app.balance)}', style: const TextStyle(color: Colors.white60, fontSize: 12.5)),
+            ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Cancel', 'Odustani'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Send', 'Pošalji'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final v = int.tryParse(amount.text.replaceAll(RegExp(r'[^0-9]'), ''));
+    if (v == null || v <= 0) {
+      app.toast(tr('Enter an amount.', 'Unesite iznos.'));
+      return;
+    }
+    try {
+      await app.api.post('/me/cash-requests', {'type': type, 'amount': v, if (note.text.trim().isNotEmpty) 'note': note.text.trim()});
+      app.toast(tr('Request sent to your agent.', 'Zahtev je poslat agentu.'));
+    } catch (e) {
+      app.toast(e.toString());
+    }
+    _loadRequests();
   }
 
   Future<void> _load({bool reset = false}) async {
@@ -53,11 +120,23 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     'WITHDRAWAL': (Icons.north_east, Color(0xFFFF6B6B)),
     'BUY_IN': (Icons.event_seat, Color(0xFF6FA8FF)),
     'CASH_OUT': (Icons.logout, Color(0xFFF2C14E)),
+    'TOURNAMENT_BUY_IN': (Icons.emoji_events_outlined, Color(0xFF6FA8FF)),
+    'TOURNAMENT_PRIZE': (Icons.emoji_events, Color(0xFFE8C766)),
+    'TOURNAMENT_REFUND': (Icons.undo, Color(0xFF3DDC84)),
+    'TOURNAMENT_BOUNTY': (Icons.gps_fixed, Color(0xFFFF8A3D)),
   };
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    // Stanje se promenilo (agent je odobrio zahtev): osveži zahteve i listu.
+    if (_lastBalance != null && _lastBalance != app.balance) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadRequests();
+        _load(reset: true);
+      });
+    }
+    _lastBalance = app.balance;
     final body = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680),
@@ -84,10 +163,49 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     GoldText(rsd(app.balance), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                   ]),
                   const SizedBox(height: 8),
+                  const SizedBox(height: 4),
+                  // Zahtev za uplatu ili isplatu: agent dobija obaveštenje i odobrava jednim dodirom.
+                  Row(children: [
+                    Expanded(
+                      child: LuxButton(
+                        title: tr('DEPOSIT', 'UPLATA'),
+                        icon: Icons.south_west,
+                        height: 46,
+                        onTap: () => _request('DEPOSIT'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: LuxButton(
+                        title: tr('WITHDRAW', 'ISPLATA'),
+                        icon: Icons.north_east,
+                        height: 46,
+                        gradient: redGradient,
+                        textColor: Colors.white,
+                        onTap: () => _request('WITHDRAWAL'),
+                      ),
+                    ),
+                  ]),
+                  for (final r in _requests.where((r) => r['status'] == 'PENDING'))
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10), border: Border.all(color: gold.withOpacity(0.3))),
+                      child: Row(children: [
+                        const Icon(Icons.hourglass_top, size: 18, color: goldLight),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                              '${r['type'] == 'DEPOSIT' ? tr('Deposit', 'Uplata') : tr('Withdrawal', 'Isplata')} ${rsd(r['amount'])} · ${tr('waiting for agent', 'čeka agenta')}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        ),
+                        TextButton(onPressed: () => _cancel(r['id'] as String), child: Text(tr('Cancel', 'Otkaži'))),
+                      ]),
+                    ),
+                  const SizedBox(height: 6),
                   Text(
-                    tr('Deposits and withdrawals are done by your agent. Contact your agent; the change shows here right away.',
-                        'Uplate i isplate radi vaš agent. Javite mu se za uplatu ili isplatu; promena se ovde vidi odmah.'),
-                    style: TextStyle(color: Colors.white54, fontSize: 12.5),
+                    tr('Your agent approves requests; the change shows here right away.', 'Zahtev odobrava vaš agent; promena se ovde vidi odmah.'),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ]),
               ),
@@ -115,7 +233,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             const SizedBox(height: 4),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () => _load(reset: true),
+                onRefresh: () async {
+                  await _loadRequests();
+                  await _load(reset: true);
+                },
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   itemCount: _items.length + 1,

@@ -419,3 +419,24 @@ model LoginLog {
   @@index([createdAt])
   @@index([userId, createdAt])
 }
+
+/// Zahtev igrača za uplatu ili isplatu (agent ga odobri ili odbije).
+model CashRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  /// Agent igrača u trenutku zahteva (null = igrač bez agenta, rešava super agent).
+  agentId     String?
+  /// DEPOSIT ili WITHDRAWAL
+  type        String
+  amount      Int
+  note        String?
+  /// PENDING, APPROVED, REJECTED, CANCELLED
+  status      String    @default("PENDING")
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([agentId, status])
+  @@index([userId, createdAt])
+}

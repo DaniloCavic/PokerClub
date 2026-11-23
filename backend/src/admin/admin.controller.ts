@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { Prisma, Role, TxType, User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -22,6 +23,9 @@ import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { newTotpSecret, totpUrl, verifyTotp } from '../common/totp';
+import { DailyService, localNow } from '../daily/daily.service';
+import { ownerEmail } from '../common/mail';
+import type { Response } from 'express';
 
 const PAGE = 30;
 const page = (p?: string) => Math.max(1, Number(p) || 1);
@@ -45,7 +49,31 @@ export class AdminController {
     private readonly tables: TablesService,
     private readonly gateway: TablesGateway,
     private readonly push: PushService,
+    private readonly daily: DailyService,
   ) {}
+
+  /** Super agent: preuzimanje cele baze (sa slikama igrača) kao rezervne kopije. */
+  @Roles('ADMIN')
+  @Get('backup')
+  async backupFile(@Res() res: Response) {
+    const file = await this.daily.backup(true);
+    const { date } = localNow();
+    res.setHeader('content-type', 'application/gzip');
+    res.setHeader('content-disposition', `attachment; filename="triling-baza-${date}.json.gz"`);
+    res.send(file);
+  }
+
+  /** Super agent: današnji izveštaj odmah na mejl (i rezervna kopija), za proveru da slanje radi. */
+  @Roles('ADMIN')
+  @Post('daily/send')
+  async sendDaily() {
+    const { date } = localNow();
+    const to = ownerEmail();
+    if (!to) throw new BadRequestException('Nije podešena adresa (MAIL_FROM ili REPORT_EMAIL).');
+    await this.daily.mailReport(date);
+    await this.daily.mailBackup(date);
+    return { ok: true, to };
+  }
 
   /** Obaveštenje svim igračima na telefon: novi sto je otvoren, ili je zakazan za kasnije. */
   private announceTable(t: { id: string; name: string; variant: string; smallBlind: number; bigBlind: number; opensAt: Date | null }) {

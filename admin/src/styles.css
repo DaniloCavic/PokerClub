@@ -191,3 +191,9 @@ tr.clickable:hover { background: #eef4f0; cursor: pointer; }
 .legend { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
 .legend.rake { background: var(--accent); }
 .legend.fee { background: var(--gold); margin-left: 12px; }
+
+/* Broj zahteva koji čekaju */
+.dot { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.dot.inline { margin-left: 8px; }
+.tab-icon { position: relative; display: inline-flex; }
+.tab-icon .dot { position: absolute; top: -6px; right: -10px; }

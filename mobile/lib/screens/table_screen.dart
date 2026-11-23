@@ -3014,6 +3014,9 @@ class _SeatView extends StatelessWidget {
     if (equity != null) {
       // All-in: šansa za pobedu (kao na GG)
       tag = (label: '${bbNumber(equity!)} %', color: equityLeader ? const Color(0xFF1E8E4E) : const Color(0xFF3A3F4A));
+    } else if (seat['reconnecting'] == true) {
+      // Izgubio je internet: sto ga kratko čeka.
+      tag = (label: tr('CONNECTING…', 'POVEZUJE SE…'), color: const Color(0xFF5A4A1E));
     } else if (acting && bank) {
       // Osnovno vreme je isteklo: teče dodatno vreme.
       tag = (label: 'TIME $timeBankLeft', color: timeColor);
