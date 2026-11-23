@@ -308,11 +308,12 @@ export class TournamentsService implements OnModuleInit {
     return estimateMinutes(tr.levels, tr.rule, players, t.startingStack);
   }
 
-  /** Spisak turnira za lobi (aktuelni i završeni u poslednja 2 dana). */
+  /** Spisak turnira za lobi (aktuelni i završeni u poslednjih 10 minuta). */
   async list() {
-    const since = new Date(Date.now() - 2 * 24 * 3600_000);
+    // Završen ili otkazan turnir ostaje na spisku još 10 minuta (da igrači vide rezultat), pa nestaje.
+    const since = new Date(Date.now() - 10 * 60_000);
     const done = await this.prisma.tournament.findMany({
-      where: { hidden: false, status: { in: ['FINISHED', 'CANCELLED'] }, OR: [{ finishedAt: { gte: since } }, { startAt: { gte: since } }] },
+      where: { hidden: false, status: { in: ['FINISHED', 'CANCELLED'] }, finishedAt: { gte: since } },
       orderBy: { startAt: 'desc' },
       take: 20,
       include: { _count: { select: { entries: true } } },
