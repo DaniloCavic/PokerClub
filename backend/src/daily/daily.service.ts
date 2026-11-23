@@ -13,12 +13,17 @@ export function localNow(d = new Date()) {
   return { date, time };
 }
 
+/** Dan u nedelji za datum "YYYY-MM-DD" (1 = ponedeljak … 7 = nedelja). */
+export const weekday = (date: string) => ((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
+export const addDays = (date: string, n: number) => new Date(new Date(`${date}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+const dmy = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}.`;
+
 const fmt = (n: number) => Math.round(n).toLocaleString('de-DE');
 
 /**
  * Svakog dana, sam od sebe:
  *  - oko 04:00 rezervna kopija cele baze (gzip JSON) na mejl vlasnika,
- *  - oko 23:30 dnevni izveštaj (rake, fee, uplate i isplate po agentima, upozorenja).
+ *  - ponedeljkom u 10:00 nedeljni izveštaj za prethodnu nedelju (rake, fee, uplate i isplate po agentima, upozorenja).
  * Šta je poslato pamti se u bazi, pa se posle ponovnog pokretanja servera ništa ne šalje dvaput.
  */
 @Injectable()
@@ -56,7 +61,11 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
     try {
       const { date, time } = localNow();
       if (time >= '04:00') await this.once('daily:backup', date, () => this.mailBackup(date));
-      if (time >= '23:30') await this.once('daily:report', date, () => this.mailReport(date));
+      // Nedeljni izveštaj: ponedeljak od 10:00, za prethodnu nedelju (ponedeljak–nedelja).
+      if (weekday(date) === 1 && time >= '10:00') {
+        const from = addDays(date, -7), to = addDays(date, -1);
+        await this.once('weekly:report', date, () => this.mailReport(from, to));
+      }
     } finally {
       this.running = false;
     }
@@ -114,9 +123,9 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Dnevni izveštaj ----------
 
-  async report(date: string) {
+  async report(fromDay: string, toDay: string = fromDay) {
     const tz = TZ();
-    const day = (col = '"createdAt"') => Prisma.sql`((${Prisma.raw(col)} AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date = ${date}::date`;
+    const day = (col = '"createdAt"') => Prisma.sql`((${Prisma.raw(col)} AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::date BETWEEN ${fromDay}::date AND ${toDay}::date`;
     type Share = { agentId: string | null; amount: number; cut: number };
     const shares = (t: 'RakeShare' | 'FeeShare') =>
       this.prisma.$queryRaw<Share[]>(Prisma.sql`SELECT "agentId", SUM(amount)::int AS amount, SUM("agentCut")::int AS cut FROM ${Prisma.raw(`"${t}"`)} WHERE ${day()} GROUP BY 1`);
@@ -130,7 +139,7 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
       this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`SELECT COUNT(*)::int AS n FROM "Hand" WHERE ${day()}`),
       this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`SELECT COUNT(*)::int AS n FROM "Tournament" WHERE status = 'FINISHED' AND ${day('"finishedAt"')}`),
       this.prisma.$queryRaw<{ n: number }[]>(Prisma.sql`SELECT COUNT(*)::int AS n FROM "User" WHERE role = 'PLAYER' AND ${day()}`),
-      this.prisma.$queryRaw<{ kind: string; names: string; detail: string }[]>(Prisma.sql`SELECT kind, names, detail FROM "SecurityAlert" WHERE ${day()} ORDER BY "createdAt" DESC LIMIT 20`),
+      this.prisma.$queryRaw<{ kind: string; names: string; detail: string }[]>(Prisma.sql`SELECT kind, names, detail FROM "SecurityAlert" WHERE ${day()} ORDER BY "createdAt" DESC LIMIT 30`),
       this.prisma.cashRequest.count({ where: { status: 'PENDING' } }),
     ]);
     const ids = [...new Set([...rake, ...fees].map((r) => r.agentId).concat(money.map((m) => m.actorId)).filter((x): x is string => !!x))];
@@ -154,16 +163,17 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
       deposits: cashiers.reduce((s, a) => s + a.deposits, 0),
       withdrawals: cashiers.reduce((s, a) => s + a.withdrawals, 0),
     };
-    return { date, tot, agents, cashiers, hands: hands[0]?.n ?? 0, tours: tours[0]?.n ?? 0, newPlayers: newPlayers[0]?.n ?? 0, alerts, pending };
+    return { date: fromDay === toDay ? dmy(fromDay) : `${dmy(fromDay)} – ${dmy(toDay)}`, tot, agents, cashiers, hands: hands[0]?.n ?? 0, tours: tours[0]?.n ?? 0, newPlayers: newPlayers[0]?.n ?? 0, alerts, pending };
   }
 
-  async mailReport(date: string) {
+  async mailReport(fromDay: string, toDay: string = fromDay) {
     const to = ownerEmail();
     if (!to) return;
-    const r = await this.report(date);
+    const r = await this.report(fromDay, toDay);
+    const title = fromDay === toDay ? 'Izveštaj' : 'Nedeljni izveštaj';
     const club = r.tot.rake + r.tot.fees - r.tot.agentCut;
     const lines = [
-      `Dnevni izveštaj — ${date}`,
+      `${title} — ${r.date}`,
       '',
       `Rake: ${fmt(r.tot.rake)} RSD · Fee turnira: ${fmt(r.tot.fees)} RSD`,
       `Agentima: ${fmt(r.tot.agentCut)} RSD · Klubu (super agent): ${fmt(club)} RSD`,
@@ -182,7 +192,7 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
     ];
     const td = (s: string | number, b = false) => `<td style="padding:4px 10px;border-bottom:1px solid #eee;${b ? 'font-weight:700' : ''}">${s}</td>`;
     const html = `<div style="font-family:Arial,sans-serif;color:#17211c">
-<h2 style="color:#0b3d26;margin:0 0 4px">Poker klub Triling</h2><div style="color:#666;margin-bottom:12px">Dnevni izveštaj — ${date}</div>
+<h2 style="color:#0b3d26;margin:0 0 4px">Poker klub Triling</h2><div style="color:#666;margin-bottom:12px">${title} — ${r.date}</div>
 <table style="border-collapse:collapse;margin-bottom:14px">
 <tr>${td('Rake')}${td(fmt(r.tot.rake) + ' RSD', true)}</tr><tr>${td('Fee turnira')}${td(fmt(r.tot.fees) + ' RSD', true)}</tr>
 <tr>${td('Agentima')}${td(fmt(r.tot.agentCut) + ' RSD')}</tr><tr>${td('Klubu')}${td(fmt(club) + ' RSD', true)}</tr>
@@ -196,7 +206,7 @@ ${r.cashiers.map((c) => `<tr>${td(c.name)}${td(fmt(c.deposits))}${td(fmt(c.withd
 <h3 style="margin:14px 0 4px">Bezbednosna upozorenja (${r.alerts.length})</h3>
 ${r.alerts.map((a) => `<div style="font-size:13px">[${a.kind}] ${a.names} — ${a.detail}</div>`).join('') || '<div style="color:#666">Nema.</div>'}
 </div>`;
-    await sendMail(to, `Triling — dnevni izveštaj ${date}`, lines.join('\n'), [], html);
-    this.log.log(`Dnevni izveštaj za ${date} poslat.`);
+    await sendMail(to, `Triling — ${title.toLowerCase()} ${r.date}`, lines.join('\n'), [], html);
+    this.log.log(`${title} za ${r.date} poslat.`);
   }
 }

@@ -139,8 +139,8 @@ export function Account({ me }: { me: Me }) {
           <h3>Rezervna kopija i dnevni izveštaj</h3>
           <div className="card">
             <p className="muted small" style={{ marginTop: 0 }}>
-              Svakog dana oko 04:00 rezervna kopija baze stiže na mejl kluba, a oko 23:30 dnevni izveštaj (rake, fee, uplate i isplate po
-              agentima, upozorenja).
+              Svakog dana oko 04:00 rezervna kopija baze stiže na mejl kluba, a svakog ponedeljka u 10:00 nedeljni izveštaj za prethodnu
+              nedelju (rake, fee, uplate i isplate po agentima, upozorenja).
             </p>
             <div className="row">
               <button
@@ -164,7 +164,7 @@ export function Account({ me }: { me: Me }) {
                 className="secondary"
                 onClick={() => run(async () => api('POST', '/admin/daily/send'), 'Izveštaj i rezervna kopija su poslati na mejl kluba.')}
               >
-                Pošalji današnji izveštaj sada
+                Pošalji izveštaj (poslednjih 7 dana) sada
               </button>
             </div>
           </div>

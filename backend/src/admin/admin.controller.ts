@@ -23,7 +23,7 @@ import { TablesGateway } from '../tables/tables.gateway';
 import { WalletService } from '../wallet/wallet.service';
 import { PushService } from '../push/push.service';
 import { newTotpSecret, totpUrl, verifyTotp } from '../common/totp';
-import { DailyService, localNow } from '../daily/daily.service';
+import { addDays, DailyService, localNow } from '../daily/daily.service';
 import { ownerEmail } from '../common/mail';
 import type { Response } from 'express';
 
@@ -70,7 +70,8 @@ export class AdminController {
     const { date } = localNow();
     const to = ownerEmail();
     if (!to) throw new BadRequestException('Nije podešena adresa (MAIL_FROM ili REPORT_EMAIL).');
-    await this.daily.mailReport(date);
+    // Izveštaj za poslednjih 7 dana (do danas), kao provera kako izgleda nedeljni.
+    await this.daily.mailReport(addDays(date, -6), date);
     await this.daily.mailBackup(date);
     return { ok: true, to };
   }
