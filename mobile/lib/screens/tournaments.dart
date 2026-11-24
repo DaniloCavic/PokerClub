@@ -6,7 +6,6 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/brand.dart';
 import '../i18n.dart';
-import 'leaderboard_screen.dart';
 import '../share/share.dart';
 import '../widgets/avatar.dart';
 import '../widgets/playing_card.dart';
@@ -101,44 +100,16 @@ class _TournamentListState extends State<TournamentList> {
       onRefresh: app.loadTournaments,
       child: list.isEmpty
           ? ListView(padding: const EdgeInsets.fromLTRB(12, 4, 12, 16), children: [
-              const _LeaderboardLink(),
-              SizedBox(height: 100),
+              SizedBox(height: 120),
               Center(child: Text(tr('No tournaments right now.', 'Trenutno nema turnira.'), style: TextStyle(color: Colors.white60))),
             ])
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
-              itemCount: list.length + 1,
-              itemBuilder: (_, i) => i == 0 ? const _LeaderboardLink() : _TournamentTile(t: list[i - 1]),
+              itemCount: list.length,
+              itemBuilder: (_, i) => _TournamentTile(t: list[i]),
             ),
     );
   }
-}
-
-/// Na vrhu liste turnira: ulaz u mesečnu rang listu.
-class _LeaderboardLink extends StatelessWidget {
-  const _LeaderboardLink();
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Material(
-          color: gold.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeaderboardScreen())),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: gold.withOpacity(0.5))),
-              child: Row(children: [
-                const Icon(Icons.emoji_events, color: goldLight),
-                const SizedBox(width: 10),
-                Expanded(child: Text(tr('Leaderboard — best players this month', 'Rang lista — najbolji igrači ovog meseca'), style: const TextStyle(fontWeight: FontWeight.w800))),
-                const Icon(Icons.chevron_right, color: goldLight),
-              ]),
-            ),
-          ),
-        ),
-      );
 }
 
 class _TournamentTile extends StatelessWidget {

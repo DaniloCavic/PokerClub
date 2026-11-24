@@ -11,7 +11,9 @@ typedef Json = Map<String, dynamic>;
 
 /// Mesečna rang lista: turniri (poeni) i keš igra (dobitak).
 class LeaderboardScreen extends StatefulWidget {
-  const LeaderboardScreen({super.key});
+  /// U glavnom meniju (bez strelice nazad).
+  final bool embedded;
+  const LeaderboardScreen({super.key, this.embedded = false});
 
   @override
   State<LeaderboardScreen> createState() => _LeaderboardScreenState();
@@ -58,10 +60,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: bg,
+        backgroundColor: widget.embedded ? Colors.transparent : bg,
         appBar: AppBar(
-          backgroundColor: const Color(0xFF0E0B08),
-          title: Text(tr('Leaderboard', 'Rang lista'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          backgroundColor: widget.embedded ? Colors.transparent : const Color(0xFF0E0B08),
+          automaticallyImplyLeading: !widget.embedded,
+          centerTitle: false,
+          title: widget.embedded
+              ? GoldText(tr('Ranking', 'Rang lista'), style: const TextStyle(fontFamily: 'Cinzel', fontSize: 22, fontWeight: FontWeight.w800))
+              : Text(tr('Leaderboard', 'Rang lista'), style: const TextStyle(fontWeight: FontWeight.w800)),
           bottom: TabBar(
             indicatorColor: gold,
             labelColor: goldLight,
@@ -70,7 +76,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             tabs: [Tab(text: tr('Tournaments', 'Turniri')), Tab(text: tr('Cash game', 'Keš igra'))],
           ),
         ),
-        body: Column(children: [
+        body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: Column(children: [
           // Izbor meseca
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
@@ -123,7 +129,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         ),
                       ]),
           ),
-        ]),
+        ]))),
       ),
     );
   }

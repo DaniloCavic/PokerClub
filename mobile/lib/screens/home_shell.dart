@@ -13,6 +13,7 @@ import 'table_screen.dart';
 import 'tournaments.dart';
 import 'transactions_screen.dart';
 import '../i18n.dart';
+import 'leaderboard_screen.dart';
 
 /// Široki ekran (računar, tablet): meni gore. Uzak (telefon): meni dole.
 bool isWide(BuildContext context) => MediaQuery.of(context).size.width >= 900;
@@ -26,13 +27,14 @@ class NavItem {
 List<NavItem> get navItems => [
       NavItem(tr('Cash Game', 'Keš igra'), Icons.style),
       NavItem(tr('Tournaments', 'Turniri'), Icons.emoji_events),
+      NavItem(tr('Ranking', 'Rang lista'), Icons.leaderboard),
       NavItem(tr('History', 'Istorija'), Icons.history),
       NavItem(tr('Cashier', 'Blagajna'), Icons.account_balance_wallet),
       NavItem(tr('Profile', 'Profil'), Icons.person),
     ];
 
 /// Redni brojevi stranica glavnog menija.
-const tabCash = 0, tabTournaments = 1, tabHistory = 2, tabCashier = 3, tabProfile = 4;
+const tabCash = 0, tabTournaments = 1, tabRanking = 2, tabHistory = 3, tabCashier = 4, tabProfile = 5;
 
 /// Glavni okvir aplikacije posle prijave.
 class HomeShell extends StatefulWidget {
@@ -169,6 +171,7 @@ class _HomeShellState extends State<HomeShell> {
     final pages = [
       const LobbyView(key: ValueKey('cash')),
       const LobbyView(key: ValueKey('tournaments'), tournaments: true),
+      const LeaderboardScreen(embedded: true),
       const _HistoryView(),
       const TransactionsScreen(embedded: true),
       const AccountScreen(embedded: true),
