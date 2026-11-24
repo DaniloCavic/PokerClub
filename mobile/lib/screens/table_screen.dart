@@ -1594,7 +1594,7 @@ class _Layout {
     late Offset p;
     if (slots != null && k == 0) {
       // Telefon: ja dole levo (kao na GG), desno dole ostaje slobodno za izbor uloga.
-      p = Offset(w * 0.27, center.dy + h * 0.40);
+      p = Offset(max(w * 0.16, 64.0), center.dy + h * 0.40);
     } else if (slots != null && k > 0) {
       final (sx, sy) = slots[k - 1];
       // Igrač sedi na ivici stola (sto je gore uži nego dole).
@@ -2697,7 +2697,11 @@ class _TableViewState extends State<_TableView> {
         left: p.dx - seatW / 2,
         top: topY,
         width: seatW,
-        child: _SeatView(
+        child: Transform.scale(
+          // Telefon: igrači 5 % manji, da svi lepo stanu za sto.
+          scale: widget.wide ? 1.0 : 0.95,
+          alignment: isMe ? Alignment.bottomCenter : Alignment.center,
+          child: _SeatView(
           seat: s,
           isMe: isMe,
           bounty: head != null && head > 0 ? head.toInt() : null,
@@ -2733,6 +2737,7 @@ class _TableViewState extends State<_TableView> {
               .where((x) => x['seat'] == i)
               .map((x) => x['handName'] as String)
               .firstOrNull,
+        ),
         ),
       ));
     }

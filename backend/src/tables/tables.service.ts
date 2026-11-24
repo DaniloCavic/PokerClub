@@ -708,7 +708,7 @@ export class TablesService implements OnModuleInit {
           cards: visible && visible.length ? visible : null,
           // Svoje karte koje sam pokazao ostalima (za oznaku i dugmad)
           // Na potezu je, ali je izgubio vezu: sto ga čeka da se vrati.
-          reconnecting: g.inProgress && rt.reconnectSeat === i && g.toAct === i,
+          reconnecting: g.inProgress && rt.reconnectSeat === i && g.toAct === i && !this.isConnected(s.userId),
           myShown: own ? (vol ?? []) : undefined,
           myPendingShow: own ? (rt.pendingShow?.get(i) ?? []) : undefined,
           cardCount: s.inHand && !s.folded ? s.hole.length : 0,
