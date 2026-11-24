@@ -393,7 +393,8 @@ class _TableScreenState extends State<TableScreen> {
         Expanded(
           child: Stack(children: [
             // Dole ostaje mesto za dugmad, da se uvek vidi moja pločica (ime i stek).
-            Positioned.fill(child: Padding(padding: const EdgeInsets.only(bottom: 66), child: _tableArea(st, money, false))),
+            // Sto ide skroz do dna ekrana (dugmad stoje preko donjeg dela stola, kao na GG).
+            Positioned.fill(child: _tableArea(st, money, false)),
             Positioned(left: 0, right: 0, bottom: 0, child: _panel(st, money, false)),
           ]),
         ),
@@ -1535,6 +1536,33 @@ class _Layout {
   double get h => size.height;
   // Sto je pomeren naviše (prazan prostor gore), da dole ima mesta za svoju pločicu i oznake.
   Offset get center => Offset(w / 2, h * (wide ? 0.45 : 0.44));
+
+  // ---------- Telefon: sto kao da igrač sedi za njim (dole širok preko celog ekrana, gore uži) ----------
+  double get feltTop => center.dy - h * 0.40 - 4;
+  /// Dno stola je ispod dugmadi, na samom dnu ekrana.
+  double get feltBottom => h + 30;
+  double get feltTopRx => w * 0.39;
+  /// Dole je sto širi od ekrana: luk dna izlazi van ivica (kao da sto ide preko cele širine).
+  double get feltBottomRx => w * 0.53;
+  /// Visina zaobljenog vrha (polukrug na vrhu stola).
+  double get feltArcH => feltTopRx;
+  /// Visina luka na dnu stola.
+  double get feltBottomArcH => h * 0.16;
+
+  /// Pola širine stola na visini y: zaobljen vrh, prave stranice, široko zaobljeno dno.
+  double feltRx(double y) {
+    final y1 = feltTop + feltArcH, y2 = feltBottom - feltBottomArcH;
+    if (y < y1) {
+      final t = ((y1 - y) / feltArcH).clamp(0.0, 1.0);
+      return feltTopRx * sqrt(max(0.0, 1 - t * t));
+    }
+    if (y > y2) {
+      final t = ((y - y2) / feltBottomArcH).clamp(0.0, 1.0);
+      return feltBottomRx * sqrt(max(0.0, 1 - t * t));
+    }
+    final f = ((y - y1) / (y2 - y1)).clamp(0.0, 1.0);
+    return feltTopRx + (feltBottomRx - feltTopRx) * f;
+  }
   // Karte na stolu (+20%).
   double get cardW => min(min(w, h) > 600 ? 55.0 : 43.7, (w * 0.68) / 5 - 4);
   double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
@@ -1547,12 +1575,14 @@ class _Layout {
   /// Telefon: mesta po ivicama stola (levo i desno po visini, gore dva), da svih 9 igrača stane.
   /// (x, y) od -1 do 1; redom od mene (dole) u smeru kazaljke.
   static const _phoneSlots = <int, List<(double, double)>>{
-    9: [(-1, 0.64), (-1, 0.2), (-0.96, -0.42), (-0.42, -0.98), (0.42, -0.98), (0.96, -0.42), (1, 0.2), (1, 0.64)],
-    8: [(-1, 0.62), (-1, 0.18), (-0.9, -0.5), (0, -1), (0.9, -0.5), (1, 0.18), (1, 0.62)],
-    7: [(-1, 0.5), (-1, -0.3), (-0.42, -0.96), (0.42, -0.96), (1, -0.3), (1, 0.5)],
-    6: [(-1, 0.42), (-1, -0.45), (0, -1), (1, -0.45), (1, 0.42)],
-    5: [(-1, 0.3), (-0.6, -0.85), (0.6, -0.85), (1, 0.3)],
-    4: [(-1, 0.0), (0, -1), (1, 0.0)],
+    // Ja sam dole levo; desno dole je prazno (mesto za Raise), ostali idu oko stola.
+    // Igrači sa strane su iznad i ispod karata na stolu (ne u istoj visini).
+    9: [(-1, 0.33), (-1, -0.36), (-0.9, -0.7), (-0.38, -0.98), (0.38, -0.98), (0.9, -0.7), (1, -0.36), (1, 0.33)],
+    8: [(-1, 0.33), (-1, -0.36), (-0.75, -0.8), (0, -1), (0.75, -0.8), (1, -0.36), (1, 0.33)],
+    7: [(-1, 0.33), (-1, -0.45), (-0.42, -0.97), (0.42, -0.97), (1, -0.45), (1, 0.33)],
+    6: [(-1, 0.33), (-0.9, -0.5), (0, -1), (0.9, -0.5), (1, 0.33)],
+    5: [(-1, 0.33), (-0.6, -0.9), (0.6, -0.9), (1, 0.33)],
+    4: [(-1, -0.4), (0, -1), (1, -0.4)],
     3: [(-0.8, -0.6), (0.8, -0.6)],
     2: [(0, -1)],
   };
@@ -1562,11 +1592,15 @@ class _Layout {
     final angle = pi / 2 + 2 * pi * k / n;
     final slots = wide ? null : _phoneSlots[n];
     late Offset p;
-    if (slots != null && k > 0) {
+    if (slots != null && k == 0) {
+      // Telefon: ja dole levo (kao na GG), desno dole ostaje slobodno za izbor uloga.
+      p = Offset(w * 0.27, center.dy + h * 0.40);
+    } else if (slots != null && k > 0) {
       final (sx, sy) = slots[k - 1];
-      // Nagnut sto: gore (dalje) je uži nego dole.
-      final narrow = 1 - 0.14 * (-sy).clamp(0.0, 1.0);
-      p = center + Offset(w * 0.39 * narrow * sx, h * 0.40 * sy);
+      // Igrač sedi na ivici stola (sto je gore uži nego dole).
+      final y = center.dy + h * 0.40 * sy;
+      final edge = sx.abs() >= 0.8 ? feltRx(y) - 10 : w * 0.39 * sx.abs();
+      p = Offset(center.dx + sx.sign * min(edge, w / 2 - 54), y);
     } else {
       // Sto je nagnut kao na GG: gornja (dalja) strana je uža, donja (bliža) šira.
       final widen = 1 + 0.07 * sin(angle);
@@ -1631,7 +1665,8 @@ class _Layout {
 
   /// Gornja ivica tuđeg sedišta: mesto i za velike otvorene karte iznad pločice.
   double othersTop(Offset p, double a) => min(p.dy - a / 2 - 16, p.dy + (a + 8) / 2 - 6 - faceCardW(2) * 1.4 - 6);
-  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - (wide ? 80 : 100));
+  // Telefon: moja pločica (ime i stek) uvek iznad dugmadi.
+  double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - (wide ? 80 : 140));
 
   /// Prostor koji zauzima sedište: avatar sa kartama i pločica sa oznakom ispod.
   List<Rect> seatRects(int i) {
@@ -2359,8 +2394,10 @@ class _TableViewState extends State<_TableView> {
     final flyingIn = _flights.any((f) => f.to == lay.pile);
 
     final children = <Widget>[
-      // Sto: zlatna linija, kožna ivica, zlatna linija i bordo čoja
-      Positioned(
+      // Telefon: sto u perspektivi (dole preko celog ekrana, gore uži).
+      if (!widget.wide) Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _PhoneFeltPainter(lay)))),
+      // Računar: sto: zlatna linija, kožna ivica, zlatna linija i bordo čoja
+      if (widget.wide) Positioned(
         // Nagib skraćuje sto po visini, pa je pre nagiba viši (gornja ivica ostaje kod gornjih igrača).
         left: w * 0.02,
         // Telefon: jači nagib, pa je sto pre nagiba viši (donja ivica ostaje ista, gornja kod gornjih igrača).
@@ -2639,7 +2676,7 @@ class _TableViewState extends State<_TableView> {
       // Sedište je centrirano na avatar; svoje malo podignuto da stane cela pločica.
       // Svoj igrač je 15 % veći, ostali 15 % manji (svako na svom telefonu vidi sebe većeg).
       final avatarSize = widget.wide ? (isMe ? 87.0 : 54.0) : (isMe ? 67.0 : 41.0);
-      final topY = isMe ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : p.dy - avatarSize / 2;
+      final topY = isMe ? (widget.wide ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : lay.myTop(p)) : p.dy - avatarSize / 2;
       // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
       if (!isMe && app.notes.containsKey(s['userId'])) {
         overlays.add(Positioned(
@@ -3386,7 +3423,8 @@ class _MyPanel extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
         child: Stack(clipBehavior: Clip.none, children: [
           if (bottom != null) bottom else SizedBox(height: h, width: double.infinity),
-          if (myHand != null) Positioned(left: 0, bottom: h + 6, child: _HandPill(myHand)),
+          // Snaga ruke desno (levo dole sedim ja).
+          if (myHand != null) Positioned(right: 0, bottom: h + 6, child: _HandPill(myHand)),
         ]),
       );
     }
@@ -3553,6 +3591,70 @@ class _WaitingBadgeState extends State<_WaitingBadge> with SingleTickerProviderS
 }
 
 /// Koliko se moje (uvećane) karte dižu iznad avatara: 20% visine karte.
+/// Telefon: sto u perspektivi — dole širok (preko celog ekrana), gore uži, zaobljen kao jaje.
+class _PhoneFeltPainter extends CustomPainter {
+  final _Layout lay;
+  _PhoneFeltPainter(this.lay);
+
+  /// Zaobljen uži vrh, prave stranice koje se šire naniže i široko zaobljeno dno koje izlazi van ekrana.
+  Path _shape(double inset) {
+    final cx = lay.center.dx;
+    final top = lay.feltTop + inset, bottom = lay.feltBottom - inset;
+    final a = lay.feltTopRx - inset, bx = lay.feltBottomRx - inset;
+    final y1 = lay.feltTop + lay.feltArcH, y2 = lay.feltBottom - lay.feltBottomArcH;
+    final b = y1 - top, c = bottom - y2;
+    // Pravac stranice naviše, da vrh i dno nastave glatko bez preloma.
+    final side = Offset(-(bx - a), -(y2 - y1));
+    final dir = side / side.distance;
+    const k = 0.6;
+    return Path()
+      ..moveTo(cx - bx, y2)
+      ..lineTo(cx - a, y1)
+      // Vrh: pravi polukrug (dve četvrtine kruga).
+      ..cubicTo(cx - a, y1 - 0.5523 * b, cx - 0.5523 * a, top, cx, top)
+      ..cubicTo(cx + 0.5523 * a, top, cx + a, y1 - 0.5523 * b, cx + a, y1)
+      ..lineTo(cx + bx, y2)
+      ..cubicTo(cx + bx - dir.dx * k * c, y2 - dir.dy * k * c, cx + k * bx, bottom, cx, bottom)
+      ..cubicTo(cx - k * bx, bottom, cx - bx + dir.dx * k * c, y2 - dir.dy * k * c, cx - bx, y2)
+      ..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Rect.fromLTRB(0, lay.feltTop, size.width, lay.feltBottom);
+    final outer = _shape(0);
+    canvas.drawShadow(outer, Colors.black, 18, false);
+    canvas.drawPath(outer, Paint()..shader = goldGradient.createShader(bounds));
+    canvas.drawPath(
+        _shape(2.5),
+        Paint()
+          ..shader = const LinearGradient(colors: [Color(0xFF3A2A1E), Color(0xFF140D09)], begin: Alignment.topCenter, end: Alignment.bottomCenter)
+              .createShader(bounds));
+    final rail = min(size.width, size.height) * 0.03;
+    canvas.drawPath(_shape(2.5 + rail), Paint()..shader = goldGradient.createShader(bounds));
+    final feltPath = _shape(4 + rail);
+    canvas.drawPath(
+        feltPath,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(0, -0.15),
+            radius: 0.75,
+            colors: const [feltLight, felt, feltDark],
+            stops: const [0, 0.6, 1],
+          ).createShader(bounds));
+    // Blaga linija unutar čoje (kao šav na stolu).
+    canvas.drawPath(
+        _shape(4 + rail + 14),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = Colors.white.withOpacity(0.06));
+  }
+
+  @override
+  bool shouldRepaint(_PhoneFeltPainter old) => old.lay.w != lay.w || old.lay.h != lay.h;
+}
+
 /// Oznaka bounty-ja na glavi igrača (PKO turnir).
 class _BountyPill extends StatelessWidget {
   final int amount;
