@@ -2759,7 +2759,7 @@ class _TableViewState extends State<_TableView> {
       // Sedište je centrirano na avatar; svoje malo podignuto da stane cela pločica.
       // Svoj igrač je 15 % veći, ostali 15 % manji (svako na svom telefonu vidi sebe većeg).
       final avatarSize = widget.wide ? (isMe ? 87.0 : 54.0) : (isMe ? 67.0 : 41.0);
-      final topY = isMe ? (widget.wide ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : lay.myTop(p)) : p.dy - avatarSize / 2;
+      final topY = isMe ? (widget.wide ? min(p.dy - avatarSize / 2, h - avatarSize - 74) : lay.myTop(p)) : p.dy - avatarSize / 2;
       // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
       if (!isMe && app.notes.containsKey(s['userId'])) {
         // Kad su karte okrenute, beleška ide ispod karata (karte su preko slike igrača).
@@ -3781,10 +3781,8 @@ class _BountyPill extends StatelessWidget {
 /// Donja ivica tuđih otvorenih karata: na telefonu centrirane preko avatara, na računaru kao ranije.
 double _faceBottom(double a, double cw) => a >= 52 ? 6 : (a + 8 - cw * 1.4) / 2;
 
-/// Koliko moje karte idu iznad avatara. Telefon: centrirane tačno preko moje slike (negativno = niže).
-double _myCardsLift(double a) => a >= 80
-    ? 34.0 * (a / 50) * 0.86 * 0.2 * 1.4
-    : -(a * 0.02 + (a + 8 - 34.0 * (a / 50) * 0.86 * 1.14 * 1.4) / 2);
+/// Koliko moje karte idu iznad avatara: centrirane tačno preko moje slike (negativno = niže); računar još malo niže.
+double _myCardsLift(double a) => -(a * 0.02 + (a + 8 - 34.0 * (a / 50) * 0.86 * (a > 80 ? 1.2 : 1.14) * 1.4) / 2) - (a > 80 ? 4 : 0);
 
 /// Natpis sa snagom moje ruke ("Two pair 8 & 3").
 class _HandPill extends StatelessWidget {
