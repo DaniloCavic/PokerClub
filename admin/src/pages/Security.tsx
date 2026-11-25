@@ -19,8 +19,10 @@ export function Security() {
         </button>
       </div>
       <p className="muted small">
-        Upozorenje se pravi kad za isti sto sedne igrač sa iste IP adrese ili sa istog uređaja kao neko ko već sedi. Ista IP adresa
-        ne mora da znači varanje (isti stan, isti kafić), ali vredi pogledati.
+        Upozorenja se prave sama: kad za isti sto sedne igrač sa iste IP adrese ili uređaja kao neko ko već sedi; svakog sata iz ruku
+        poslednjih 7 dana: <b>prebacivanje žetona</b> (jedan igrač stalno gubi novac baš jednom igraču), <b>meka igra</b> (igrač skoro
+        uvek odustaje kad baš određeni igrač beti, a protiv ostalih ne) i <b>više naloga</b> sa iste IP adrese ili uređaja. To nije
+        dokaz varanja (isti stan, isti kafić, slučajnost), ali vredi pogledati ruke tih igrača.
       </p>
       {error && <div className="error">{error}</div>}
       <h3>Upozorenja</h3>
@@ -41,7 +43,18 @@ export function Security() {
                 <td>{fmtDate(a.createdAt)}</td>
                 <td>
                   <span className={`badge ${a.kind === 'SAME_IP' ? 'blue' : 'red'}`}>
-                    {({ SAME_DEVICE: 'Isti uređaj', SAME_IP: 'Ista IP adresa', STAFF_NEW_IP: 'Admin: nova IP', STAFF_LOCKED: 'Admin: zaključan' } as Record<string, string>)[a.kind] ?? a.kind}
+                    {(
+                      {
+                        SAME_DEVICE: 'Isti uređaj',
+                        SAME_IP: 'Ista IP adresa',
+                        STAFF_NEW_IP: 'Admin: nova IP',
+                        STAFF_LOCKED: 'Admin: zaključan',
+                        CHIP_DUMP: 'Prebacivanje žetona',
+                        SOFT_PLAY: 'Meka igra',
+                        SHARED_IP: 'Više naloga, ista IP',
+                        SHARED_DEVICE: 'Više naloga, isti uređaj',
+                      } as Record<string, string>
+                    )[a.kind] ?? a.kind}
                   </span>
                 </td>
                 <td>

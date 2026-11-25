@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { scanHands } from '../security/collusion';
 import { Prisma } from '@prisma/client';
 import { gzipSync } from 'zlib';
 import { PrismaService } from '../prisma/prisma.service';
@@ -60,6 +61,8 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       const { date, time } = localNow();
+      // Sumnjivi igrači: provera svakog sata (poslednjih 7 dana keš ruku).
+      await this.once('security:scan', `${date} ${time.slice(0, 2)}`, () => this.securityScan());
       if (time >= '04:00') await this.once('daily:backup', date, () => this.mailBackup(date));
       // Nedeljni izveštaj: ponedeljak od 10:00, za prethodnu nedelju (ponedeljak–nedelja).
       if (weekday(date) === 1 && time >= '10:00') {
@@ -69,6 +72,55 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
+  }
+
+  // ---------- Sumnjivi igrači ----------
+
+  /**
+   * Upozorenja za super agenta (stranica Bezbednost i dnevni izveštaj):
+   * prebacivanje žetona jednom igraču, meka igra prema jednom igraču i više naloga sa iste IP adrese ili uređaja.
+   * Isto upozorenje (ista vrsta i isti igrači) ne ponavlja se 7 dana.
+   */
+  async securityScan() {
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    const rows = await this.prisma.hand.findMany({
+      where: { createdAt: { gte: since }, table: { tournamentId: null } },
+      select: { details: true, table: { select: { bigBlind: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 30_000,
+    });
+    const findings: { kind: string; userIds: string[]; detail: string }[] = scanHands(rows.map((r) => ({ bigBlind: r.table.bigBlind, details: r.details })));
+    // Više naloga igrača sa iste IP adrese ili istog uređaja.
+    const players = await this.prisma.user.findMany({
+      where: { role: 'PLAYER', isBlocked: false, OR: [{ lastIp: { not: null } }, { lastDevice: { not: null } }] },
+      select: { id: true, lastIp: true, lastDevice: true },
+    });
+    for (const [field, kind, label] of [
+      ['lastIp', 'SHARED_IP', 'IP adresa'],
+      ['lastDevice', 'SHARED_DEVICE', 'uređaj'],
+    ] as const) {
+      const groups = new Map<string, string[]>();
+      for (const u of players) {
+        const v = u[field];
+        if (v) groups.set(v, [...(groups.get(v) ?? []), u.id]);
+      }
+      for (const [v, ids] of groups)
+        if (ids.length >= 2) findings.push({ kind, userIds: ids.sort(), detail: `${ids.length} naloga sa ${label === 'uređaj' ? 'istim poslednjim uređajem' : 'istom poslednjom IP adresom'}${field === 'lastIp' ? ` (${v})` : ''}.` });
+    }
+    if (!findings.length) return;
+    const recent = await this.prisma.securityAlert.findMany({ where: { createdAt: { gte: since } }, select: { kind: true, userIds: true } });
+    const seen = new Set(recent.map((a) => `${a.kind}:${a.userIds.join(',')}`));
+    const ids = [...new Set(findings.flatMap((f) => f.userIds))];
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true } });
+    const name = (id: string) => users.find((u) => u.id === id)?.displayName ?? '?';
+    let n = 0;
+    for (const f of findings) {
+      if (seen.has(`${f.kind}:${f.userIds.join(',')}`)) continue;
+      const names = f.kind === 'CHIP_DUMP' ? `${name(f.userIds[0])} → ${name(f.userIds[1])}` : f.kind === 'SOFT_PLAY' ? `${name(f.userIds[0])} prema ${name(f.userIds[1])}` : f.userIds.map(name).join(', ');
+      await this.prisma.securityAlert.create({ data: { kind: f.kind, userIds: f.userIds, names, detail: f.detail } });
+      n++;
+    }
+    if (n) this.log.log(`Sumnjivi igrači: ${n} novih upozorenja.`);
   }
 
   // ---------- Rezervna kopija ----------
