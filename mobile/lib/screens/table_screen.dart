@@ -1898,74 +1898,153 @@ class _BoardCardState extends State<_BoardCard> with SingleTickerProviderStateMi
   }
 }
 
-/// Veliki zlatni WIN preko slike pobednika (iskoči, pa blago pulsira).
-class _WinBadge extends StatefulWidget {
+/// Pobeda: zlatna svetlost kruži oko slike igrača, a sitne iskrice se razleću (jednom).
+class _GoldOrbit extends StatefulWidget {
   final double size;
-  const _WinBadge({required this.size});
+  const _GoldOrbit({required this.size});
 
   @override
-  State<_WinBadge> createState() => _WinBadgeState();
+  State<_GoldOrbit> createState() => _GoldOrbitState();
 }
 
-class _WinBadgeState extends State<_WinBadge> with TickerProviderStateMixin {
-  late final AnimationController _pop = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..forward();
-  late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-    ..repeat(reverse: true);
+class _GoldOrbitState extends State<_GoldOrbit> with TickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+  late final AnimationController _sparks = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400))..forward();
+  late final AnimationController _in = AnimationController(vsync: this, duration: const Duration(milliseconds: 350))..forward();
+  final _rnd = Random();
+  late final List<(double, double, double)> _motes = [
+    for (var i = 0; i < 16; i++) (_rnd.nextDouble() * pi * 2, 0.8 + _rnd.nextDouble() * 0.9, _rnd.nextDouble() * 0.5),
+  ];
 
   @override
   void dispose() {
-    _pop.dispose();
-    _pulse.dispose();
+    _spin.dispose();
+    _sparks.dispose();
+    _in.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final a = widget.size;
-    return AnimatedBuilder(
-      animation: Listenable.merge([_pop, _pulse]),
-      builder: (_, __) {
-        final pop = Curves.elasticOut.transform(_pop.value);
-        final glow = 8 + 14 * _pulse.value;
-        return IgnorePointer(
-          child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
-            // Zlatni sjaj oko avatara
-            Container(
-              width: a + 14,
-              height: a + 14,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: const Color(0xCCF2C14E), blurRadius: glow, spreadRadius: 2 + 3 * _pulse.value)],
-              ),
-            ),
-            Transform.scale(
-              scale: 0.2 + 0.8 * pop,
-              child: Transform.rotate(
-                angle: -0.08,
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: a * 0.16, vertical: a * 0.04),
-                  decoration: BoxDecoration(
-                    gradient: goldGradient,
-                    borderRadius: BorderRadius.circular(a * 0.2),
-                    border: Border.all(color: const Color(0xFF5A3A08), width: 1.5),
-                    boxShadow: [const BoxShadow(color: Colors.black87, blurRadius: 8), BoxShadow(color: const Color(0xAAF6E27A), blurRadius: glow)],
-                  ),
-                  child: Text('WIN',
-                      style: TextStyle(
-                          fontFamily: 'Cinzel',
-                          fontWeight: FontWeight.w900,
-                          fontSize: a * 0.36,
-                          letterSpacing: 2,
-                          color: const Color(0xFF2A1A05),
-                          height: 1.1)),
-                ),
-              ),
-            ),
-          ]),
-        );
-      },
-    );
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: Listenable.merge([_spin, _sparks, _in]),
+        builder: (_, __) => CustomPaint(
+          painter: _OrbitPainter(widget.size, _spin.value, _sparks.value, _in.value, _motes),
+        ),
+      );
+}
+
+class _OrbitPainter extends CustomPainter {
+  final double a, spin, sparks, fadeIn;
+  final List<(double, double, double)> motes;
+  _OrbitPainter(this.a, this.spin, this.sparks, this.fadeIn, this.motes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    // Telefon: karte su preko slike, pa je obod širi da viri oko karata.
+    final r = a / 2 + 3.5 + (a < 80 ? (a < 52 ? 9 : 6) : 0);
+    final rect = Rect.fromCircle(center: c, radius: r);
+    // Mek zlatni sjaj iza oboda.
+    canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..color = const Color(0xFFF2C14E).withOpacity(0.55 * fadeIn)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    // Dva svetla koja kruže po obodu.
+    canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.2
+          ..shader = SweepGradient(
+            colors: [
+              const Color(0x00F7D97A),
+              const Color(0xFFF7D97A),
+              Colors.white,
+              const Color(0x00F7D97A),
+              const Color(0x00F7D97A),
+              const Color(0xFFF7D97A),
+              Colors.white,
+              const Color(0x00F7D97A),
+            ].map((x) => x.withOpacity(x.opacity * fadeIn)).toList(),
+            stops: const [0.0, 0.3, 0.4, 0.45, 0.5, 0.8, 0.9, 0.95],
+            transform: GradientRotation(-spin * 2 * pi),
+          ).createShader(rect));
+    // Iskrice: lete od slike na sve strane i gase se.
+    for (final (ang, dist, delay) in motes) {
+      final t = ((sparks - delay) / (1 - delay)).clamp(0.0, 1.0);
+      if (t <= 0 || t >= 1) continue;
+      final d = r + (a * 0.9 * dist) * Curves.easeOut.transform(t);
+      final o = c + Offset(cos(ang) * d, sin(ang) * d * 0.75);
+      final op = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+      canvas.drawCircle(o, 3.2, Paint()..color = const Color(0xFFF7D97A).withOpacity(0.5 * op)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
+      canvas.drawCircle(o, 1.5, Paint()..color = const Color(0xFFFFF8D0).withOpacity(op));
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _OrbitPainter old) => true;
+}
+
+/// Pobeda: zlatna svetlost obilazi pločicu (ime i stek).
+class _PlateOrbit extends StatefulWidget {
+  final Widget child;
+  const _PlateOrbit({required this.child});
+
+  @override
+  State<_PlateOrbit> createState() => _PlateOrbitState();
+}
+
+class _PlateOrbitState extends State<_PlateOrbit> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        child: widget.child,
+        builder: (_, child) => CustomPaint(foregroundPainter: _PlateOrbitPainter(_c.value), child: child),
+      );
+}
+
+class _PlateOrbitPainter extends CustomPainter {
+  final double t;
+  _PlateOrbitPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final rr = RRect.fromRectAndRadius(rect.deflate(0.8), const Radius.circular(10));
+    canvas.drawRRect(
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4
+          ..color = const Color(0x88F2C14E)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+    canvas.drawRRect(
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..shader = SweepGradient(
+            colors: const [Color(0x66E0B341), Color(0x66E0B341), Colors.white, Color(0xFFF7D97A), Color(0x66E0B341)],
+            stops: const [0.0, 0.62, 0.75, 0.82, 1.0],
+            transform: GradientRotation(t * 2 * pi),
+          ).createShader(rect));
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlateOrbitPainter old) => old.t != t;
 }
 
 /// Žetoni u letu: od uloga ka potu, ili od pota ka pobedniku.
@@ -3214,6 +3293,8 @@ class _SeatView extends StatelessWidget {
             height: a + 8,
             child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
               avatar,
+              // Pobeda: zlatna svetlost kruži oko slike (ispod karata, pa viri oko njih), iskrice se razleću.
+              if (won != null) Positioned.fill(child: IgnorePointer(child: _GoldOrbit(size: a))),
               // Svoje karte iznad avatara; tuđe (poleđine) gore desno, kao u dizajnu
               if (cardsWidget != null)
                 isMe
@@ -3243,16 +3324,15 @@ class _SeatView extends StatelessWidget {
                 else
                   Positioned(left: 25 - a * 0.55, top: a * 0.55 - _BountyPill.heightFor(a) / 2 + 4, child: _BountyPill(amount: bounty!, a: a)),
               // Pobeda: veliki WIN preko slike igrača
-              if (won != null) Positioned(top: a * 0.12, child: _WinBadge(size: a * 1.25)),
             ]),
           ),
         ),
         Transform.translate(
           offset: const Offset(0, -6),
           child: badges.isEmpty
-              ? plate
+              ? (won != null ? _PlateOrbit(child: plate) : plate)
               : Stack(clipBehavior: Clip.none, children: [
-                  plate,
+                  won != null ? _PlateOrbit(child: plate) : plate,
                   Positioned(
                     left: -7,
                     top: -9,
