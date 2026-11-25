@@ -96,4 +96,47 @@ describe('statistika igrača za stolom', () => {
   it('igrač bez ruku za stolom', () => {
     expect(playerStats('niko', hands, 'HOLDEM')).toMatchObject({ hands: 0, vpip: 0, pfr: 0, winRate: 0, bestHand: null });
   });
+  it('ATS, CB, FCB, WTSD, WSD, AF i dobitak', () => {
+    // 4 igrača, diler je Ana (seat 0): SB Bojan (1), BB Ceca (2), Dule (3) je UTG; CO je Dule (pre dilera).
+    const ps = [
+      { seat: 0, userId: 'ana', startStack: 1000, endStack: 1150 },
+      { seat: 1, userId: 'bojan', startStack: 1000, endStack: 940 },
+      { seat: 2, userId: 'ceca', startStack: 1000, endStack: 910 },
+      { seat: 3, userId: 'dule', startStack: 1000, endStack: 1000 },
+    ];
+    const h: StoredHand[] = [
+      {
+        board: 'Ks 7h 2c 9d 3s',
+        details: {
+          button: 0,
+          players: ps,
+          actions: [
+            act(1, 'sb', 5), act(2, 'bb', 10), act(3, 'fold'), act(0, 'raise', 30), act(1, 'call', 30), act(2, 'call', 30),
+            // Flop: Bojan i Ceca čekiraju, Ana (agresor) beti (CB); Bojan odustaje (FCB), Ceca dorovnava.
+            act(1, 'check', 0, 'flop'), act(2, 'check', 0, 'flop'), act(0, 'bet', 30, 'flop'), act(1, 'fold', 0, 'flop'), act(2, 'call', 30, 'flop'),
+            act(2, 'check', 0, 'turn'), act(0, 'bet', 30, 'turn'), act(2, 'call', 30, 'turn'),
+            act(2, 'check', 0, 'river'), act(0, 'check', 0, 'river'),
+          ],
+          pots: [{ amount: 240, winners: [{ seat: 0, amount: 240 }] }],
+          shown: [{ seat: 0, cards: ['Ah', 'Kd'] }, { seat: 2, cards: ['Qh', 'Qd'] }],
+        },
+      },
+    ];
+    const ana = playerStats('ana', h, 'HOLDEM');
+    expect(ana.ats).toBe(100); // diler, svi pre nje odustali, povisila
+    expect(ana.cb).toBe(100);
+    expect(ana.wtsd).toBe(100);
+    expect(ana.wsd).toBe(100);
+    expect(ana.af).toBe(2); // 2 beta, 0 dorovnavanja
+    expect(ana.profit).toBe(150);
+    const bojan = playerStats('bojan', h, 'HOLDEM');
+    expect(bojan.fcb).toBe(100);
+    expect(bojan.wtsd).toBe(0);
+    const ceca = playerStats('ceca', h, 'HOLDEM');
+    expect(ceca.fcb).toBe(0);
+    expect(ceca.wtsd).toBe(100);
+    expect(ceca.wsd).toBe(0);
+    expect(ceca.profit).toBe(-90);
+    expect(playerStats('dule', h, 'HOLDEM').ats).toBe(0); // CO, ali je odustao
+  });
 });

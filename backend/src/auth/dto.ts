@@ -255,8 +255,14 @@ export class TableDto {
 
 export class NoteDto {
   @IsString()
-  @MaxLength(500, { message: 'Beleška može imati najviše 500 znakova.' })
+  @MaxLength(1000, { message: 'Beleška može imati najviše 1000 znakova.' })
   text: string;
+
+  /** Oznaka u boji (#RRGGBB); prazno briše oznaku, bez polja ostaje stara. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^(#[0-9A-Fa-f]{6})?$/, { message: 'Neispravna boja.' })
+  color?: string;
 }
 
 export class AvatarDto {

@@ -5,10 +5,15 @@ import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
 export interface StoredHand {
   board: string;
   details: unknown;
+  /** Igra ove ruke (za "sve igre", gde su ruke sa raznih stolova). */
+  variant?: 'HOLDEM' | 'OMAHA';
+  /** Ruka sa keš stola (samo one ulaze u ukupan dobitak). */
+  cash?: boolean;
 }
 
 interface Details {
-  players?: { seat: number; userId: string }[];
+  button?: number;
+  players?: { seat: number; userId: string; startStack?: number; endStack?: number }[];
   actions?: { seat: number; street: string; type: string; amount: number }[];
   pots?: { amount: number; winners: { seat: number; amount: number }[] }[];
   shown?: { seat: number; cards: string[] }[];
@@ -18,6 +23,8 @@ interface Details {
 const BET_TYPES = new Set(['sb', 'bb', 'straddle', 'call', 'bet', 'raise', 'allin']);
 
 const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
+/** Kao pct, ali null kad igrač još nije imao nijednu priliku (prikazuje se „–”, ne 0 %). */
+const pctOrNull = (part: number, whole: number) => (whole ? pct(part, whole) : null);
 
 /**
  * Statistika igrača za jednim stolom (kao na GG / ClubGG):
@@ -39,7 +46,13 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
   let showdowns = 0;
   let biggestPot = 0;
   let best: { score: number; name: string; cards: string[] } | null = null;
-  const evalFn = variant === 'OMAHA' ? bestOmaha : bestHoldem;
+  // Krađa blajndova (ATS), kontinuacioni bet (CB), odustajanje na CB (FCB), otvaranja (WTSD/WSD), agresija (AF).
+  let atsChances = 0, ats = 0;
+  let cbChances = 0, cb = 0;
+  let fcbChances = 0, fcb = 0;
+  let sawFlop = 0, wtsd = 0, wsd = 0;
+  let aggr = 0, calls = 0;
+  let profit = 0;
 
   for (const h of hands) {
     const d = (h.details ?? {}) as Details;
@@ -47,6 +60,7 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
     if (!me) continue;
     played++;
     const actions = d.actions ?? [];
+    if (h.cash !== false && me.startStack != null && me.endStack != null) profit += me.endStack - me.startStack;
 
     if (!actions.some((a) => a.type === 'bomb')) {
       preflopHands++;
@@ -78,6 +92,66 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
       if (threeBet) threeBets++;
     }
 
+    // ---------- ATS: prvi ulazi povišenjem sa CO, BTN ili SB (pre njega su svi odustali) ----------
+    const seats = (d.players ?? []).map((p) => p.seat).sort((a, b) => a - b);
+    if (d.button != null && seats.length >= 3 && !actions.some((a) => a.type === 'bomb')) {
+      const bi = seats.indexOf(d.button);
+      if (bi >= 0) {
+        const at = (k: number) => seats[(bi + k + seats.length) % seats.length];
+        const steal = new Set([at(0), at(1), ...(seats.length >= 4 ? [at(-1)] : [])]);
+        if (steal.has(me.seat)) {
+          for (const a of actions) {
+            if (a.street !== 'preflop' || ['ante', 'sb', 'bb', 'straddle'].includes(a.type)) continue;
+            if (a.seat === me.seat) {
+              atsChances++;
+              if (a.type === 'raise' || a.type === 'bet' || a.type === 'allin') ats++;
+              break;
+            }
+            if (a.type !== 'fold') break; // neko je već ušao: nije prilika za krađu
+          }
+        }
+      }
+    }
+
+    // ---------- Posle flopa ----------
+    const folded = actions.some((a) => a.seat === me.seat && a.type === 'fold' && a.street === 'preflop');
+    const flopActs = actions.filter((a) => a.street === 'flop');
+    const reachedFlop = flopActs.length > 0 || parseCards(h.board ?? '').length >= 3;
+    if (reachedFlop && !folded) {
+      sawFlop++;
+      // Poslednji koji je povisio pre flopa (agresor) ima priliku za CB.
+      let aggressor = -1;
+      for (const a of actions) if (a.street === 'preflop' && (a.type === 'raise' || a.type === 'bet')) aggressor = a.seat;
+      if (aggressor >= 0) {
+        const firstBet = flopActs.findIndex((a) => a.type === 'bet' || a.type === 'raise' || a.type === 'allin');
+        if (aggressor === me.seat) {
+          const myFirst = flopActs.findIndex((a) => a.seat === me.seat);
+          if (myFirst >= 0 && (firstBet < 0 || firstBet >= myFirst)) {
+            cbChances++;
+            if (firstBet === myFirst) cb++;
+          }
+        } else if (firstBet >= 0 && flopActs[firstBet].seat === aggressor) {
+          const reply = flopActs.slice(firstBet + 1).find((a) => a.seat === me.seat);
+          if (reply) {
+            fcbChances++;
+            if (reply.type === 'fold') fcb++;
+          }
+        }
+      }
+      for (const a of actions) {
+        if (a.seat !== me.seat || a.street === 'preflop') continue;
+        if (a.type === 'bet' || a.type === 'raise' || a.type === 'allin') aggr++;
+        else if (a.type === 'call') calls++;
+      }
+      const foldedLater = actions.some((a) => a.seat === me.seat && a.type === 'fold');
+      const stayed = (d.players ?? []).filter((p) => !actions.some((a) => a.seat === p.seat && a.type === 'fold')).length;
+      if (!foldedLater && stayed >= 2) {
+        wtsd++;
+        const got = (d.pots ?? []).flatMap((p) => p.winners).some((w) => w.seat === me.seat && w.amount > 0);
+        if (got) wsd++;
+      }
+    }
+
     const mine = (d.pots ?? []).flatMap((p) => p.winners).filter((w) => w.seat === me.seat).reduce((s, w) => s + w.amount, 0);
     if (mine > 0) won++;
     biggestPot = Math.max(biggestPot, mine);
@@ -86,7 +160,7 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
     const board = parseCards(h.board ?? '');
     if (shown && board.length === 5) {
       showdowns++;
-      const v = evalFn(parseCards(shown.cards.join(' ')), board);
+      const v = ((h.variant ?? variant) === 'OMAHA' ? bestOmaha : bestHoldem)(parseCards(shown.cards.join(' ')), board);
       if (!best || v.score > best.score) best = { score: v.score, name: v.name, cards: v.cards.map(cardToString) };
     }
   }
@@ -102,5 +176,12 @@ export function playerStats(userId: string, hands: StoredHand[], variant: 'HOLDE
     showdowns,
     biggestPot,
     bestHand: best ? { name: best.name, cards: best.cards } : null,
+    ats: pctOrNull(ats, atsChances),
+    cb: pctOrNull(cb, cbChances),
+    fcb: pctOrNull(fcb, fcbChances),
+    wtsd: pctOrNull(wtsd, sawFlop),
+    wsd: pctOrNull(wsd, wtsd),
+    af: calls ? Math.round((aggr / calls) * 10) / 10 : aggr ? aggr : null,
+    profit,
   };
 }

@@ -353,9 +353,21 @@ export class MeController {
    * VPIP, PFR, dobijene ruke, najveći osvojen pot i najbolja pokazana ruka.
    */
   @Get('table-stats')
-  async tableStats(@Query('tableId') tableId: string, @Query('userId') userId: string) {
-    if (!tableId || !userId) throw new BadRequestException('Nedostaje sto ili igrač.');
-    const table = await this.prisma.pokerTable.findUnique({ where: { id: tableId }, select: { variant: true } });
+  async tableStats(@Query('tableId') tableId: string, @Query('userId') userId: string, @Query('scope') scope?: string) {
+    if (!userId) throw new BadRequestException('Nedostaje igrač.');
+    // Sve igre: poslednjih 2000 ruku igrača sa svih stolova (kao profil na GG).
+    if (scope === 'all') {
+      const rows = await this.prisma.hand.findMany({
+        where: { playerIds: { has: userId } },
+        orderBy: { createdAt: 'desc' },
+        take: 2000,
+        select: { board: true, details: true, table: { select: { variant: true, tournamentId: true } } },
+      });
+      const hands = rows.map((h) => ({ board: h.board, details: h.details, variant: h.table.variant, cash: !h.table.tournamentId }));
+      return playerStats(userId, hands, 'HOLDEM');
+    }
+    if (!tableId) throw new BadRequestException('Nedostaje sto.');
+    const table = await this.prisma.pokerTable.findUnique({ where: { id: tableId }, select: { variant: true, tournamentId: true } });
     if (!table) throw new NotFoundException('Sto nije pronađen.');
     const hands = await this.prisma.hand.findMany({
       where: { tableId, playerIds: { has: userId } },
@@ -363,14 +375,21 @@ export class MeController {
       take: 1000,
       select: { board: true, details: true },
     });
-    return playerStats(userId, hands, table.variant);
+    return playerStats(userId, hands.map((h) => ({ ...h, cash: !table.tournamentId })), table.variant);
   }
 
   /** Beleške o drugim igračima (vidi ih samo onaj ko ih je napisao). */
   @Get('notes')
   async notes(@CurrentUser() user: User) {
     const rows = await this.prisma.playerNote.findMany({ where: { ownerId: user.id } });
-    return Object.fromEntries(rows.map((r) => [r.targetId, r.text]));
+    return Object.fromEntries(rows.filter((r) => r.text).map((r) => [r.targetId, r.text]));
+  }
+
+  /** Oznake u boji za igrače (kao na GG): igrač → boja (#RRGGBB). */
+  @Get('note-colors')
+  async noteColors(@CurrentUser() user: User) {
+    const rows = await this.prisma.playerNote.findMany({ where: { ownerId: user.id, color: { not: null } } });
+    return Object.fromEntries(rows.map((r) => [r.targetId, r.color]));
   }
 
   @Post('notes/:targetId')
@@ -380,12 +399,15 @@ export class MeController {
     if (!target) throw new NotFoundException('Igrač nije pronađen.');
     const text = dto.text.trim();
     const key = { ownerId_targetId: { ownerId: user.id, targetId } };
-    if (!text) {
+    // Boja: ako nije poslata, ostaje stara; prazna boja briše oznaku.
+    const old = await this.prisma.playerNote.findUnique({ where: key });
+    const color = dto.color === undefined ? (old?.color ?? null) : dto.color || null;
+    if (!text && !color) {
       await this.prisma.playerNote.deleteMany({ where: { ownerId: user.id, targetId } });
     } else {
-      await this.prisma.playerNote.upsert({ where: key, create: { ownerId: user.id, targetId, text }, update: { text } });
+      await this.prisma.playerNote.upsert({ where: key, create: { ownerId: user.id, targetId, text, color }, update: { text, color } });
     }
-    return { text };
+    return { text, color };
   }
 }
 

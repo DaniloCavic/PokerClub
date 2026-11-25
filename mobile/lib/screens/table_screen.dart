@@ -443,62 +443,8 @@ class _TableScreenState extends State<TableScreen> {
         seat: seat,
         isMe: isMe,
         money: Money((st['bigBlind'] as int?) ?? 0, app.showBB),
-        onNote: isMe
-            ? null
-            : () {
-                Navigator.pop(ctx);
-                _noteDialog(seat);
-              },
       ),
-    );
-  }
-
-  /// Beleška o drugom igraču (vidi je samo ovaj igrač).
-  Future<void> _noteDialog(Json seat) async {
-    final id = seat['userId'] as String;
-    final ctrl = TextEditingController(text: app.notes[id] ?? '');
-    final save = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(children: [
-          const Icon(Icons.edit_note, color: gold),
-          const SizedBox(width: 8),
-          Expanded(child: Text('${tr('Note', 'Beleška')}: ${seat['name']}', overflow: TextOverflow.ellipsis)),
-        ]),
-        content: SizedBox(
-          width: 380,
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              maxLines: 4,
-              maxLength: 500,
-              decoration: InputDecoration(hintText: tr('e.g. "bluffs a lot", "plays only strong hands"', 'npr. „mnogo blefira“, „igra samo jake ruke“')),
-            ),
-            Text(tr('Only you can see this note.', 'Ovu belešku vidite samo vi.'), style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          ]),
-        ),
-        actions: [
-          if (app.notes.containsKey(id))
-            TextButton(
-              onPressed: () {
-                ctrl.text = '';
-                Navigator.pop(ctx, true);
-              },
-              child: Text(tr('Delete', 'Obriši'), style: const TextStyle(color: accent)),
-            ),
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Cancel', 'Otkaži'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Save', 'Sačuvaj'))),
-        ],
-      ),
-    );
-    if (save != true) return;
-    try {
-      await app.saveNote(id, ctrl.text);
-      if (mounted) setState(() {});
-    } catch (e) {
-      app.toast(tr('Note was not saved.', 'Beleška nije sačuvana.'));
-    }
+    ).then((_) => mounted ? setState(() {}) : null);
   }
 
   void _menu(Json st) {
@@ -840,72 +786,193 @@ class _RebuyDialogState extends State<_RebuyDialog> {
   }
 }
 
-/// Statistika igrača za ovim stolom (kao na GG / ClubGG): VPIP, PFR, dobijene ruke,
-/// najveći pot i najbolja pokazana ruka. Zatvara se dugmetom ili dodirom pored prozora.
+/// Profil igrača kao na GG: statistika u krugovima (VPIP, PFR, ATS, 3BET, CB, FCB, WTSD, WSD, AF),
+/// broj ruku, dobijene ruke i ukupan dobitak (ovaj sto ili sve igre) i beleška sa oznakom u boji.
 class _PlayerStatsDialog extends StatefulWidget {
   final String tableId;
   final Json seat;
   final bool isMe;
   final Money money;
-  final VoidCallback? onNote;
-  const _PlayerStatsDialog({required this.tableId, required this.seat, required this.isMe, required this.money, this.onNote});
+  const _PlayerStatsDialog({required this.tableId, required this.seat, required this.isMe, required this.money});
 
   @override
   State<_PlayerStatsDialog> createState() => _PlayerStatsDialogState();
 }
 
+/// Boje oznaka igrača (kao na GG).
+const _labelColors = <int>[
+  0xFFB3261E, 0xFF3E8E7E, 0xFFC0662B, 0xFF2F6DB5, 0xFF9C9A2E,
+  0xFF7A3B2E, 0xFF4E9A3A, 0xFF6C3FA8, 0xFF1F7A5A, 0xFF9A7E84,
+];
+
 class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
-  Json? _stats;
+  final Map<bool, Json> _stats = {};
   String? _error;
+  bool _all = true;
+  String? _info;
+  late final TextEditingController _note;
+  int? _color;
+  Timer? _saveTimer;
+  bool _dirty = false;
+
+  // Uzima se jednom: beleška se čuva i pri zatvaranju prozora (tada context više ne važi).
+  late final AppState app = context.read<AppState>();
+  String get _id => widget.seat['userId'] as String;
 
   @override
   void initState() {
     super.initState();
-    final app = context.read<AppState>();
+    _note = TextEditingController(text: app.notes[_id] ?? '');
+    _color = app.noteColors[_id];
+    _load();
+  }
+
+  void _load() {
+    final all = _all;
+    if (_stats.containsKey(all)) return;
+    final q = all ? 'scope=all&userId=$_id' : 'tableId=${widget.tableId}&userId=$_id';
     app.api
-        .get('/me/table-stats?tableId=${widget.tableId}&userId=${widget.seat['userId']}')
-        .then((r) => mounted ? setState(() => _stats = Map<String, dynamic>.from(r as Map)) : null)
+        .get('/me/table-stats?$q')
+        .then((r) => mounted ? setState(() => _stats[all] = Map<String, dynamic>.from(r as Map)) : null)
         .catchError((_) => mounted ? setState(() => _error = tr('Stats are not available right now.', 'Statistika trenutno nije dostupna.')) : null);
   }
 
+  void _changed({int? color}) {
+    _dirty = true;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 900), () => _save(color: color));
+  }
+
+  Future<void> _save({int? color}) async {
+    if (!_dirty) return;
+    _dirty = false;
+    try {
+      await app.saveNote(_id, _note.text, color: color ?? (_color ?? 0));
+    } catch (_) {
+      app.toast(tr('Note was not saved.', 'Beleška nije sačuvana.'));
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    if (_dirty) _save();
+    _note.dispose();
+    super.dispose();
+  }
+
+  static const _defs = <String, (String, String)>{
+    'VPIP': ('Dobrovoljno stavlja novac u pot', 'Procenat ruku u kojima igrač sam ulazi u pot pre flopa (call ili raise). Blajndovi se ne računaju.'),
+    'PFR': ('Povišenje pre flopa', 'Koliko često povisuje pre flopa, uključujući 3-bet, 4-bet i dalje.'),
+    'ATS': ('Pokušaj krađe blajndova', 'Koliko često povisuje prvi sa CO, BTN ili SB kad su svi pre njega odustali.'),
+    '3BET': ('3-bet', 'Koliko često ponovo povisuje kad je pre flopa već bilo jedno povišenje.'),
+    'CB': ('Kontinuacioni bet', 'Koliko često beti na flopu kad je on povisivao pre flopa.'),
+    'FCB': ('Odustaje na kontinuacioni bet', 'Koliko često odustaje na flopu kad protivnik koji je povisivao pre flopa beti.'),
+    'WTSD': ('Ide do otvaranja karata', 'Od ruku u kojima je video flop, koliko puta je stigao do otvaranja karata.'),
+    'WSD': ('Dobija na otvaranju', 'Od otvaranja karata, koliko puta je dobio novac.'),
+    'AF': ('Agresivnost posle flopa', 'Odnos beta i povišenja prema dorovnavanjima posle flopa. Iznad 2 je agresivan igrač.'),
+  };
+
   @override
   Widget build(BuildContext context) {
-    final app = context.read<AppState>();
-    final s = _stats;
-    final note = app.notes[widget.seat['userId']];
-    Widget tile(String value, String label, {String? hint, Color color = Colors.white}) => Expanded(
-          child: Tooltip(
-            message: hint ?? '',
-            child: Container(
-              margin: const EdgeInsets.all(3),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-              decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(10)),
-              child: Column(children: [
-                FittedBox(child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color))),
-                const SizedBox(height: 2),
-                Text(label, style: const TextStyle(fontSize: 11, color: Colors.white60, fontWeight: FontWeight.w600)),
+    final s = _stats[_all];
+    final name = widget.seat['name'] as String;
+    String p(num v) => '${bbNumber(v.toDouble())}%';
+
+    Widget gauge(String key, num? raw, {bool percent = true}) {
+      // Bez ijedne prilike (npr. nije bio na CO/BTN/SB): „–” umesto 0 %.
+      final none = raw == null;
+      final value = raw ?? 0;
+      final v = percent ? (value / 100).clamp(0.0, 1.0) : (value / 4).clamp(0.0, 1.0);
+      final color = percent
+          ? (value < 15 ? const Color(0xFF4F8EDC) : value < 35 ? const Color(0xFF3CC46A) : value < 55 ? const Color(0xFFF2B33D) : const Color(0xFFE5533D))
+          : (value < 1 ? const Color(0xFF4F8EDC) : value < 2.5 ? const Color(0xFF3CC46A) : const Color(0xFFE5533D));
+      final sel = _info == key;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _info = sel ? null : key),
+          child: Column(children: [
+            SizedBox(
+              width: 46,
+              height: 46,
+              child: Stack(alignment: Alignment.center, children: [
+                Container(decoration: BoxDecoration(shape: BoxShape.circle, color: sel ? Colors.white12 : Colors.black26)),
+                SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: CircularProgressIndicator(value: none ? 0 : v.toDouble(), strokeWidth: 3.2, color: color, backgroundColor: Colors.white10),
+                ),
+                FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(5),
+                    child: Text(none ? '–' : percent ? p(value) : bbNumber(value.toDouble()),
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                  ),
+                ),
               ]),
             ),
-          ),
+            const SizedBox(height: 3),
+            Text(key, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: sel ? goldLight : Colors.white70)),
+          ]),
+        ),
+      );
+    }
+
+    Widget box({required Widget child}) => Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+          child: child,
         );
-    String p(num v) => '${bbNumber(v.toDouble())} %';
+
+    Widget scopeBtn(bool all, String label) {
+      final on = _all == all;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() {
+            _all = all;
+            _error = null;
+            _load();
+          }),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: on ? goldGradient : null,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: on ? Colors.black : Colors.white70)),
+          ),
+        ),
+      );
+    }
+
+    final profit = (s?['profit'] as num?) ?? 0;
+    final labelColor = _color != null ? Color(_color!) : null;
 
     return Dialog(
-      backgroundColor: const Color(0xFF15110E),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: gold.withOpacity(0.5))),
+      backgroundColor: const Color(0xFF1B1B1E),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.08))),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // Glava: slika (sa oznakom u boji), ime, stek.
             Row(children: [
-              Avatar(name: widget.seat['name'] as String, url: widget.seat['avatarUrl'] as String?, size: 46, borderColor: gold),
+              Container(
+                padding: const EdgeInsets.all(2.5),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: labelColor ?? Colors.transparent),
+                child: Avatar(name: name, url: widget.seat['avatarUrl'] as String?, size: 54, borderColor: gold),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(widget.seat['name'] as String,
-                      overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
                   GoldText(widget.money(widget.seat['stack']), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
                 ]),
               ),
@@ -916,66 +983,156 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
               ),
             ]),
             const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(tr('Stats at this table', 'Statistika za ovim stolom'), style: TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.w700)),
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(12)),
+              child: Row(children: [scopeBtn(true, tr('All games', 'Sve igre')), scopeBtn(false, tr('This table', 'Ovaj sto'))]),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             if (_error != null)
-              Padding(padding: const EdgeInsets.all(12), child: Text(_error!, style: const TextStyle(color: Colors.white60)))
+              Padding(padding: const EdgeInsets.all(12), child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60)))
             else if (s == null)
-              const Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator(color: gold, strokeWidth: 2))
+              const Padding(padding: EdgeInsets.all(22), child: Center(child: CircularProgressIndicator(color: gold, strokeWidth: 2)))
             else ...[
-              Row(children: [
-                tile(chips(s['hands'] as num), 'Hands'),
-                tile(p(s['vpip'] as num), 'VPIP', hint: tr('Hands where the player voluntarily put chips in preflop', 'Ruke u kojima je igrač sam uložio pre flopa')),
-                tile(p(s['pfr'] as num), 'PFR', hint: tr('Hands where the player raised preflop', 'Ruke u kojima je igrač povisio pre flopa')),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Container(
+                    height: 62,
+                    margin: const EdgeInsets.only(right: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      FittedBox(child: Text(chips(s['hands'] as num), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+                      Text(tr('hands', 'ruku'), style: const TextStyle(fontSize: 10.5, color: Colors.white60, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
+                gauge('VPIP', s['vpip'] as num),
+                gauge('PFR', s['pfr'] as num),
+                gauge('ATS', s['ats'] as num?),
+                gauge('3BET', s['threeBet'] as num),
               ]),
-              Row(children: [
-                tile('${p(s['threeBet'] as num)} (${s['threeBets']}×)', '3-bet',
-                    hint: 'Re-raises preflop (percent of chances)'),
-                tile(p(s['winRate'] as num), tr('Hands won', 'Dobijene ruke'), hint: tr('${s['won']} of ${s['hands']} hands', '${s['won']} od ${s['hands']} ruku')),
-                tile(widget.money(s['biggestPot']), tr('Biggest pot', 'Najveći pot'), color: goldLight),
+              const SizedBox(height: 8),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                gauge('CB', s['cb'] as num?),
+                gauge('FCB', s['fcb'] as num?),
+                gauge('WTSD', s['wtsd'] as num?),
+                gauge('WSD', s['wsd'] as num?),
+                gauge('AF', s['af'] as num?, percent: false),
               ]),
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.all(3),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(10)),
-                child: s['bestHand'] == null
-                    ? Text(tr('Best hand: no cards shown yet', 'Najbolja ruka: još nije pokazao karte'), style: const TextStyle(color: Colors.white54, fontSize: 12.5))
-                    : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(tr('Best hand shown · showdowns: ${s['showdowns']}', 'Najbolja pokazana ruka · otvaranja: ${s['showdowns']}'),
-                            style: const TextStyle(fontSize: 11, color: Colors.white60, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 6),
-                        Row(children: [
-                          for (final c in ((s['bestHand'] as Json)['cards'] as List).cast<String>())
-                            Padding(padding: const EdgeInsets.only(right: 3), child: PlayingCard(code: c, width: 26)),
-                          const SizedBox(width: 8),
+              // Objašnjenje izabrane statistike (dodir na krug).
+              AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                child: _info == null
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(tr('Tap a circle for an explanation.', 'Dodirni krug za objašnjenje.'),
+                            textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, color: Colors.white38)),
+                      )
+                    : box(
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Container(width: 3, height: 34, margin: const EdgeInsets.only(right: 8, top: 2), color: const Color(0xFF3CC46A)),
                           Expanded(
-                            child: Text((s['bestHand'] as Json)['name'] as String,
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text('${_info!} · ${_defs[_info]!.$1}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                              const SizedBox(height: 3),
+                              Text(_defs[_info]!.$2, style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.35)),
+                            ]),
                           ),
                         ]),
+                      ),
+              ),
+              box(
+                child: Row(children: [
+                  Container(width: 3, height: 38, margin: const EdgeInsets.only(right: 10), color: gold),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(tr('Total winnings (cash)', 'Ukupan dobitak (keš)'),
+                          style: const TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w700)),
+                      Text('${profit > 0 ? '+' : profit < 0 ? '−' : ''}${widget.money(profit.abs().toInt())}',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: profit > 0 ? const Color(0xFF3CC46A) : profit < 0 ? const Color(0xFFE5533D) : Colors.white)),
+                    ]),
+                  ),
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(tr('Hands won', 'Dobijene ruke'), style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                    Text('${s['won']} (${p(s['winRate'] as num)})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 2),
+                    Text('${tr('Biggest pot', 'Najveći pot')} ${widget.money(s['biggestPot'])}',
+                        style: const TextStyle(fontSize: 11, color: goldLight, fontWeight: FontWeight.w700)),
+                  ]),
+                ]),
+              ),
+              if (s['bestHand'] != null)
+                box(
+                  child: Row(children: [
+                    for (final c in ((s['bestHand'] as Json)['cards'] as List).cast<String>())
+                      Padding(padding: const EdgeInsets.only(right: 3), child: PlayingCard(code: c, width: 24)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(tr('Best hand shown', 'Najbolja pokazana ruka'), style: const TextStyle(fontSize: 10.5, color: Colors.white60)),
+                        Text((s['bestHand'] as Json)['name'] as String, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
                       ]),
-              ),
+                    ),
+                  ]),
+                ),
             ],
-            if (widget.onNote != null) ...[
-              const SizedBox(height: 4),
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                leading: const Icon(Icons.edit_note, color: gold),
-                title: Text(note ?? tr('Add a note about this player', 'Dodaj belešku o ovom igraču'),
-                    maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: note == null ? Colors.white60 : Colors.white)),
-                trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-                onTap: widget.onNote,
+            // Beleška sa oznakom u boji (samo za druge igrače; vidi je samo ovaj igrač).
+            if (!widget.isMe) ...[
+              const SizedBox(height: 12),
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(border: Border.all(color: Colors.white24), borderRadius: BorderRadius.circular(6)),
+                  child: Text(tr('Label', 'Oznaka'), style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w700)),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Row(children: [
+                    for (final c in _labelColors)
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() => _color = _color == c ? null : c);
+                            _changed(color: _color ?? 0);
+                          },
+                          child: Container(
+                            height: 24,
+                            margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                            decoration: BoxDecoration(
+                              color: Color(c),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: _color == c ? Colors.white : Colors.transparent, width: 2),
+                            ),
+                            child: _color == c ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _note,
+                maxLines: 4,
+                minLines: 3,
+                maxLength: 1000,
+                onChanged: (_) => _changed(),
+                style: const TextStyle(fontSize: 13.5),
+                decoration: InputDecoration(
+                  hintText: tr('Write a note…', 'Napiši belešku…'),
+                  filled: true,
+                  fillColor: Colors.black26,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.all(10),
+                ),
               ),
+              Text(tr('Only you can see the label and note. Saved automatically.', 'Oznaku i belešku vidiš samo ti. Čuva se samo.'),
+                  style: const TextStyle(color: Colors.white38, fontSize: 11)),
             ],
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Close', 'Zatvori'))),
-            ),
           ]),
         ),
       ),
@@ -2761,7 +2918,7 @@ class _TableViewState extends State<_TableView> {
       final avatarSize = widget.wide ? (isMe ? 87.0 : 54.0) : (isMe ? 67.0 : 41.0);
       final topY = isMe ? (widget.wide ? min(p.dy - avatarSize / 2, h - avatarSize - 74) : lay.myTop(p)) : p.dy - avatarSize / 2;
       // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
-      if (!isMe && app.notes.containsKey(s['userId'])) {
+      if (!isMe && (app.notes.containsKey(s['userId']) || app.noteColors.containsKey(s['userId']))) {
         // Kad su karte okrenute, beleška ide ispod karata (karte su preko slike igrača).
         final faceUp = ((s['cards'] as List?) ?? const []).any((c) => c != null);
         (faceUp ? children : overlays).add(Positioned(
@@ -2770,8 +2927,8 @@ class _TableViewState extends State<_TableView> {
           child: IgnorePointer(
             child: Container(
               padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(color: const Color(0xFFE0B341), shape: BoxShape.circle, border: Border.all(color: Colors.black54)),
-              child: const Icon(Icons.edit_note, size: 14, color: Colors.black),
+              decoration: BoxDecoration(color: Color(app.noteColors[s['userId']] ?? 0xFFE0B341), shape: BoxShape.circle, border: Border.all(color: Colors.black54)),
+              child: Icon(Icons.edit_note, size: 14, color: app.noteColors.containsKey(s['userId']) ? Colors.white : Colors.black),
             ),
           ),
         ));

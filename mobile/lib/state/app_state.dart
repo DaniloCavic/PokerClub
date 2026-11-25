@@ -321,21 +321,34 @@ class AppState extends ChangeNotifier {
   /// Beleške o drugim igračima (id igrača → tekst); vidi ih samo ovaj igrač.
   Map<String, String> notes = {};
 
+  /// Oznake igrača u boji (id igrača → boja), kao na GG.
+  Map<String, int> noteColors = {};
+
   Future<void> loadNotes() async {
     try {
       final res = await api.get('/me/notes');
       notes = (res as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
       notifyListeners();
     } catch (_) {}
+    try {
+      final res = await api.get('/me/note-colors');
+      noteColors = (res as Map).map((k, v) => MapEntry(k.toString(), int.parse('FF${v.toString().substring(1)}', radix: 16)));
+      notifyListeners();
+    } catch (_) {}
   }
 
-  Future<void> saveNote(String targetId, String text) async {
-    await api.post('/me/notes/$targetId', {'text': text});
+  /// Čuva belešku; [color] null = ne menja oznaku, 0 = briše oznaku.
+  Future<void> saveNote(String targetId, String text, {int? color}) async {
+    final body = <String, dynamic>{'text': text};
+    if (color != null) body['color'] = color == 0 ? '' : '#${(color & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+    await api.post('/me/notes/$targetId', body);
     if (text.trim().isEmpty) {
       notes.remove(targetId);
     } else {
       notes[targetId] = text.trim();
     }
+    if (color == 0) noteColors.remove(targetId);
+    if (color != null && color != 0) noteColors[targetId] = color;
     notifyListeners();
   }
 

@@ -242,6 +242,8 @@ model PlayerNote {
   targetId  String
   target    User     @relation("NoteTarget", fields: [targetId], references: [id])
   text      String
+  /// Oznaka u boji (#RRGGBB), kao na GG.
+  color     String?
   updatedAt DateTime @updatedAt
 
   @@id([ownerId, targetId])

@@ -1441,6 +1441,7 @@ export class TablesService implements OnModuleInit {
           pot,
           rake: r.rake,
           details: {
+            button: g.button,
             board2: rt.lastResult.board2,
             players,
             pots: rt.lastResult.pots,
