@@ -4,7 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Tables } from './pages/Tables';
 import { Players } from './pages/Players';
 import { Transactions } from './pages/Transactions';
-import { Agents } from './pages/Agents';
+import { Agents, SubAgents } from './pages/Agents';
 import { Tournaments } from './pages/Tournaments';
 import { Reports } from './pages/Reports';
 import { Security } from './pages/Security';
@@ -63,6 +63,7 @@ export function App() {
     { id: 'transactions', label: 'Transakcije' },
     { id: 'reports', label: 'Izveštaji' },
     { id: 'account', label: 'Moj nalog i 2FA' },
+    ...(me.role === 'AGENT' ? [{ id: 'agents' as Page, label: 'Moji agenti' }] : []),
     ...(me.role === 'ADMIN'
       ? [
           { id: 'agents' as Page, label: 'Agenti' },
@@ -155,7 +156,7 @@ export function App() {
         {current === 'tournaments' && <Tournaments me={me} />}
         {current === 'players' && <Players me={me} />}
         {current === 'transactions' && <Transactions />}
-        {current === 'agents' && <Agents />}
+        {current === 'agents' && (me.role === 'ADMIN' ? <Agents /> : <SubAgents />)}
         {current === 'reports' && <Reports me={me} />}
         {current === 'account' && <Account me={me} />}
         {current === 'requests' && <Requests me={me} onChanged={loadPending} />}

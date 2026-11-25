@@ -192,7 +192,7 @@ export function CreateAccount({
           )}
           {!isPlayer && (
             <label>
-              Procenat rake-a njegovih igrača (%)
+              {path === '/admin/subagents' ? 'Procenat od vašeg dela rake-a (%)' : 'Procenat rake-a njegovih igrača (%)'}
               <input
                 type="number"
                 min={0}

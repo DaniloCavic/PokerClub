@@ -7,7 +7,7 @@ import { PushService } from '../push/push.service';
 import { avatarUrl } from '../common/public-user';
 import { trUser } from '../common/i18n';
 import { GameError } from '../poker/engine/game';
-import { agentCut } from '../poker/engine/rake';
+import { agentChains, splitByChain } from '../common/agent-chain';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
 import { parseCards } from '../poker/engine/cards';
 import { TablesService, TourTableCtx } from '../tables/tables.service';
@@ -1050,22 +1050,28 @@ export class TournamentsService implements OnModuleInit {
     const rows = await this.prisma.tournamentEntry.groupBy({ by: ['userId'], where: { tournamentId }, _sum: { feePaid: true } });
     const users = await this.prisma.user.findMany({
       where: { id: { in: rows.map((r) => r.userId) } },
-      select: { id: true, agentId: true, agent: { select: { rakeShareBps: true } } },
+      select: { id: true, agentId: true },
     });
-    const data = rows
+    // Deo agenata po lancu (direktni agent i agenti iznad njega), kao kod rake-a sa keš stolova.
+    const chains = await agentChains(this.prisma, users.map((u) => u.agentId));
+    const ops = rows
       .filter((r) => (r._sum.feePaid ?? 0) > 0)
       .map((r) => {
         const u = users.find((x) => x.id === r.userId);
         const amount = r._sum.feePaid ?? 0;
-        return {
-          tournamentId,
-          userId: r.userId,
-          agentId: u?.agentId ?? null,
-          amount,
-          agentCut: u?.agentId ? agentCut(amount, u.agent?.rakeShareBps ?? 0) : 0,
-        };
+        const split = splitByChain(amount, u?.agentId ? chains.get(u.agentId) : undefined);
+        return this.prisma.feeShare.create({
+          data: {
+            tournamentId,
+            userId: r.userId,
+            agentId: u?.agentId ?? null,
+            amount,
+            agentCut: split.total,
+            earnings: { create: split.earnings.map((e) => ({ agentId: e.agentId, playerId: r.userId, amount: e.amount })) },
+          },
+        });
       });
-    if (data.length) await this.prisma.feeShare.createMany({ data });
+    if (ops.length) await this.prisma.$transaction(ops);
   }
 
   /**

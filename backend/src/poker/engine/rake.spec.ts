@@ -46,3 +46,22 @@ describe('raspodela rake-a', () => {
     expect(agentCut(50, 20_000)).toBe(50);
   });
 });
+
+describe('chainCuts (podagenti)', () => {
+  const { chainCuts } = require('./rake');
+  it('super → A 70 % → B 50 % od A: B 35, A 35, klub 30', () => {
+    expect(chainCuts(100, [5000, 7000])).toEqual({ cuts: [35, 35], total: 70 });
+  });
+  it('jedan agent kao do sada', () => {
+    expect(chainCuts(100, [3000])).toEqual({ cuts: [30], total: 30 });
+  });
+  it('tri nivoa i zaokruživanje: zbir nikad ne prelazi deo najvišeg', () => {
+    const r = chainCuts(7, [5000, 5000, 7000]); // 7 × 0,7 = 4,9 → 5; ×0,5 = 2,45 → 2; ×0,5 = 1,225 → 1
+    expect(r.total).toBe(5);
+    expect(r.cuts).toEqual([1, 1, 3]);
+    expect(r.cuts.reduce((a: number, b: number) => a + b, 0)).toBe(r.total);
+  });
+  it('bez agenta nema podele', () => {
+    expect(chainCuts(100, [])).toEqual({ cuts: [], total: 0 });
+  });
+});

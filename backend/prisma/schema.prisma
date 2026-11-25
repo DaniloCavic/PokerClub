@@ -54,8 +54,9 @@ model User {
   blockedReason String?
   note          String?
   /// Za agente: procenat rake-a njegovih igrača koji pripada agentu (u baznim poenima, 3000 = 30 %).
+  /// Podagent: procenat od dela koji dobija agent iznad njega (ne od celog rake-a).
   rakeShareBps  Int       @default(0)
-  /// Agent kome igrač pripada.
+  /// Agent kome igrač pripada; kod agenta: nadređeni agent (null = direktno pod super agentom).
   agentId       String?
   agent         User?     @relation("AgentPlayers", fields: [agentId], references: [id])
   players       User[]    @relation("AgentPlayers")
@@ -104,6 +105,7 @@ model User {
   notesAbout   PlayerNote[]       @relation("NoteTarget")
   pushSubs     PushSubscription[]
   logins       LoginLog[]
+  earnings     AgentEarning[]
 
   @@index([role, agentId])
 }
@@ -214,8 +216,10 @@ model RakeShare {
   agentId   String?
   agent     User?      @relation("RakeAgent", fields: [agentId], references: [id])
   amount    Int
+  /// Ukupno svim agentima u lancu (direktni agent i agenti iznad njega); ostatak je super agentu.
   agentCut  Int
   createdAt DateTime   @default(now())
+  earnings  AgentEarning[]
 
   @@index([agentId, createdAt])
   @@index([createdAt])
@@ -383,11 +387,31 @@ model FeeShare {
   agentId      String?
   agent        User?      @relation("FeeAgent", fields: [agentId], references: [id])
   amount       Int
+  /// Ukupno svim agentima u lancu; ostatak je super agentu.
   agentCut     Int
   createdAt    DateTime   @default(now())
+  earnings     AgentEarning[]
 
   @@index([agentId, createdAt])
   @@index([createdAt])
+}
+
+/// Zarada jednog agenta od rake-a ili turnirskog fee-a jednog igrača (agent igrača i svaki agent iznad njega).
+model AgentEarning {
+  id          String     @id @default(cuid())
+  agentId     String
+  agent       User       @relation(fields: [agentId], references: [id])
+  /// Igrač koji je platio rake / fee.
+  playerId    String
+  rakeShareId String?
+  rakeShare   RakeShare? @relation(fields: [rakeShareId], references: [id])
+  feeShareId  String?
+  feeShare    FeeShare?  @relation(fields: [feeShareId], references: [id])
+  amount      Int
+  createdAt   DateTime   @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([agentId, playerId])
 }
 
 /// Upozorenje: igrači sa iste IP adrese ili uređaja za istim stolom, ili često igraju jedan protiv drugog.

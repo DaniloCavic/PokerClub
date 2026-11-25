@@ -17,6 +17,7 @@ import * as bcrypt from 'bcryptjs';
 import { BlockDto, CreateUserDto, MoneyDto, TableDto, UpdateUserDto } from '../auth/dto';
 import { CurrentUser, Roles, Staff } from '../common/auth.guard';
 import { publicUser } from '../common/public-user';
+import { subtreeAgentIds } from '../common/agent-chain';
 import { PrismaService } from '../prisma/prisma.service';
 import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
@@ -103,6 +104,15 @@ export class AdminController {
 
   private isSuper(actor: User) {
     return actor.role === 'ADMIN';
+  }
+
+  /** Zarada agenta (rake i turnirski fee, od svojih igrača i igrača podagenata). */
+  private async myEarning(agentId: string, since?: Date, playerIds?: string[]) {
+    const r = await this.prisma.agentEarning.aggregate({
+      where: { agentId, ...(since ? { createdAt: { gte: since } } : {}), ...(playerIds ? { playerId: { in: playerIds } } : {}) },
+      _sum: { amount: true },
+    });
+    return r._sum.amount ?? 0;
   }
 
   private async player(actor: User, id: string) {
@@ -216,9 +226,9 @@ export class AdminController {
             superShareTotal: (rakeTotal._sum.rake ?? 0) - (sharesTotal._sum.agentCut ?? 0) + fA.amount - fA.cut,
           }
         : {
-            // Agent vidi samo svoju zaradu: ni procenat ni ukupan rake (iz kog bi se procenat izračunao).
-            myCutToday: (sharesToday._sum.agentCut ?? 0) + fT.cut,
-            myCutTotal: (sharesTotal._sum.agentCut ?? 0) + fA.cut,
+            // Agent vidi samo svoju zaradu (i od igrača svojih podagenata): ni procenat ni ukupan rake.
+            myCutToday: await this.myEarning(actor.id, today),
+            myCutTotal: await this.myEarning(actor.id),
           }),
       openTables,
       handsToday,
@@ -455,6 +465,10 @@ export class AdminController {
       where: { userId: { in: ids }, ...(sup ? {} : { agentId: actor.id }) },
       _sum: { amount: true, agentCut: true },
     });
+    // Agent: njegov deo od svakog igrača (sa podagentima je to manje od agentCut, koji je zbir celog lanca).
+    const mine = sup
+      ? []
+      : await this.prisma.agentEarning.groupBy({ by: ['playerId'], where: { agentId: actor.id, playerId: { in: ids } }, _sum: { amount: true } });
     const [shares, hands] = await Promise.all([
       this.prisma.rakeShare.groupBy({
         by: ['userId'],
@@ -474,7 +488,7 @@ export class AdminController {
         id,
         sup
           ? { hands: handCount.get(id) ?? 0, rakePaid: amount, agentCut: cut, superShare: amount - cut }
-          : { hands: handCount.get(id) ?? 0, myEarning: cut },
+          : { hands: handCount.get(id) ?? 0, myEarning: mine.find((m) => m.playerId === id)?._sum.amount ?? 0 },
       );
     }
     return out;
@@ -587,29 +601,45 @@ export class AdminController {
   @Roles('ADMIN')
   @Get('agents')
   async agents() {
-    // (2FA status se vidi u listi agenata)
+    // Svi agenti i podagenti; super agent vidi nadređenog, procenat od nadređenog i stvarni procenat rake-a.
     const agents = await this.prisma.user.findMany({
       where: { role: 'AGENT' },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { players: true, tables: true } } },
     });
-    const balances = await this.prisma.user.groupBy({ by: ['agentId'], where: { role: 'PLAYER' }, _sum: { balance: true } });
+    const players = await this.prisma.user.groupBy({ by: ['agentId'], where: { role: 'PLAYER' }, _count: true, _sum: { balance: true } });
     const rake = await this.prisma.rakeShare.groupBy({ by: ['agentId'], _sum: { amount: true, agentCut: true } });
     const fees = await this.prisma.feeShare.groupBy({ by: ['agentId'], _sum: { amount: true, agentCut: true } });
+    const earned = await this.prisma.agentEarning.groupBy({ by: ['agentId'], _sum: { amount: true } });
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const effective = (a: (typeof agents)[number]) => {
+      let eff = a.rakeShareBps / 10_000;
+      let cur = a.agentId ? byId.get(a.agentId) : undefined;
+      for (let d = 0; cur && d < 10; d++) {
+        eff *= cur.rakeShareBps / 10_000;
+        cur = cur.agentId ? byId.get(cur.agentId) : undefined;
+      }
+      return Math.round(eff * 10_000) / 100;
+    };
     return agents.map((a) => {
       const r0 = rake.find((x) => x.agentId === a.id)?._sum;
       const f = fees.find((x) => x.agentId === a.id)?._sum;
-      // Rake sa keš stolova i fee sa turnira zajedno.
-      const r = { amount: (r0?.amount ?? 0) + (f?.amount ?? 0), agentCut: (r0?.agentCut ?? 0) + (f?.agentCut ?? 0) };
+      // Rake sa keš stolova i fee sa turnira njegovih (direktnih) igrača.
+      const amount = (r0?.amount ?? 0) + (f?.amount ?? 0);
+      const allAgents = (r0?.agentCut ?? 0) + (f?.agentCut ?? 0);
+      const p = players.find((x) => x.agentId === a.id);
       return {
         ...publicUser(a),
+        parentId: a.agentId,
+        parentName: a.agentId ? (byId.get(a.agentId)?.displayName ?? null) : null,
         rakePercent: a.rakeShareBps / 100,
+        effectivePercent: effective(a),
+        subAgents: agents.filter((x) => x.agentId === a.id).length,
         totpEnabled: a.totpEnabled,
-        players: a._count.players,
-        playersBalance: balances.find((b) => b.agentId === a.id)?._sum.balance ?? 0,
-        playersRake: r?.amount ?? 0,
-        agentCut: r?.agentCut ?? 0,
-        superShare: (r?.amount ?? 0) - (r?.agentCut ?? 0),
+        players: p?._count ?? 0,
+        playersBalance: p?._sum.balance ?? 0,
+        playersRake: amount,
+        agentCut: earned.find((x) => x.agentId === a.id)?._sum.amount ?? 0,
+        superShare: amount - allAgents,
       };
     });
   }
@@ -664,12 +694,19 @@ export class AdminController {
     if (!a) throw new NotFoundException('Agent nije pronađen.');
     const u = await this.prisma.user.update({ where: { id }, data: { isBlocked: true, blockedReason: dto.reason || null } });
     await this.gateway.disconnectUser(id, 'Nalog je blokiran.');
-    const players = await this.prisma.user.findMany({ where: { agentId: id }, select: { id: true } });
+    await this.kickSubtree(id);
+    return publicUser(u);
+  }
+
+  /** Blokada agenta važi i za njegove podagente i sve njihove igrače: izbacuju se sa stolova. */
+  private async kickSubtree(id: string) {
+    const subs = await subtreeAgentIds(this.prisma, id);
+    for (const s of subs) await this.gateway.disconnectUser(s, 'Nalog trenutno nije aktivan.');
+    const players = await this.prisma.user.findMany({ where: { role: 'PLAYER', agentId: { in: [id, ...subs] } }, select: { id: true } });
     for (const p of players) {
       await this.tables.removeEverywhere(p.id, 'Nalog trenutno nije aktivan.');
       await this.gateway.disconnectUser(p.id, 'Nalog trenutno nije aktivan. Javite se svom agentu.');
     }
-    return publicUser(u);
   }
 
   @Roles('ADMIN')
@@ -677,6 +714,83 @@ export class AdminController {
   async unblockAgent(@Param('id') id: string) {
     const a = await this.prisma.user.findFirst({ where: { id, role: 'AGENT' } });
     if (!a) throw new NotFoundException('Agent nije pronađen.');
+    return publicUser(await this.prisma.user.update({ where: { id }, data: { isBlocked: false, blockedReason: null } }));
+  }
+
+  // ---------- Podagenti (agent pravi svoje agente) ----------
+  // Agent podagentu daje procenat od SVOG dela (super agent 70 % → agent daje podagentu 50 % → podagent 35 % rake-a).
+  // Agent vidi samo procente koje on daje; procenat koji on ima kod svog nadređenog ne vidi nigde.
+
+  private async mySub(actor: User, id: string) {
+    const a = await this.prisma.user.findFirst({ where: { id, role: 'AGENT', agentId: actor.id } });
+    if (!a) throw new NotFoundException('Agent nije pronađen.');
+    return a;
+  }
+
+  @Roles('AGENT')
+  @Get('subagents')
+  async subAgents(@CurrentUser() actor: User) {
+    const subs = await this.prisma.user.findMany({ where: { role: 'AGENT', agentId: actor.id }, orderBy: { createdAt: 'desc' } });
+    const out = [];
+    for (const a of subs) {
+      const below = await subtreeAgentIds(this.prisma, a.id);
+      const playerIds = (await this.prisma.user.findMany({ where: { role: 'PLAYER', agentId: { in: [a.id, ...below] } }, select: { id: true } })).map((x) => x.id);
+      out.push({
+        ...publicUser(a),
+        rakePercent: a.rakeShareBps / 100,
+        players: await this.prisma.user.count({ where: { role: 'PLAYER', agentId: a.id } }),
+        subAgents: await this.prisma.user.count({ where: { role: 'AGENT', agentId: a.id } }),
+        // Zarada podagenta (njegov deo) i moja zarada od igrača njegove mreže.
+        theirEarning: await this.myEarning(a.id),
+        myEarningFromThem: playerIds.length ? await this.myEarning(actor.id, undefined, playerIds) : 0,
+      });
+    }
+    return out;
+  }
+
+  @Roles('AGENT')
+  @Post('subagents')
+  async createSubAgent(@CurrentUser() actor: User, @Body() dto: CreateUserDto) {
+    // Najviše 10 nivoa ispod super agenta.
+    let depth = 1;
+    for (let cur = actor.agentId; cur && depth < 12; depth++) {
+      cur = (await this.prisma.user.findUnique({ where: { id: cur }, select: { agentId: true } }))?.agentId ?? null;
+    }
+    if (depth >= 10) throw new BadRequestException('Dostignut je najveći broj nivoa agenata.');
+    const agentCode = await this.checkAgentCode(dto.agentCode);
+    const a = await this.createAccount(dto, 'AGENT', actor.id);
+    const u = await this.prisma.user.update({ where: { id: a.id }, data: { rakeShareBps: this.shareBps(dto.rakePercent), agentCode } });
+    return { ...publicUser(u), rakePercent: u.rakeShareBps / 100 };
+  }
+
+  @Roles('AGENT')
+  @Patch('subagents/:id')
+  async updateSubAgent(@CurrentUser() actor: User, @Param('id') id: string, @Body() dto: UpdateUserDto) {
+    await this.mySub(actor, id);
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.displayName !== undefined) data.displayName = dto.displayName;
+    if (dto.note !== undefined) data.note = dto.note || null;
+    if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
+    if (dto.rakePercent !== undefined) data.rakeShareBps = this.shareBps(dto.rakePercent);
+    if (dto.agentCode !== undefined) data.agentCode = await this.checkAgentCode(dto.agentCode, id);
+    const u = await this.prisma.user.update({ where: { id }, data });
+    return { ...publicUser(u), rakePercent: u.rakeShareBps / 100 };
+  }
+
+  @Roles('AGENT')
+  @Post('subagents/:id/block')
+  async blockSubAgent(@CurrentUser() actor: User, @Param('id') id: string, @Body() dto: BlockDto) {
+    await this.mySub(actor, id);
+    const u = await this.prisma.user.update({ where: { id }, data: { isBlocked: true, blockedReason: dto.reason || null } });
+    await this.gateway.disconnectUser(id, 'Nalog je blokiran.');
+    await this.kickSubtree(id);
+    return publicUser(u);
+  }
+
+  @Roles('AGENT')
+  @Post('subagents/:id/unblock')
+  async unblockSubAgent(@CurrentUser() actor: User, @Param('id') id: string) {
+    await this.mySub(actor, id);
     return publicUser(await this.prisma.user.update({ where: { id }, data: { isBlocked: false, blockedReason: null } }));
   }
 

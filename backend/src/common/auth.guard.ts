@@ -1,3 +1,4 @@
+import { chainBlocked } from './agent-chain';
 import {
   CanActivate,
   createParamDecorator,
@@ -89,9 +90,9 @@ export class AuthGuard implements CanActivate {
     if ((payload.v ?? 0) !== user.tokenVersion) throw new UnauthorizedException('Sesija je istekla. Prijavite se ponovo.');
     if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
     // Blokiran agent blokira i pristup njegovim igračima.
-    if (user.agentId) {
-      const agent = await this.prisma.user.findUnique({ where: { id: user.agentId }, select: { isBlocked: true } });
-      if (agent?.isBlocked) throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
+    // (i blokada bilo kog agenta iznad: važi za podagente i njihove igrače)
+    if (user.agentId && (await chainBlocked(this.prisma, user.agentId))) {
+      throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
     }
     return user;
   }

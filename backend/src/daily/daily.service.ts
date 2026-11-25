@@ -130,9 +130,11 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
     const shares = (t: 'RakeShare' | 'FeeShare') =>
       this.prisma.$queryRaw<Share[]>(Prisma.sql`SELECT "agentId", SUM(amount)::int AS amount, SUM("agentCut")::int AS cut FROM ${Prisma.raw(`"${t}"`)} WHERE ${day()} GROUP BY 1`);
     type Money = { actorId: string | null; type: string; amount: number; n: number };
-    const [rake, fees, money, hands, tours, newPlayers, alerts, pending] = await Promise.all([
+    const [rake, fees, earned, money, hands, tours, newPlayers, alerts, pending] = await Promise.all([
       shares('RakeShare'),
       shares('FeeShare'),
+      // Zarada svakog agenta i podagenta (od svojih igrača i igrača svojih podagenata).
+      this.prisma.$queryRaw<{ agentId: string; amount: number }[]>(Prisma.sql`SELECT "agentId", SUM(amount)::int AS amount FROM "AgentEarning" WHERE ${day()} GROUP BY 1`),
       this.prisma.$queryRaw<Money[]>(
         Prisma.sql`SELECT "actorId", type::text AS type, SUM(amount)::int AS amount, COUNT(*)::int AS n FROM "Transaction" WHERE type IN ('DEPOSIT','WITHDRAWAL') AND ${day()} GROUP BY 1, 2`,
       ),
@@ -142,14 +144,15 @@ export class DailyService implements OnModuleInit, OnModuleDestroy {
       this.prisma.$queryRaw<{ kind: string; names: string; detail: string }[]>(Prisma.sql`SELECT kind, names, detail FROM "SecurityAlert" WHERE ${day()} ORDER BY "createdAt" DESC LIMIT 30`),
       this.prisma.cashRequest.count({ where: { status: 'PENDING' } }),
     ]);
-    const ids = [...new Set([...rake, ...fees].map((r) => r.agentId).concat(money.map((m) => m.actorId)).filter((x): x is string => !!x))];
+    const ids = [...new Set([...rake, ...fees, ...earned].map((r) => r.agentId).concat(money.map((m) => m.actorId)).filter((x): x is string => !!x))];
     const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, role: true } });
     const name = (id: string | null) => (id ? (users.find((u) => u.id === id)?.displayName ?? '?') : 'Bez agenta');
-    const agents = [...new Set([...rake, ...fees].map((r) => r.agentId))].map((id) => {
+    // Rake i fee po direktnom agentu igrača; zarada po agentu iz AgentEarning (i nadređeni dobijaju od igrača podagenata).
+    const agents = [...new Set([...rake, ...fees, ...earned].map((r) => r.agentId))].map((id) => {
       const r = rake.filter((x) => x.agentId === id);
       const f = fees.filter((x) => x.agentId === id);
       const sum = (a: Share[], k: 'amount' | 'cut') => a.reduce((s, x) => s + (x[k] ?? 0), 0);
-      return { name: name(id), rake: sum(r, 'amount'), fees: sum(f, 'amount'), agentCut: sum(r, 'cut') + sum(f, 'cut') };
+      return { name: name(id), rake: sum(r, 'amount'), fees: sum(f, 'amount'), agentCut: earned.find((e) => e.agentId === id)?.amount ?? 0 };
     });
     const cashiers = [...new Set(money.map((m) => m.actorId))].map((id) => ({
       name: name(id),

@@ -10,7 +10,8 @@ import { Card, cardToString } from '../poker/engine/cards';
 import { equityAsync } from '../poker/engine/equity';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
-import { agentCut, splitRake } from '../poker/engine/rake';
+import { splitRake } from '../poker/engine/rake';
+import { agentChains, splitByChain } from '../common/agent-chain';
 
 /** Pauza između dve ruke (da se vidi ko je dobio). */
 const BETWEEN_HANDS_MS = Number(process.env.BETWEEN_HANDS_MS || 5000);
@@ -1417,16 +1418,20 @@ export class TablesService implements OnModuleInit {
       const parts = splitRake(r.rake, contributors);
       const users = await this.prisma.user.findMany({
         where: { id: { in: parts.map((p) => p.key) } },
-        select: { id: true, agentId: true, agent: { select: { rakeShareBps: true } } },
+        select: { id: true, agentId: true },
       });
+      // Deo agenata: direktni agent igrača i svaki agent iznad njega (podagenti), svako od svog dela.
+      const chains = await agentChains(this.prisma, users.map((u) => u.agentId));
       rakeShares = parts.map((p) => {
         const u = users.find((x) => x.id === p.key);
+        const split = splitByChain(p.amount, u?.agentId ? chains.get(u.agentId) : undefined);
         return {
           table: { connect: { id: rt.table.id } },
           user: { connect: { id: p.key } },
           ...(u?.agentId ? { agent: { connect: { id: u.agentId } } } : {}),
           amount: p.amount,
-          agentCut: u?.agentId ? agentCut(p.amount, u.agent?.rakeShareBps ?? 0) : 0,
+          agentCut: split.total,
+          earnings: { create: split.earnings.map((e) => ({ agent: { connect: { id: e.agentId } }, playerId: p.key, amount: e.amount })) },
         };
       });
     }

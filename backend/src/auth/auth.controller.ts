@@ -1,3 +1,4 @@
+import { chainBlocked } from '../common/agent-chain';
 import { BadRequestException, Body, ConflictException, Req, Controller, Delete, ForbiddenException, Get, Headers, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
@@ -70,9 +71,8 @@ export class AuthController {
       }
     }
     if (user.isBlocked) throw new ForbiddenException(blockedMessage(user));
-    if (user.agentId) {
-      const ag = await this.prisma.user.findUnique({ where: { id: user.agentId }, select: { isBlocked: true } });
-      if (ag?.isBlocked) throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
+    if (user.agentId && (await chainBlocked(this.prisma, user.agentId))) {
+      throw new ForbiddenException('Nalog trenutno nije aktivan. Javite se svom agentu.');
     }
     // Super agent / agent sa nove IP adrese: upozorenje u Bezbednosti.
     if (staff) {
