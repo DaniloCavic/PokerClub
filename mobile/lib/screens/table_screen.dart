@@ -1577,7 +1577,7 @@ class _Layout {
   static const _phoneSlots = <int, List<(double, double)>>{
     // Ja sam dole levo; desno dole je prazno (mesto za Raise), ostali idu oko stola.
     // Igrači sa strane su iznad i ispod karata na stolu (ne u istoj visini).
-    9: [(-1, 0.33), (-1, -0.36), (-0.9, -0.7), (-0.38, -0.98), (0.38, -0.98), (0.9, -0.7), (1, -0.36), (1, 0.33)],
+    9: [(-1, 0.33), (-1, -0.3), (-0.9, -0.7), (-0.38, -0.98), (0.38, -0.98), (0.9, -0.7), (1, -0.3), (1, 0.33)],
     8: [(-1, 0.33), (-1, -0.36), (-0.75, -0.8), (0, -1), (0.75, -0.8), (1, -0.36), (1, 0.33)],
     7: [(-1, 0.33), (-1, -0.45), (-0.42, -0.97), (0.42, -0.97), (1, -0.45), (1, 0.33)],
     6: [(-1, 0.33), (-0.9, -0.5), (0, -1), (0.9, -0.5), (1, 0.33)],
@@ -1661,10 +1661,12 @@ class _Layout {
   double get myAvatar => wide ? 87.0 : 67.0;
 
   /// Otvorene karte (svoje i tuđe na kraju/all-in): iste veličine kao moje.
-  double faceCardW(int count) => (count > 2 ? 28.0 : 34.0) * (myAvatar / 50) * 0.86 * (wide ? 1.2 : 1.14);
+  // Telefon: tuđe otvorene karte tačno preko slike igrača (visina ≈ avatar), da ne zauzimaju prostor okolo.
+  double faceCardW(int count) =>
+      wide ? (count > 2 ? 28.0 : 34.0) * (myAvatar / 50) * 0.86 * 1.2 : (count > 2 ? 31.0 : 38.0);
 
   /// Gornja ivica tuđeg sedišta: mesto i za velike otvorene karte iznad pločice.
-  double othersTop(Offset p, double a) => min(p.dy - a / 2 - 16, p.dy + (a + 8) / 2 - 6 - faceCardW(2) * 1.4 - 6);
+  double othersTop(Offset p, double a) => min(p.dy - a / 2 - 16, p.dy + (a + 8) / 2 - _faceBottom(a, faceCardW(2)) - faceCardW(2) * 1.4 - 6);
   // Telefon: moja pločica (ime i stek) uvek iznad dugmadi.
   double myTop(Offset p) => min(p.dy - myAvatar / 2, h - myAvatar - (wide ? 80 : 140));
 
@@ -2680,7 +2682,9 @@ class _TableViewState extends State<_TableView> {
       final topY = isMe ? (widget.wide ? min(p.dy - avatarSize / 2, h - avatarSize - 56) : lay.myTop(p)) : p.dy - avatarSize / 2;
       // Oznaka da imam belešku o ovom igraču (gore levo od avatara).
       if (!isMe && app.notes.containsKey(s['userId'])) {
-        overlays.add(Positioned(
+        // Kad su karte okrenute, beleška ide ispod karata (karte su preko slike igrača).
+        final faceUp = ((s['cards'] as List?) ?? const []).any((c) => c != null);
+        (faceUp ? children : overlays).add(Positioned(
           left: p.dx - avatarSize / 2 - 10,
           top: topY - 6,
           child: IgnorePointer(
@@ -3215,7 +3219,7 @@ class _SeatView extends StatelessWidget {
                     ? Positioned(top: -a * 0.02 - _myCardsLift(a), child: cardsWidget)
                     : bigFace
                         ? Positioned(
-                            bottom: 6,
+                            bottom: _faceBottom(a, faceCardW!(cards.length)),
                             left: -80,
                             right: -80,
                             child: Center(child: Transform.translate(offset: Offset(faceDx, 0), child: cardsWidget))) : Positioned(top: -a * 0.18, right: 0, child: cardsWidget),
@@ -3230,7 +3234,7 @@ class _SeatView extends StatelessWidget {
                   )
                 else if (bigFace)
                   Positioned(
-                    bottom: 6 + faceCardW!(cards.length) * 1.4 + 6,
+                    bottom: _faceBottom(a, faceCardW!(cards.length)) + faceCardW!(cards.length) * 1.4 + 6,
                     left: -80,
                     right: -80,
                     child: Center(child: Transform.translate(offset: Offset(faceDx, 0), child: _BountyPill(amount: bounty!, a: a))),
@@ -3693,7 +3697,13 @@ class _BountyPill extends StatelessWidget {
   }
 }
 
-double _myCardsLift(double a) => 34.0 * (a / 50) * 0.86 * 0.2 * 1.4;
+/// Donja ivica tuđih otvorenih karata: na telefonu centrirane preko avatara, na računaru kao ranije.
+double _faceBottom(double a, double cw) => a >= 52 ? 6 : (a + 8 - cw * 1.4) / 2;
+
+/// Koliko moje karte idu iznad avatara. Telefon: centrirane tačno preko moje slike (negativno = niže).
+double _myCardsLift(double a) => a >= 80
+    ? 34.0 * (a / 50) * 0.86 * 0.2 * 1.4
+    : -(a * 0.02 + (a + 8 - 34.0 * (a / 50) * 0.86 * 1.14 * 1.4) / 2);
 
 /// Natpis sa snagom moje ruke ("Two pair 8 & 3").
 class _HandPill extends StatelessWidget {
