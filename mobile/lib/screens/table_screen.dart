@@ -1737,7 +1737,7 @@ class _Layout {
       final k = (i - base + n) % n;
       if (slots != null && i == mySeat) {
         // Ja: desno od svojih karata (iznad njih je igrač sa leve strane).
-        out[i] = Offset(p.dx + 52 + sz.width / 2 + 6, myTop(p) - 4);
+        out[i] = Offset(p.dx + 50 + sz.width / 2 + 2, myTop(p) - 4);
         continue;
       }
       if (slots != null && i != mySeat && k > 0) {
@@ -1748,10 +1748,10 @@ class _Layout {
           // Igrač sa strane: pored pločice, ka sredini stola.
           final dx = plateHalf + sz.width / 2 + 2;
           // Gornji ugao (9 igrača): niže, da ne udari u ulog igrača iznad stola.
-          c = Offset(p.dx + (sx < 0 ? dx : -dx), p.dy + a / 2 + (sy <= -0.6 ? 70 : 8));
+          c = Offset(p.dx + (sx < 0 ? dx : -dx), p.dy + a / 2 + (sy <= -0.6 ? 46 : 6));
         } else {
           // Igrač gore: ispod pločice i oznake poteza.
-          c = Offset(p.dx, p.dy + a / 2 + 56 + sz.height / 2);
+          c = Offset(p.dx, p.dy + a / 2 + 54 + sz.height / 2);
         }
         out[i] = c;
         continue;
@@ -2812,24 +2812,25 @@ class _ChipPile extends StatelessWidget {
 
   /// Približna veličina gomile sa natpisom (za raspored uloga oko stola).
   static Size sizeOf(String text, int amount, int bigBlind, bool big) {
-    final chips = chipStacksSize(amount, bigBlind, big ? 19 : 13.5);
-    final labelW = text.length * (big ? 8.6 : 7.6) + 16;
-    return Size(max(chips.width, labelW), chips.height + 2 + (big ? 21 : 18.5));
+    final chips = chipStacksSize(amount, bigBlind, big ? 19 : 10.8);
+    final labelW = text.length * (big ? 8.6 : 6.1) + (big ? 16 : 12);
+    return Size(max(chips.width, labelW), chips.height + 2 + (big ? 21 : 15));
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 19 : 13.5),
+      // Telefon: 20% manje od ranijih 13.5.
+      ChipStacks(amount: amount, bigBlind: bigBlind, chipSize: big ? 19 : 10.8),
       const SizedBox(height: 2),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+        padding: EdgeInsets.symmetric(horizontal: big ? 7 : 5.5, vertical: big ? 1.5 : 1),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.6),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: gold.withOpacity(0.35), width: 0.8),
         ),
-        child: Text(text, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: big ? 13 : 11.5)),
+        child: Text(text, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: big ? 13 : 9.5)),
       ),
     ]);
   }
