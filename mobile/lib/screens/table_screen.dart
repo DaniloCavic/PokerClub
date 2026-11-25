@@ -1565,7 +1565,8 @@ class _Layout {
   }
   // Karte na stolu (+20%).
   double get cardW => min(min(w, h) > 600 ? 55.0 : 43.7, (w * 0.68) / 5 - 4);
-  double get boardTop => center.dy - cardW * 1.4 / 2 - 6;
+  // Telefon: karte i pot malo niže, da oznake bočnih igrača (npr. "High card A") ne idu preko karata.
+  double get boardTop => center.dy - cardW * 1.4 / 2 - 6 + (wide ? 0 : h * 0.045);
   double get potTop => boardTop - (min(w, h) > 600 ? 48 : 38);
 
   /// Gomila žetona sakupljenog pota (ispod karata, kao u velikim aplikacijama).
