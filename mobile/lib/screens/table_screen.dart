@@ -1736,18 +1736,19 @@ class _Layout {
       // Telefon: ulog uvek na istom mestu odmah ispred igrača (ne traži slobodno mesto po stolu).
       final k = (i - base + n) % n;
       if (slots != null && i == mySeat) {
-        // Ja: odmah iznad svojih karata (i oznake bounty-ja).
-        out[i] = Offset(p.dx, myTop(p) - _myCardsLift(myAvatar) - 30 - sz.height / 2);
+        // Ja: desno od svojih karata (iznad njih je igrač sa leve strane).
+        out[i] = Offset(p.dx + 52 + sz.width / 2 + 6, myTop(p) - 4);
         continue;
       }
       if (slots != null && i != mySeat && k > 0) {
-        final (sx, _) = slots[k - 1];
+        final (sx, sy) = slots[k - 1];
         const a = 41.0, plateHalf = 52.0;
         final Offset c;
         if (sx.abs() >= 0.8) {
           // Igrač sa strane: pored pločice, ka sredini stola.
           final dx = plateHalf + sz.width / 2 + 2;
-          c = Offset(p.dx + (sx < 0 ? dx : -dx), p.dy + a / 2 + 8);
+          // Gornji ugao (9 igrača): niže, da ne udari u ulog igrača iznad stola.
+          c = Offset(p.dx + (sx < 0 ? dx : -dx), p.dy + a / 2 + (sy <= -0.6 ? 70 : 8));
         } else {
           // Igrač gore: ispod pločice i oznake poteza.
           c = Offset(p.dx, p.dy + a / 2 + 56 + sz.height / 2);
