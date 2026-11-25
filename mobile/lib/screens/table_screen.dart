@@ -861,17 +861,32 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
     super.dispose();
   }
 
-  static const _defs = <String, (String, String)>{
-    'VPIP': ('Dobrovoljno stavlja novac u pot', 'Procenat ruku u kojima igrač sam ulazi u pot pre flopa (call ili raise). Blajndovi se ne računaju.'),
-    'PFR': ('Povišenje pre flopa', 'Koliko često povisuje pre flopa, uključujući 3-bet, 4-bet i dalje.'),
-    'ATS': ('Pokušaj krađe blajndova', 'Koliko često povisuje prvi sa CO, BTN ili SB kad su svi pre njega odustali.'),
-    '3BET': ('3-bet', 'Koliko često ponovo povisuje kad je pre flopa već bilo jedno povišenje.'),
-    'CB': ('Kontinuacioni bet', 'Koliko često beti na flopu kad je on povisivao pre flopa.'),
-    'FCB': ('Odustaje na kontinuacioni bet', 'Koliko često odustaje na flopu kad protivnik koji je povisivao pre flopa beti.'),
-    'WTSD': ('Ide do otvaranja karata', 'Od ruku u kojima je video flop, koliko puta je stigao do otvaranja karata.'),
-    'WSD': ('Dobija na otvaranju', 'Od otvaranja karata, koliko puta je dobio novac.'),
-    'AF': ('Agresivnost posle flopa', 'Odnos beta i povišenja prema dorovnavanjima posle flopa. Iznad 2 je agresivan igrač.'),
+  /// Objašnjenja statistika: (naslov EN, opis EN, naslov SR, opis SR).
+  static const _defsAll = <String, (String, String, String, String)>{
+    'VPIP': ('Voluntarily put money in pot', 'Percentage of hands where the player voluntarily puts chips in before the flop (call or raise). Blinds do not count.',
+        'Dobrovoljno stavlja novac u pot', 'Procenat ruku u kojima igrač sam ulazi u pot pre flopa (call ili raise). Blajndovi se ne računaju.'),
+    'PFR': ('Preflop raise', 'How often the player raises before the flop, including 3-bets, 4-bets and more.',
+        'Povišenje pre flopa', 'Koliko često povisuje pre flopa, uključujući 3-bet, 4-bet i dalje.'),
+    'ATS': ('Attempt to steal', 'How often the player raises first from CO, BTN or SB when everyone before folded.',
+        'Pokušaj krađe blajndova', 'Koliko često povisuje prvi sa CO, BTN ili SB kad su svi pre njega odustali.'),
+    '3BET': ('3-bet', 'How often the player re-raises when there was already exactly one raise before the flop.',
+        '3-bet', 'Koliko često ponovo povisuje kad je pre flopa već bilo jedno povišenje.'),
+    'CB': ('Continuation bet', 'How often the player bets the flop after being the last preflop raiser.',
+        'Kontinuacioni bet', 'Koliko često beti na flopu kad je on poslednji povisivao pre flopa.'),
+    'FCB': ('Fold to continuation bet', 'How often the player folds on the flop when the preflop raiser bets.',
+        'Odustaje na kontinuacioni bet', 'Koliko često odustaje na flopu kad protivnik koji je povisivao pre flopa beti.'),
+    'WTSD': ('Went to showdown', 'Of the hands where the player saw the flop, how often they reached the showdown.',
+        'Ide do otvaranja karata', 'Od ruku u kojima je video flop, koliko puta je stigao do otvaranja karata.'),
+    'WSD': ('Won at showdown', 'Of the showdowns, how often the player won money.',
+        'Dobija na otvaranju', 'Od otvaranja karata, koliko puta je dobio novac.'),
+    'AF': ('Aggression factor', 'Bets and raises divided by calls after the flop. Above 2 is an aggressive player.',
+        'Agresivnost posle flopa', 'Betovi i povišenja podeljeni sa dorovnavanjima posle flopa. Iznad 2 je agresivan igrač.'),
   };
+
+  static (String, String) _def(String k) {
+    final d = _defsAll[k]!;
+    return (tr(d.$1, d.$3), tr(d.$2, d.$4));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1034,9 +1049,9 @@ class _PlayerStatsDialogState extends State<_PlayerStatsDialog> {
                           Container(width: 3, height: 34, margin: const EdgeInsets.only(right: 8, top: 2), color: const Color(0xFF3CC46A)),
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('${_info!} · ${_defs[_info]!.$1}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                              Text('${_info!} · ${_def(_info!).$1}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                               const SizedBox(height: 3),
-                              Text(_defs[_info]!.$2, style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.35)),
+                              Text(_def(_info!).$2, style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.35)),
                             ]),
                           ),
                         ]),
@@ -1614,7 +1629,7 @@ class TableSidePanel extends StatelessWidget {
             child: DefaultTabController(
               length: 2,
               child: Column(children: [
-                tabs(['Players (${players.length})', 'Hands']),
+                tabs([tr('Players (${players.length})', 'Igrači (${players.length})'), tr('Hands', 'Ruke')]),
                 Expanded(
                   child: TabBarView(children: [playersList, HandHistoryTabs(tableId: st['id'] as String, table: table)]),
                 ),
@@ -1648,7 +1663,7 @@ class TableSidePanel extends StatelessWidget {
       length: 3,
       child: Column(children: [
         const Padding(padding: EdgeInsets.only(top: 12), child: TrilingLogo(size: 22)),
-        tabs(['Players (${players.length})', 'Hands', 'Chat']),
+        tabs([tr('Players (${players.length})', 'Igrači (${players.length})'), tr('Hands', 'Ruke'), tr('Chat', 'Čet')]),
         Expanded(
           child: TabBarView(children: [
             playersList,
