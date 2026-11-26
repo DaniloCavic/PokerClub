@@ -11,7 +11,7 @@ import { equityAsync } from '../poker/engine/equity';
 import { ActionType, GameError, HandResult, PokerGame } from '../poker/engine/game';
 import { bestHoldem, bestOmaha } from '../poker/engine/evaluator';
 import { splitRake } from '../poker/engine/rake';
-import { agentChains, splitByChain } from '../common/agent-chain';
+import { agentChains, splitByChain, subtreeAgentIds } from '../common/agent-chain';
 
 /** Pauza između dve ruke (da se vidi ko je dobio). */
 const BETWEEN_HANDS_MS = Number(process.env.BETWEEN_HANDS_MS || 5000);
@@ -352,24 +352,28 @@ export class TablesService implements OnModuleInit {
     if (!at || at <= Date.now()) return;
     const ms = at - Date.now();
     if (ms > 2_000_000_000) return; // setTimeout ne može toliko daleko (više od ~23 dana)
-    rt.openTimer = setTimeout(() => {
+    rt.openTimer = setTimeout(async () => {
       if (!this.runtimes.has(rt.table.id) || rt.closing) return;
       const t = rt.table;
-      this.server?.emit('table:opened', {
-        tableId: t.id,
-        name: t.name,
-        variant: t.variant,
-        smallBlind: t.smallBlind,
-        bigBlind: t.bigBlind,
-      });
+      const notice = { tableId: t.id, name: t.name, variant: t.variant, smallBlind: t.smallBlind, bigBlind: t.bigBlind };
+      if (!t.ownerAgentId) this.server?.emit('table:opened', notice);
+      else {
+        // Privatni sto agenta: obaveštenje samo igračima njegove mreže.
+        const agents = [t.ownerAgentId, ...(await subtreeAgentIds(this.prisma, t.ownerAgentId))];
+        const ps = await this.prisma.user.findMany({ where: { role: 'PLAYER', agentId: { in: agents } }, select: { id: true } });
+        for (const p of ps) this.server?.to(`user:${p.id}`).emit('table:opened', notice);
+      }
       this.lobbyChanged();
       void this.push
-        .toAllPlayers({
-          title: `Sto „${t.name}“ je počeo!`,
-          body: `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} — uđite i igrajte.`,
-          tableId: t.id,
-          tag: `open-${t.id}`,
-        })
+        .toAllPlayers(
+          {
+            title: `Sto „${t.name}“ je počeo!`,
+            body: `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind} — uđite i igrajte.`,
+            tableId: t.id,
+            tag: `open-${t.id}`,
+          },
+          t.ownerAgentId,
+        )
         .catch((e) => this.log.warn((e as Error).message));
     }, ms + 500);
   }
@@ -403,11 +407,39 @@ export class TablesService implements OnModuleInit {
 
   // ---------- Pregled ----------
 
-  lobby() {
+  /**
+   * Lobi: stolovi za sve i privatni stolovi agenata iz lanca igrača (njegov agent i svi agenti iznad njega).
+   * Bez [owners] (npr. super agent) vide se svi stolovi.
+   */
+  lobby(owners?: Set<string>) {
     return [...this.runtimes.values()]
-      .filter((rt) => !rt.closing && !rt.tour)
+      .filter((rt) => !rt.closing && !rt.tour && (!owners || !rt.table.ownerAgentId || owners.has(rt.table.ownerAgentId)))
       .map((rt) => this.summary(rt))
-      .sort((a, b) => a.variant.localeCompare(b.variant) || a.bigBlind - b.bigBlind || a.name.localeCompare(b.name));
+      // Privatni stolovi agenta prvi, pa ostali po igri i blajndovima.
+      .sort((a, b) => Number(b.private) - Number(a.private) || a.variant.localeCompare(b.variant) || a.bigBlind - b.bigBlind || a.name.localeCompare(b.name));
+  }
+
+  /** Čije privatne stolove igrač vidi: njegov agent i svi agenti iznad njega (keš 30 s). */
+  private ownersCache = new Map<string, { at: number; set: Set<string> }>();
+  async visibleOwners(userId: string): Promise<Set<string>> {
+    const c = this.ownersCache.get(userId);
+    if (c && Date.now() - c.at < 30_000) return c.set;
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { agentId: true } });
+    const chain = u?.agentId ? ((await agentChains(this.prisma, [u.agentId])).get(u.agentId) ?? []) : [];
+    const set = new Set(chain.map((x) => x.id));
+    this.ownersCache.set(userId, { at: Date.now(), set });
+    return set;
+  }
+
+  async lobbyFor(userId: string) {
+    return this.lobby(await this.visibleOwners(userId));
+  }
+
+  /** Privatni sto agenta: igrač van njegove mreže ne može ni da ga vidi ni da sedne. */
+  async assertVisible(userId: string, tableId: string) {
+    const owner = this.runtimes.get(tableId)?.table.ownerAgentId;
+    if (!owner) return;
+    if (!(await this.visibleOwners(userId)).has(owner)) throw new GameError('Sto nije pronađen.');
   }
 
   private summary(rt: Runtime) {
@@ -415,6 +447,8 @@ export class TablesService implements OnModuleInit {
     return {
       id: t.id,
       name: t.name,
+      /** Privatni sto agenta (vide ga samo igrači njegove mreže). */
+      private: !!t.ownerAgentId,
       variant: t.variant,
       smallBlind: rt.game.config.smallBlind,
       bigBlind: rt.game.config.bigBlind,
@@ -812,7 +846,14 @@ export class TablesService implements OnModuleInit {
   }
 
   private lobbyChanged() {
-    this.server?.to('lobby').emit('lobby', this.lobby());
+    // Svako u lobiju dobija samo stolove koje sme da vidi (privatni stolovi agenata).
+    void (async () => {
+      const sockets = (await this.server?.in('lobby').fetchSockets()) ?? [];
+      for (const sk of sockets) {
+        const uid = (sk.data as { userId?: string }).userId;
+        if (uid) sk.emit('lobby', await this.lobbyFor(uid));
+      }
+    })().catch((e) => this.log.error(`Lobi: ${(e as Error).message}`));
   }
 
   /** Novo stanje naloga igraču (npr. posle odobrenog zahteva za uplatu). */

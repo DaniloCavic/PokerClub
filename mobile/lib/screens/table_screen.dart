@@ -1504,6 +1504,8 @@ class _TableInfoCard extends StatelessWidget {
 /// Posebna pravila stola: straddle i bomb pot (npr. "Straddle · Bomb pot svaka 5. ruka").
 String? tableExtras(Json t) {
   final parts = <String>[
+    // Privatni sto agenta (vide ga samo igrači njegove mreže).
+    if (t['private'] == true) tr('Private table', 'Privatni sto'),
     if (t['straddle'] == true) 'Straddle',
     if (((t['bombPotEvery'] as int?) ?? 0) > 0) tr('Bomb pot every ${t['bombPotEvery']} hands', 'Bomb pot svake ${t['bombPotEvery']}. ruke'),
   ];

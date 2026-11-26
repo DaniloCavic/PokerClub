@@ -70,9 +70,14 @@ export function Tables({ me }: { me: Me }) {
     <>
       <div className="row">
         <h2 className="grow">Stolovi</h2>
-        {isSuper && <button onClick={() => setEditing({ form: { ...EMPTY } })}>+ Novi sto</button>}
+        <button onClick={() => setEditing({ form: { ...EMPTY } })}>{isSuper ? '+ Novi sto' : '+ Moj privatni sto'}</button>
       </div>
-      {!isSuper && <p className="muted small">Stolove pravi i otvara super agent. Ovde vidite ko sedi za kojim stolom.</p>}
+      {!isSuper && (
+        <p className="muted small">
+          Ovde vidite stolove kluba i ko sedi za njima. Možete napraviti i svoj <b>privatni sto</b>: vide ga i igraju samo vaši igrači i igrači
+          vaših agenata. Svoje stolove menjate, otvarate i zatvarate sami.
+        </p>
+      )}
       {error && <div className="error">{error}</div>}
       <div className="card">
         <table>
@@ -92,7 +97,12 @@ export function Tables({ me }: { me: Me }) {
             {data?.map((t) => (
               <tr key={t.id} className="clickable" onClick={() => setOpenId(t.id)}>
                 <td>
-                  <b>{t.name}</b>
+                  <b>{t.name}</b>{' '}
+                  {t.private && (
+                    <span className="badge blue" title="Vide ga samo igrači ovog agenta i njegovih agenata">
+                      Privatni · {t.createdBy}
+                    </span>
+                  )}
                 </td>
                 <td>{t.variant === 'HOLDEM' ? "Hold'em" : 'Omaha'}</td>
                 <td>
@@ -147,6 +157,7 @@ export function Tables({ me }: { me: Me }) {
         <TableDetails
           id={openId}
           isSuper={isSuper}
+          meId={me.id}
           onClose={() => {
             setOpenId(null);
             reload();
@@ -276,7 +287,7 @@ function TableEditor({ id, initial, onClose, onSaved }: { id?: string; initial: 
   );
 }
 
-function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: boolean; onClose: () => void; onEdit: (t: any) => void }) {
+function TableDetails({ id, isSuper, meId, onClose, onEdit }: { id: string; isSuper: boolean; meId: string; onClose: () => void; onEdit: (t: any) => void }) {
   const [page, setPage] = useState(1);
   const { data, error, reload } = useLoad<any>(() => api('GET', `/admin/tables/${id}?page=${page}`), [id, page]);
   const [msg, setMsg] = useState('');
@@ -343,6 +354,12 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
               <b>{fmt(t.rakeTotal)}</b>
             </>
           )}
+          {t.private && (
+            <>
+              <span>Vidljivost</span>
+              <b>Privatni sto: samo igrači agenta {t.createdBy} i njegovih agenata</b>
+            </>
+          )}
           <span>Napravio</span>
           <b>
             {t.createdBy}, {fmtDate(t.createdAt)}
@@ -350,7 +367,7 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
           <span>ID stola</span>
           <b className="muted small">{t.id}</b>
         </div>
-        {isSuper && <div className="row" style={{ marginTop: 12 }}>
+        {(isSuper || t.ownerAgentId === meId) && <div className="row" style={{ marginTop: 12 }}>
           {t.isOpen ? (
             <button
               className="danger"
@@ -374,7 +391,7 @@ function TableDetails({ id, isSuper, onClose, onEdit }: { id: string; isSuper: b
             </>
           )}
         </div>}
-        {isSuper && t.isOpen && <p className="muted small">Podešavanja se menjaju kad je sto zatvoren.</p>}
+        {(isSuper || t.ownerAgentId === meId) && t.isOpen && <p className="muted small">Podešavanja se menjaju kad je sto zatvoren.</p>}
         {msg && <div className="muted">{msg}</div>}
       </div>
 

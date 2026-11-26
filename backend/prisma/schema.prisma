@@ -161,6 +161,8 @@ model PokerTable {
   /// Sto turnira (ne prikazuje se među cash stolovima).
   tournamentId  String?
   tournament    Tournament? @relation(fields: [tournamentId], references: [id])
+  /// Privatni sto agenta: vide ga i igraju samo igrači tog agenta i njegovih podagenata (null = sto za sve).
+  ownerAgentId  String?
 
   hands        Hand[]
   seats        TableSeat[]

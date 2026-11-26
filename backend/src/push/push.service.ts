@@ -1,3 +1,4 @@
+import { subtreeAgentIds } from '../common/agent-chain';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as webpush from 'web-push';
 import { PrismaService } from '../prisma/prisma.service';
@@ -89,9 +90,11 @@ export class PushService implements OnModuleInit {
   }
 
   /** Obaveštenje svim aktivnim igračima (npr. novi sto). */
-  async toAllPlayers(msg: PushMessage) {
+  /** Svim igračima; za privatni sto agenta [ownerAgentId] samo igračima njega i njegovih podagenata. */
+  async toAllPlayers(msg: PushMessage, ownerAgentId?: string | null) {
+    const agents = ownerAgentId ? [ownerAgentId, ...(await subtreeAgentIds(this.prisma, ownerAgentId))] : null;
     const subs = await this.prisma.pushSubscription.findMany({
-      where: { user: { role: 'PLAYER', isBlocked: false } },
+      where: { user: { role: 'PLAYER', isBlocked: false, ...(agents ? { agentId: { in: agents } } : {}) } },
       include: { user: { select: { lang: true } } },
     });
     await this.sendLocalized(subs, msg);

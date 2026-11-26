@@ -120,7 +120,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   lobbyJoin(@ConnectedSocket() socket: AuthedSocket) {
     return this.handle(socket, async () => {
       await socket.join('lobby');
-      return { tables: this.tables.lobby() };
+      return { tables: await this.tables.lobbyFor(socket.data.userId) };
     });
   }
 
@@ -135,6 +135,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   watch(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg) {
     return this.handle(socket, async () => {
       this.tables.assertUnlocked(String(msg?.tableId));
+      await this.tables.assertVisible(socket.data.userId, String(msg?.tableId));
       const state = this.tables.view(String(msg?.tableId), socket.data.userId);
       await socket.join(`table:${state.id}`);
       return { state, chat: this.tables.chatHistory(state.id) };
@@ -151,6 +152,7 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   @SubscribeMessage('table:sit')
   sit(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { seat: number; buyIn: number }) {
     return this.handle(socket, async () => {
+      await this.tables.assertVisible(socket.data.userId, String(msg?.tableId));
       await socket.join(`table:${String(msg?.tableId)}`);
       return this.tables.sit(socket.data.userId, String(msg?.tableId), Number(msg?.seat), Number(msg?.buyIn));
     });
@@ -201,7 +203,10 @@ export class TablesGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   @SubscribeMessage('table:waitlist')
   waitlist(@ConnectedSocket() socket: AuthedSocket, @MessageBody() msg: TableMsg & { join: boolean }) {
-    return this.handle(socket, () => this.tables.setWaitlist(socket.data.userId, String(msg?.tableId), !!msg?.join));
+    return this.handle(socket, async () => {
+      await this.tables.assertVisible(socket.data.userId, String(msg?.tableId));
+      return this.tables.setWaitlist(socket.data.userId, String(msg?.tableId), !!msg?.join);
+    });
   }
 
   @SubscribeMessage('table:leave')

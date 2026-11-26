@@ -344,8 +344,9 @@ export class MeController {
   }
 
   @Get('tables')
-  lobby() {
-    return this.tables.lobby();
+  lobby(@CurrentUser() user: User) {
+    // Igrač vidi stolove za sve i privatne stolove svog agenta (i agenata iznad njega).
+    return user.role === 'PLAYER' ? this.tables.lobbyFor(user.id) : this.tables.lobby();
   }
 
   /**

@@ -17,7 +17,7 @@ import * as bcrypt from 'bcryptjs';
 import { BlockDto, CreateUserDto, MoneyDto, TableDto, UpdateUserDto } from '../auth/dto';
 import { CurrentUser, Roles, Staff } from '../common/auth.guard';
 import { publicUser } from '../common/public-user';
-import { subtreeAgentIds } from '../common/agent-chain';
+import { agentChains, subtreeAgentIds } from '../common/agent-chain';
 import { PrismaService } from '../prisma/prisma.service';
 import { rakePercent, TablesService } from '../tables/tables.service';
 import { TablesGateway } from '../tables/tables.gateway';
@@ -78,7 +78,7 @@ export class AdminController {
   }
 
   /** Obaveštenje svim igračima na telefon: novi sto je otvoren, ili je zakazan za kasnije. */
-  private announceTable(t: { id: string; name: string; variant: string; smallBlind: number; bigBlind: number; opensAt: Date | null }) {
+  private announceTable(t: { id: string; name: string; variant: string; smallBlind: number; bigBlind: number; opensAt: Date | null; ownerAgentId?: string | null }) {
     const game = `${t.variant === 'OMAHA' ? 'PLO' : 'NLH'} ${t.smallBlind}/${t.bigBlind}`;
     const later = t.opensAt && t.opensAt.getTime() > Date.now();
     void this.push
@@ -86,6 +86,7 @@ export class AdminController {
         later
           ? { title: `Zakazan novi sto: ${t.name}`, body: `${game} — počinje ${TablesService.when(t.opensAt!)}.`, tableId: t.id, tag: `new-${t.id}` }
           : { title: `Novi sto je otvoren: ${t.name}`, body: `${game} — uđite i igrajte.`, tableId: t.id, tag: `new-${t.id}` },
+        t.ownerAgentId,
       )
       .catch(() => undefined);
   }
@@ -96,10 +97,27 @@ export class AdminController {
     return actor.role === 'ADMIN' ? { role: 'PLAYER' } : { role: 'PLAYER', agentId: actor.id };
   }
 
-  /** Stolove vide i agenti (samo pregled); pravi ih i menja samo super agent. */
-  private tableScope(_actor: User): Prisma.PokerTableWhereInput {
-    // Stolovi turnira se vode na stranici Turniri.
-    return { tournamentId: null };
+  /**
+   * Stolovi: super agent vidi sve. Agent vidi stolove za sve, svoje privatne stolove i privatne stolove agenata iznad sebe
+   * (tamo igraju i njegovi igrači); menja samo svoje. Stolovi turnira se vode na stranici Turniri.
+   */
+  private tableScope(actor: User, owners: string[] = [actor.id]): Prisma.PokerTableWhereInput {
+    if (actor.role === 'ADMIN') return { tournamentId: null };
+    return { tournamentId: null, OR: [{ ownerAgentId: null }, { ownerAgentId: { in: owners } }] };
+  }
+
+  /** Agent i svi agenti iznad njega (čije privatne stolove vidi). */
+  private async ownersFor(actor: User) {
+    if (actor.role === 'ADMIN') return [];
+    const chain = (await agentChains(this.prisma, [actor.id])).get(actor.id) ?? [];
+    return [actor.id, ...chain.map((c) => c.id)];
+  }
+
+  /** Sto koji ovaj korisnik sme da menja: super agent bilo koji, agent samo svoj privatni sto. */
+  private async ownTable(actor: User, id: string) {
+    const t = await this.table(actor, id);
+    if (actor.role !== 'ADMIN' && t.ownerAgentId !== actor.id) throw new ForbiddenException('Možete menjati samo svoje stolove.');
+    return t;
   }
 
   private isSuper(actor: User) {
@@ -122,7 +140,7 @@ export class AdminController {
   }
 
   private async table(actor: User, id: string) {
-    const t = await this.prisma.pokerTable.findFirst({ where: { id, ...this.tableScope(actor) } });
+    const t = await this.prisma.pokerTable.findFirst({ where: { id, ...this.tableScope(actor, await this.ownersFor(actor)) } });
     if (!t) throw new NotFoundException('Sto nije pronađen.');
     return t;
   }
@@ -831,6 +849,8 @@ export class AdminController {
       opensAt: t.opensAt,
       createdBy: t.createdBy.displayName,
       createdById: t.createdById,
+      ownerAgentId: t.ownerAgentId,
+      private: !!t.ownerAgentId,
       createdAt: t.createdAt,
       live: this.tables.liveInfo(t.id),
     };
@@ -839,7 +859,7 @@ export class AdminController {
   @Get('tables')
   async listTables(@CurrentUser() actor: User) {
     const items = await this.prisma.pokerTable.findMany({
-      where: this.tableScope(actor),
+      where: this.tableScope(actor, await this.ownersFor(actor)),
       orderBy: [{ isOpen: 'desc' }, { createdAt: 'desc' }],
       include: { createdBy: { select: { displayName: true } } },
     });
@@ -851,15 +871,20 @@ export class AdminController {
     });
     return items.map((t) => {
       const r = rake.find((x) => x.tableId === t.id);
-      return { ...this.tableView(t), rakeTotal: this.isSuper(actor) ? (r?._sum.rake ?? 0) : null, hands: r?._count ?? 0 };
+      return {
+        ...this.tableView(t),
+        rakeTotal: this.isSuper(actor) ? (r?._sum.rake ?? 0) : null,
+        hands: r?._count ?? 0,
+        canEdit: this.isSuper(actor) || t.ownerAgentId === actor.id,
+      };
     });
   }
 
-  @Roles('ADMIN')
   @Post('tables')
   async createTable(@CurrentUser() actor: User, @Body() dto: TableDto) {
+    // Agent pravi privatni sto: vide ga i igraju samo njegovi igrači i igrači njegovih podagenata.
     const t = await this.prisma.pokerTable.create({
-      data: { ...this.validateTable(dto), createdById: actor.id },
+      data: { ...this.validateTable(dto), createdById: actor.id, ownerAgentId: actor.role === 'ADMIN' ? null : actor.id },
       include: { createdBy: { select: { displayName: true } } },
     });
     await this.tables.open(t);
@@ -867,10 +892,9 @@ export class AdminController {
     return this.tableView(t);
   }
 
-  @Roles('ADMIN')
   @Patch('tables/:id')
   async updateTable(@CurrentUser() actor: User, @Param('id') id: string, @Body() dto: TableDto) {
-    await this.table(actor, id);
+    await this.ownTable(actor, id);
     this.tables.assertClosed(id);
     const t = await this.prisma.pokerTable.update({
       where: { id },
@@ -880,19 +904,17 @@ export class AdminController {
     return this.tableView(t);
   }
 
-  @Roles('ADMIN')
   @Post('tables/:id/close')
   async closeTable(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.table(actor, id);
+    await this.ownTable(actor, id);
     await this.prisma.pokerTable.update({ where: { id }, data: { isOpen: false, closedAt: new Date() } });
     await this.tables.close(id);
     return { ok: true };
   }
 
-  @Roles('ADMIN')
   @Post('tables/:id/open')
   async openTable(@CurrentUser() actor: User, @Param('id') id: string) {
-    await this.table(actor, id);
+    await this.ownTable(actor, id);
     if (this.tables.liveInfo(id)?.closing) throw new BadRequestException('Sto se još zatvara, sačekajte kraj ruke.');
     const t = await this.prisma.pokerTable.update({ where: { id }, data: { isOpen: true, closedAt: null } });
     await this.tables.open(t);
